@@ -138,6 +138,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 .totaux-block .tl{color:var(--ink3)}
 .totaux-block .tv{font-family:'DM Mono',monospace;text-align:right;color:var(--ink2)}
 .totaux-block .tt{font-weight:700;color:var(--ink);font-size:14px;padding-top:6px;border-top:1px solid var(--border)}
+.recap-table td{padding:10px 6px;font-size:13px}
+.btn-primary{background:var(--gold);color:#fff;border:none;padding:8px 18px;border-radius:4px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;letter-spacing:.03em}
+.btn-primary:hover{background:#9E7E56}
+.btn-ghost{background:transparent;color:var(--ink);border:1px solid var(--ink2);padding:8px 18px;border-radius:4px;font-family:inherit;font-size:12px;font-weight:500;cursor:pointer;letter-spacing:.03em}
+.btn-ghost:hover{background:var(--ink);color:var(--paper)}
+.edit-inp{border:1px solid var(--gold);background:var(--gold-bg);font-family:inherit;font-size:12px;color:var(--ink);width:100%;padding:4px 6px;border-radius:3px;outline:none}
+.edit-inp:focus{border-color:var(--ink);background:#fff}
 
 /* Découverte form */
 .decouverte-form{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:22px;margin-top:10px}
@@ -636,15 +643,56 @@ function renderDevis(){
   $('#list-devis').innerHTML = DATA.devis.length ? DATA.devis.map(devisCard).join('') : emptyState('Aucun devis','Importez un PDF Winner/Métron pour commencer');
 }
 
+let DEVIS_CURRENT = null;
+let DEVIS_EDIT = false;
+
 async function openDevisDetail(devisId){
   showLoader('Chargement du devis…');
   try {
     const r = await fetch('/api/devis/'+devisId+'/detail');
     const d = await r.json();
     if (!r.ok) throw new Error(d.error||'Erreur');
+    DEVIS_CURRENT = d;
+    DEVIS_EDIT = false;
     renderDevisDetail(d);
     $('#devis-list-view').style.display='none';
     $('#devis-detail-view').style.display='block';
+  } catch(e) { alert('Erreur: '+e.message); }
+  finally { hideLoader(); }
+}
+
+function toggleDevisEdit(on){
+  DEVIS_EDIT = on;
+  renderDevisDetail(DEVIS_CURRENT);
+}
+
+async function saveDevisEdits(){
+  const inputs = document.querySelectorAll('#devis-detail-view [data-dirty-key]');
+  const patches = {}; // { "lignes-devis/recXXX": { field: value } }
+  inputs.forEach(inp => {
+    const key = inp.dataset.dirtyKey; // ex: lignes-devis/recXXX/Désignation
+    const [table, rid, ...fieldParts] = key.split('/');
+    const field = fieldParts.join('/');
+    const orig = inp.dataset.orig ?? '';
+    if (inp.value !== orig) {
+      const k = table+'/'+rid;
+      patches[k] = patches[k] || { table, rid, fields: {} };
+      patches[k].fields[field] = inp.value;
+    }
+  });
+  const list = Object.values(patches);
+  if (!list.length) { DEVIS_EDIT = false; renderDevisDetail(DEVIS_CURRENT); return; }
+  showLoader('Enregistrement… ('+list.length+' modifs)');
+  try {
+    for (const p of list) {
+      const r = await fetch('/api/data/'+p.table+'/'+p.rid, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields:p.fields})});
+      if (!r.ok) throw new Error('Echec sauvegarde '+p.rid);
+    }
+    // Recharge
+    const r = await fetch('/api/devis/'+DEVIS_CURRENT.devis.id+'/detail');
+    DEVIS_CURRENT = await r.json();
+    DEVIS_EDIT = false;
+    renderDevisDetail(DEVIS_CURRENT);
   } catch(e) { alert('Erreur: '+e.message); }
   finally { hideLoader(); }
 }
@@ -659,11 +707,18 @@ function renderDevisDetail(data){
   const echeances = (data.echeances||[]).map(r=>({id:r.id, ...r.fields})).sort((a,b)=>(a.Ordre||0)-(b.Ordre||0));
   const devisId = data.devis.id;
 
+  const editing = DEVIS_EDIT;
+  const field = (table, rid, name, value) => {
+    if (!editing) return esc(value||'');
+    const v = esc(value||'');
+    return `<input class="edit-inp" data-dirty-key="${table}/${rid}/${name}" data-orig="${v}" value="${v}">`;
+  };
+
   const zonesHtml = zones.length ? zones.map(z => `
     <div class="zone-block">
       <div class="zone-title">${esc(z['Nom zone']||'Zone')}</div>
       <div class="zone-grid">
-        ${['Marque','Modèle','Porte épaisseur','Modularité','Exécution façade','Coloris façade','Chant façade','Coloris caisson','Type de gorge','Exécution gorges','Finition gorges','Profondeur','Option ouverture','Finition socle','Finition étagères'].map(k => z[k]?`<div>${esc(k)}<br><strong>${esc(z[k])}</strong></div>`:'').join('')}
+        ${['Marque','Modèle','Porte épaisseur','Modularité','Exécution façade','Coloris façade','Chant façade','Coloris caisson','Type de gorge','Exécution gorges','Finition gorges','Profondeur','Option ouverture','Finition socle','Finition étagères'].map(k => (z[k]||editing)?`<div>${esc(k)}<br><strong>${field('zones-devis',z.id,k,z[k])}</strong></div>`:'').join('')}
       </div>
     </div>
   `).join('') : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucune zone définie</div>';
@@ -672,15 +727,39 @@ function renderDevisDetail(data){
   const lignesByCat = {};
   lignes.forEach(l => { const c = l['Catégorie']||'Autre'; (lignesByCat[c]=lignesByCat[c]||[]).push(l); });
 
+  // RÉCAP PAR CATÉGORIE
+  const catTotals = categoriesOrder.map(c => {
+    const arr = lignesByCat[c] || [];
+    const total = arr.reduce((s,l)=>s+(parseFloat(l['Montant HT'])||0),0);
+    return { cat: c, count: arr.length, total };
+  }).filter(r => r.count > 0);
+  const catTotalSum = catTotals.reduce((s,r)=>s+r.total,0);
+  const recapHtml = catTotals.length ? `
+    <div class="zone-title" style="margin-top:22px">Résumé par catégorie</div>
+    <table class="lignes-table recap-table">
+      <tbody>
+        ${catTotals.map(r=>`<tr>
+          <td>${esc(r.cat)}</td>
+          <td class="num" style="color:var(--ink4);font-size:11px">${r.count} ligne${r.count>1?'s':''}</td>
+          <td class="num"><strong>${euros(r.total)}</strong></td>
+        </tr>`).join('')}
+        <tr style="border-top:2px solid var(--ink1)">
+          <td><strong>Total des lignes d'articles</strong></td>
+          <td></td>
+          <td class="num"><strong>${euros(catTotalSum)}</strong></td>
+        </tr>
+      </tbody>
+    </table>` : '';
+
   const lignesHtml = categoriesOrder.filter(c => lignesByCat[c]).map(c => `
-    <div class="zone-title" style="margin-top:18px">${esc(c)}</div>
+    <div class="zone-title" style="margin-top:18px">${esc(c)} <span style="color:var(--ink4);font-size:11px;font-weight:400">· ${euros(lignesByCat[c].reduce((s,l)=>s+(parseFloat(l['Montant HT'])||0),0))}</span></div>
     <table class="lignes-table">
       <thead><tr><th>Pos</th><th>Code</th><th>Désignation</th><th>Sens</th><th>Qté</th><th>HT</th></tr></thead>
       <tbody>
         ${lignesByCat[c].map(l => `<tr class="${l['Position parent']?'sub':''}">
           <td class="num">${esc(l.Position||'')}</td>
-          <td class="code">${esc(l['Code produit']||'')}</td>
-          <td><input data-rid="${l.id}" data-field="Désignation" value="${esc((l['Désignation']||'').slice(0,80))}" onchange="patchLigne(this)"></td>
+          <td class="code">${field('lignes-devis',l.id,'Code produit',l['Code produit'])}</td>
+          <td>${field('lignes-devis',l.id,'Désignation',(l['Désignation']||'').slice(0,200))}</td>
           <td>${esc(l.Sens||'')}</td>
           <td class="num">${l['Quantité']||''} ${esc(l['Unité']||'')}</td>
           <td class="num">${euros(l['Montant HT'])}</td>
@@ -701,6 +780,10 @@ function renderDevisDetail(data){
       </tr>`).join('')}</tbody>
     </table>` : '';
 
+  const actionsBar = editing
+    ? `<div style="display:flex;gap:8px"><button class="btn-primary" onclick="saveDevisEdits()">Enregistrer</button><button class="btn-ghost" onclick="toggleDevisEdit(false)">Annuler</button></div>`
+    : `<div style="display:flex;gap:8px"><button class="btn-ghost" onclick="toggleDevisEdit(true)">Modifier</button></div>`;
+
   $('#devis-detail-view').innerHTML = `
     <button class="devis-back" onclick="closeDevisDetail()">← Retour aux devis</button>
     <div class="devis-detail">
@@ -709,15 +792,22 @@ function renderDevisDetail(data){
           <div class="devis-title">${esc(dv['Numéro devis']||'Devis sans numéro')} <span class="badge b-blue">${esc(dv.Milieu||'')}</span> <span class="badge ${{'Brouillon':'b-gray','Envoyé':'b-amber','Signé':'b-green','Annulé':'b-red'}[dv.Statut]||'b-gray'}">${esc(dv.Statut||'')}</span></div>
           <div class="devis-sub">Date ${esc(dv['Date devis']||'—')} · Valable jusqu'au ${esc(dv["Valable jusqu'au"]||'—')}</div>
         </div>
-        <div>
-          <div class="devis-total-lbl">Total TTC</div>
-          <div class="devis-total">${euros(dv['Total TTC'])}</div>
+        <div style="display:flex;align-items:flex-start;gap:24px">
+          <div>
+            <div class="devis-total-lbl">Total TTC</div>
+            <div class="devis-total">${euros(dv['Total TTC'])}</div>
+          </div>
+          ${actionsBar}
         </div>
       </div>
 
+      ${editing?`<div style="background:#FFF8E6;border:1px solid var(--amber);border-radius:5px;padding:10px;font-size:12px;color:#8A6100;margin-bottom:16px">✎ <strong>Mode édition actif.</strong> Clique sur « Enregistrer » pour valider, « Annuler » pour abandonner. Rien n'est sauvegardé tant que tu n'as pas cliqué.</div>`:''}
+
       ${dv['Alertes parsing']?`<div style="background:var(--amber-bg);border:1px solid var(--amber);border-radius:5px;padding:10px;font-size:12px;color:var(--amber);margin-bottom:16px">⚠ <strong>Alertes parsing :</strong> ${esc(dv['Alertes parsing'])}</div>`:''}
 
-      <div class="zone-title">Paramètres par zone</div>
+      ${recapHtml}
+
+      <div class="zone-title" style="margin-top:22px">Paramètres par zone</div>
       ${zonesHtml}
 
       <div class="zone-title" style="margin-top:22px">Lignes · ${lignes.length} articles</div>
