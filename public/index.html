@@ -112,6 +112,60 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 .ev-sav{background:var(--red-bg);color:var(--red)}
 .ev-decouverte{background:var(--green-bg);color:var(--green)}
 
+/* Devis detail */
+.devis-detail{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-top:10px}
+.devis-back{background:none;border:none;color:var(--ink3);font-size:12px;cursor:pointer;padding:6px 0;margin-bottom:12px;font-family:'DM Mono',monospace}
+.devis-back:hover{color:var(--ink)}
+.devis-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:10px}
+.devis-title{font-size:20px;font-weight:500}
+.devis-sub{font-family:'DM Mono',monospace;font-size:11px;color:var(--ink4);margin-top:4px}
+.devis-total{font-family:'DM Mono',monospace;font-size:22px;font-weight:500;color:var(--ink);text-align:right}
+.devis-total-lbl{font-size:10px;color:var(--ink4);text-transform:uppercase;letter-spacing:.08em;margin-bottom:2px;text-align:right}
+.zone-block{border:1px solid var(--border);border-radius:var(--r2);padding:14px;margin-bottom:10px;background:var(--paper)}
+.zone-title{font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink2);margin-bottom:10px;font-weight:500}
+.zone-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 14px;font-size:12px}
+.zone-grid div{color:var(--ink3)}
+.zone-grid strong{color:var(--ink);font-weight:500}
+.lignes-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px}
+.lignes-table th{text-align:left;padding:8px 6px;border-bottom:1px solid var(--border);font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink4);font-weight:500}
+.lignes-table td{padding:8px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+.lignes-table td.num{font-family:'DM Mono',monospace;text-align:right;color:var(--ink2);white-space:nowrap}
+.lignes-table td.code{font-family:'DM Mono',monospace;font-size:11px;color:var(--ink2)}
+.lignes-table tr.sub td:first-child{padding-left:20px;color:var(--ink3)}
+.lignes-table input{border:none;background:transparent;font-family:inherit;font-size:12px;color:var(--ink);width:100%;padding:2px;outline:none}
+.lignes-table input:focus{background:var(--gold-bg);border-radius:2px}
+.totaux-block{margin-top:16px;padding-top:12px;border-top:2px solid var(--ink);display:grid;grid-template-columns:1fr auto;gap:4px 14px;font-size:12px;max-width:420px;margin-left:auto}
+.totaux-block .tl{color:var(--ink3)}
+.totaux-block .tv{font-family:'DM Mono',monospace;text-align:right;color:var(--ink2)}
+.totaux-block .tt{font-weight:700;color:var(--ink);font-size:14px;padding-top:6px;border-top:1px solid var(--border)}
+
+/* Découverte form */
+.decouverte-form{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:22px;margin-top:10px}
+.df-section{margin-bottom:26px}
+.df-section h3{font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink2);margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--gold)}
+.df-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.df-grid.cols-3{grid-template-columns:repeat(3,1fr)}
+.df-field{display:flex;flex-direction:column;gap:4px}
+.df-field label{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3)}
+.df-field input,.df-field select,.df-field textarea{border:1px solid var(--border);border-radius:var(--r2);padding:8px 10px;font-family:inherit;font-size:13px;background:var(--paper);color:var(--ink);outline:none}
+.df-field input:focus,.df-field select:focus,.df-field textarea:focus{border-color:var(--gold)}
+.df-field textarea{min-height:60px;resize:vertical}
+.df-choices{display:flex;gap:6px;flex-wrap:wrap}
+.df-choice{padding:6px 12px;border:1px solid var(--border);border-radius:20px;font-size:12px;cursor:pointer;background:var(--paper);color:var(--ink3);user-select:none}
+.df-choice.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+@media(max-width:768px){.df-grid,.df-grid.cols-3{grid-template-columns:1fr}.zone-grid{grid-template-columns:1fr}}
+
+/* Plaud */
+.plaud-card .plaud-section{margin-top:8px;font-size:12px;color:var(--ink2);line-height:1.5}
+.plaud-tag{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;color:var(--gold);letter-spacing:.06em;margin-right:6px}
+
+/* Loader */
+.loader-overlay{position:fixed;inset:0;background:rgba(247,244,239,.92);display:none;align-items:center;justify-content:center;z-index:200;flex-direction:column;gap:14px}
+.loader-overlay.on{display:flex}
+.loader-spin{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loader-txt{font-family:'DM Mono',monospace;font-size:12px;color:var(--ink2);text-transform:uppercase;letter-spacing:.06em}
+
 /* Empty state */
 .empty{text-align:center;padding:40px 20px;color:var(--ink4);font-size:13px}
 .empty strong{display:block;color:var(--ink3);margin-bottom:4px;font-size:14px}
@@ -192,6 +246,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
   <button class="nb" data-tab="commandes">Commandes <span class="count" id="cn-commandes"></span></button>
   <button class="nb" data-tab="taches">Tâches <span class="count" id="cn-taches"></span></button>
   <button class="nb" data-tab="sav">SAV <span class="count" id="cn-sav"></span></button>
+  <button class="nb" data-tab="devis">Devis <span class="count" id="cn-devis"></span></button>
+  <button class="nb" data-tab="decouverte">Découverte <span class="count" id="cn-fiches-decouverte"></span></button>
+  <button class="nb" data-tab="plaud">Plaud <span class="count" id="cn-reunions-plaud"></span></button>
 </nav>
 
 <main class="shell">
@@ -257,7 +314,42 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
     <div class="list" id="list-sav"></div>
   </section>
 
+  <!-- DEVIS -->
+  <section class="scr" id="scr-devis">
+    <div id="devis-list-view">
+      <div class="sh"><div class="st">Devis / Bons de commande</div>
+        <div style="display:flex;gap:6px">
+          <button class="abtn" onclick="document.getElementById('devis-pdf-input').click()">📄 Importer PDF Winner</button>
+          <input type="file" id="devis-pdf-input" accept="application/pdf" style="display:none" onchange="importDevisPdf(this.files[0])">
+        </div>
+      </div>
+      <div class="list" id="list-devis"></div>
+    </div>
+    <div id="devis-detail-view" style="display:none"></div>
+  </section>
+
+  <!-- DÉCOUVERTE -->
+  <section class="scr" id="scr-decouverte">
+    <div id="decouverte-list-view">
+      <div class="sh"><div class="st">Fiches découverte</div><button class="abtn primary" onclick="openDecouverteForm()">+ Nouvelle fiche</button></div>
+      <div class="list" id="list-fiches-decouverte"></div>
+    </div>
+    <div id="decouverte-form-view" style="display:none"></div>
+  </section>
+
+  <!-- PLAUD -->
+  <section class="scr" id="scr-plaud">
+    <div class="sh"><div class="st">Réunions Plaud · transcriptions structurées</div><button class="abtn primary" onclick="openPlaudModal()">+ Nouvelle transcription</button></div>
+    <div class="list" id="list-reunions-plaud"></div>
+  </section>
+
 </main>
+
+<!-- Loader overlay -->
+<div class="loader-overlay" id="loaderOverlay">
+  <div class="loader-spin"></div>
+  <div class="loader-txt" id="loaderTxt">Chargement…</div>
+</div>
 
 <!-- Modal générique -->
 <div class="modal-bg" id="modalBg">
@@ -273,7 +365,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 
 <script>
 // ============ STATE ============
-const DATA = { clients:[], projets:[], artisans:[], fournisseurs:[], commandes:[], taches:[], sav:[] };
+const DATA = { clients:[], projets:[], artisans:[], fournisseurs:[], commandes:[], taches:[], sav:[], devis:[], 'fiches-decouverte':[], 'reunions-plaud':[] };
 const PIPE_STATUTS = ['Découverte','Dessin','Devis','Signé','Commandes','Pose','SAV','Terminé'];
 let currentModalTable = null;
 
@@ -284,6 +376,8 @@ const euros = n => n==null ? '—' : new Intl.NumberFormat('fr-FR',{style:'curre
 const pct = n => n==null ? '—' : (n*100).toFixed(0)+'%';
 const esc = s => String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const setSync = (state, txt) => { $('#syncDot').className='sync-dot '+state; $('#syncTxt').textContent=txt; };
+const showLoader = (txt) => { $('#loaderTxt').textContent=txt||'Chargement…'; $('#loaderOverlay').classList.add('on'); };
+const hideLoader = () => $('#loaderOverlay').classList.remove('on');
 
 // ============ AUTH ============
 async function logout(){ await fetch('/api/logout',{method:'POST'}); location.href='/login'; }
@@ -293,7 +387,7 @@ fetch('/api/me').then(r=>r.json()).then(d=>{ $('#headerUser').textContent = d.us
 async function loadAll(){
   setSync('loading','chargement');
   try {
-    const tables = ['clients','projets','artisans','fournisseurs','commandes','taches','sav'];
+    const tables = ['clients','projets','artisans','fournisseurs','commandes','taches','sav','devis','fiches-decouverte','reunions-plaud'];
     const results = await Promise.all(tables.map(t => fetch('/api/data/'+t).then(r=>r.json())));
     tables.forEach((t,i) => { DATA[t] = (results[i].records||[]).map(r=>({id:r.id, ...r.fields})); });
     renderAll();
@@ -318,6 +412,9 @@ function renderAll(){
   renderCommandes();
   renderTaches();
   renderSAV();
+  renderDevis();
+  renderFichesDecouverte();
+  renderPlaud();
 }
 
 function renderDashboard(){
@@ -520,6 +617,336 @@ function renderCommandes(){ $('#list-commandes').innerHTML = DATA.commandes.leng
 function renderTaches(){ $('#list-taches').innerHTML = DATA.taches.length ? DATA.taches.map(taskCard).join('') : emptyState('Aucune tâche','Créez la première tâche'); }
 function renderSAV(){ $('#list-sav').innerHTML = DATA.sav.length ? DATA.sav.map(savCard).join('') : emptyState('Aucun SAV','Les interventions SAV apparaîtront ici'); }
 
+// ============ DEVIS ============
+function devisCard(d){
+  const statutClass = {'Brouillon':'b-gray','Envoyé':'b-amber','Signé':'b-green','Annulé':'b-red'}[d.Statut]||'b-gray';
+  return `<div class="card" onclick="openDevisDetail('${d.id}')" style="cursor:pointer">
+    <div class="card-top">
+      <div class="card-nom">${esc(d['Numéro devis']||'—')} <span class="badge ${statutClass}">${esc(d.Statut||'—')}</span> <span class="badge b-blue">${esc(d.Milieu||'')}</span></div>
+      <div class="card-amt">${euros(d['Total TTC'])}</div>
+    </div>
+    <div class="card-meta">
+      <span>Date ${esc(d['Date devis']||'—')}</span>
+      <span>Valable ${esc(d["Valable jusqu'au"]||'—')}</span>
+      ${d['Alertes parsing']?`<span style="color:var(--amber)">⚠ Alertes parsing</span>`:''}
+    </div>
+  </div>`;
+}
+function renderDevis(){
+  $('#list-devis').innerHTML = DATA.devis.length ? DATA.devis.map(devisCard).join('') : emptyState('Aucun devis','Importez un PDF Winner/Métron pour commencer');
+}
+
+async function openDevisDetail(devisId){
+  showLoader('Chargement du devis…');
+  try {
+    const r = await fetch('/api/devis/'+devisId+'/detail');
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error||'Erreur');
+    renderDevisDetail(d);
+    $('#devis-list-view').style.display='none';
+    $('#devis-detail-view').style.display='block';
+  } catch(e) { alert('Erreur: '+e.message); }
+  finally { hideLoader(); }
+}
+
+function renderDevisDetail(data){
+  const dv = data.devis.fields || {};
+  const zones = (data.zones||[]).map(r=>({id:r.id, ...r.fields})).sort((a,b)=>(a.Ordre||0)-(b.Ordre||0));
+  const lignes = (data.lignes||[]).map(r=>({id:r.id, ...r.fields})).sort((a,b)=>{
+    const pa = parseFloat(a.Position||'0'); const pb = parseFloat(b.Position||'0');
+    return pa-pb;
+  });
+  const echeances = (data.echeances||[]).map(r=>({id:r.id, ...r.fields})).sort((a,b)=>(a.Ordre||0)-(b.Ordre||0));
+  const devisId = data.devis.id;
+
+  const zonesHtml = zones.length ? zones.map(z => `
+    <div class="zone-block">
+      <div class="zone-title">${esc(z['Nom zone']||'Zone')}</div>
+      <div class="zone-grid">
+        ${['Marque','Modèle','Porte épaisseur','Modularité','Exécution façade','Coloris façade','Chant façade','Coloris caisson','Type de gorge','Exécution gorges','Finition gorges','Profondeur','Option ouverture','Finition socle','Finition étagères'].map(k => z[k]?`<div>${esc(k)}<br><strong>${esc(z[k])}</strong></div>`:'').join('')}
+      </div>
+    </div>
+  `).join('') : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucune zone définie</div>';
+
+  const categoriesOrder = ['Meubles','Panneaux de recouvrement','Produits de vente','Eviers et robinetterie','Electroménager','Sanitaires','Dépose','Divers'];
+  const lignesByCat = {};
+  lignes.forEach(l => { const c = l['Catégorie']||'Autre'; (lignesByCat[c]=lignesByCat[c]||[]).push(l); });
+
+  const lignesHtml = categoriesOrder.filter(c => lignesByCat[c]).map(c => `
+    <div class="zone-title" style="margin-top:18px">${esc(c)}</div>
+    <table class="lignes-table">
+      <thead><tr><th>Pos</th><th>Code</th><th>Désignation</th><th>Sens</th><th>Qté</th><th>HT</th></tr></thead>
+      <tbody>
+        ${lignesByCat[c].map(l => `<tr class="${l['Position parent']?'sub':''}">
+          <td class="num">${esc(l.Position||'')}</td>
+          <td class="code">${esc(l['Code produit']||'')}</td>
+          <td><input data-rid="${l.id}" data-field="Désignation" value="${esc((l['Désignation']||'').slice(0,80))}" onchange="patchLigne(this)"></td>
+          <td>${esc(l.Sens||'')}</td>
+          <td class="num">${l['Quantité']||''} ${esc(l['Unité']||'')}</td>
+          <td class="num">${euros(l['Montant HT'])}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  `).join('');
+
+  const echeancesHtml = echeances.length ? `
+    <div class="zone-title" style="margin-top:22px">Échéancier</div>
+    <table class="lignes-table">
+      <thead><tr><th>Libellé</th><th>Date prévue</th><th>Montant prévu</th><th>Statut</th></tr></thead>
+      <tbody>${echeances.map(e => `<tr>
+        <td>${esc(e['Libellé']||'')}</td>
+        <td>${esc(e['Date prévue']||'—')}</td>
+        <td class="num">${euros(e['Montant prévu'])}</td>
+        <td><span class="badge b-gray">${esc(e.Statut||'—')}</span></td>
+      </tr>`).join('')}</tbody>
+    </table>` : '';
+
+  $('#devis-detail-view').innerHTML = `
+    <button class="devis-back" onclick="closeDevisDetail()">← Retour aux devis</button>
+    <div class="devis-detail">
+      <div class="devis-header">
+        <div>
+          <div class="devis-title">${esc(dv['Numéro devis']||'Devis sans numéro')} <span class="badge b-blue">${esc(dv.Milieu||'')}</span> <span class="badge ${{'Brouillon':'b-gray','Envoyé':'b-amber','Signé':'b-green','Annulé':'b-red'}[dv.Statut]||'b-gray'}">${esc(dv.Statut||'')}</span></div>
+          <div class="devis-sub">Date ${esc(dv['Date devis']||'—')} · Valable jusqu'au ${esc(dv["Valable jusqu'au"]||'—')}</div>
+        </div>
+        <div>
+          <div class="devis-total-lbl">Total TTC</div>
+          <div class="devis-total">${euros(dv['Total TTC'])}</div>
+        </div>
+      </div>
+
+      ${dv['Alertes parsing']?`<div style="background:var(--amber-bg);border:1px solid var(--amber);border-radius:5px;padding:10px;font-size:12px;color:var(--amber);margin-bottom:16px">⚠ <strong>Alertes parsing :</strong> ${esc(dv['Alertes parsing'])}</div>`:''}
+
+      <div class="zone-title">Paramètres par zone</div>
+      ${zonesHtml}
+
+      <div class="zone-title" style="margin-top:22px">Lignes · ${lignes.length} articles</div>
+      ${lignesHtml}
+
+      ${echeancesHtml}
+
+      <div class="totaux-block">
+        <div class="tl">Total lignes HT</div><div class="tv">${euros(dv['Total HT articles'])}</div>
+        ${dv['Remise pourcentage']?`<div class="tl">Remise ${(dv['Remise pourcentage']*100).toFixed(0)}%</div><div class="tv">-${euros(dv['Montant remise'])}</div>`:''}
+        ${dv['Livraison HT']?`<div class="tl">Livraison</div><div class="tv">${euros(dv['Livraison HT'])}</div>`:''}
+        ${dv['Pose HT']?`<div class="tl">Pose</div><div class="tv">${euros(dv['Pose HT'])}</div>`:''}
+        ${dv['Eco-participation mobilier']?`<div class="tl">Eco-participation mobilier</div><div class="tv">${euros(dv['Eco-participation mobilier'])}</div>`:''}
+        ${dv['Eco-participation électroménager']?`<div class="tl">Eco-participation électro</div><div class="tv">${euros(dv['Eco-participation électroménager'])}</div>`:''}
+        <div class="tl">Total HT final</div><div class="tv">${euros(dv['Total HT final'])}</div>
+        ${dv['TVA taux 1 montant']?`<div class="tl">TVA ${dv['TVA taux 1 pourcentage']}%</div><div class="tv">${euros(dv['TVA taux 1 montant'])}</div>`:''}
+        ${dv['TVA taux 2 montant']?`<div class="tl">TVA ${dv['TVA taux 2 pourcentage']}%</div><div class="tv">${euros(dv['TVA taux 2 montant'])}</div>`:''}
+        <div class="tl tt">Total TTC</div><div class="tv tt">${euros(dv['Total TTC'])}</div>
+      </div>
+    </div>
+  `;
+}
+
+function closeDevisDetail(){
+  $('#devis-detail-view').style.display='none';
+  $('#devis-list-view').style.display='block';
+}
+
+async function patchLigne(input){
+  const rid = input.dataset.rid;
+  const field = input.dataset.field;
+  try {
+    await fetch('/api/data/lignes-devis/'+rid, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{[field]:input.value}})});
+    input.style.background='var(--green-bg)';
+    setTimeout(()=>{input.style.background='';},800);
+  } catch(e) { alert('Erreur: '+e.message); }
+}
+
+async function importDevisPdf(file){
+  if (!file) return;
+  if (file.size > 15*1024*1024) { alert('PDF trop volumineux (max 15 MB)'); return; }
+  showLoader('Analyse du PDF par Claude… (30-60s)');
+  try {
+    const fd = new FormData();
+    fd.append('pdf', file);
+    const r = await fetch('/api/devis/import', {method:'POST', body:fd});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error||'Erreur parsing');
+    hideLoader();
+    alert(`✓ Devis importé :\n${d.parsed_summary.numero}\n${d.parsed_summary.lignes} lignes, ${d.parsed_summary.zones} zones\nTotal TTC : ${euros(d.parsed_summary.total_ttc)}`);
+    await loadAll();
+    openDevisDetail(d.devisId);
+  } catch(e) {
+    hideLoader();
+    alert('Erreur: '+e.message);
+  }
+  document.getElementById('devis-pdf-input').value='';
+}
+
+// ============ FICHE DÉCOUVERTE ============
+function fichesCard(f){
+  return `<div class="card" onclick="openDecouverteForm('${f.id}')" style="cursor:pointer">
+    <div class="card-top">
+      <div class="card-nom">${esc(f.Titre||f.Nom||'Fiche sans nom')} <span class="badge b-gray">${esc(f['Type de projet']||'')}</span></div>
+      <div class="card-amt">${esc(f['Date RDV']||'')}</div>
+    </div>
+    <div class="card-meta">
+      <span>${esc(f.Conseiller||'—')}</span>
+      <span>${esc(f.Email||'')}</span>
+      <span>${esc(f.Téléphone||'')}</span>
+    </div>
+  </div>`;
+}
+function renderFichesDecouverte(){
+  $('#list-fiches-decouverte').innerHTML = DATA['fiches-decouverte'].length ? DATA['fiches-decouverte'].map(fichesCard).join('') : emptyState('Aucune fiche découverte','Créez la première fiche lors du RDV découverte');
+}
+
+const DF_SECTIONS = [
+  { title: 'Identité projet', fields: [
+    {k:'Titre', label:'Titre fiche', req:true, col:2},
+    {k:'Nom', label:'Nom client'},
+    {k:'Type de projet', label:'Type de projet'},
+    {k:'Date RDV', label:'Date RDV', type:'date'},
+    {k:'Conseiller', label:'Conseiller', type:'select', options:['Virginie','Solène','Sébastien','Marine']},
+    {k:'Adresse facturation', label:'Adresse facturation', type:'textarea'},
+    {k:'Adresse chantier', label:'Adresse chantier', type:'textarea'},
+    {k:'Étage', label:'Étage'},
+    {k:'Code accès', label:'Code d\'accès'},
+    {k:'Stationnement', label:'Stationnement', type:'select', options:['','Oui','Non']},
+    {k:'Email', label:'Email', type:'email'},
+    {k:'Téléphone', label:'Téléphone'},
+    {k:'Notes libres', label:'Notes libres', type:'textarea', col:2}
+  ]},
+  { title: 'Préparation plan technique', fields: [
+    {k:'Hauteur socle', label:'Hauteur socle', type:'select', options:['','6','8','10','Autre']},
+    {k:'Hauteur socle autre', label:'Hauteur socle autre'},
+    {k:'Filtre socle', label:'Filtre socle suivant marque cuisson', type:'select', options:['','Oui','Non']},
+    {k:'Extraction hotte', label:'Extraction hotte', type:'select', options:['','Recyclage','Extraction','Néant']},
+    {k:'Cuve', label:'Cuve', type:'select', options:['','Par dessus','Par dessous','Monter par fournisseur']},
+    {k:'Taille cuve', label:'Taille cuve', type:'select', options:['','Standard','Autre']},
+    {k:'Taille cuve autre', label:'Taille cuve autre'},
+    {k:'Egouttoir 1', label:'Egouttoir 1', type:'select', options:['','Oui','Non','Néant']},
+    {k:'Rainures', label:'Rainures', type:'select', options:['','Oui','Non','Néant']},
+    {k:'Rainures nombre', label:'Nombre de rainures', type:'number'},
+    {k:'Mitigeur fenêtre', label:'Mitigeur spécial fenêtre', type:'select', options:['','Oui','Non']},
+    {k:'Mitigeur type', label:'Type mitigeur', type:'select', options:['','Standard','Eau bouillante','Eau fraîche et pétillante','Eau filtrée']},
+    {k:'Dosserets', label:'Dosserets', type:'select', options:['','Oui','Non']},
+    {k:'Egouttoir 2', label:'Egouttoir 2', type:'select', options:['','Oui','Non','Néant']},
+    {k:'Egouttoir 2 matière', label:'Egouttoir 2 matière'},
+    {k:'Prise îlot', label:'Prise îlot', type:'select', options:['','Oui - à fournir','Oui - fourni client','Non']},
+    {k:'Prise joue', label:'Prise joue', type:'select', options:['','Oui - à fournir','Oui - fourni client','Non']}
+  ]},
+  { title: 'Feuille de choix électroménager', fields: [
+    {k:'Couleur électro', label:'Couleur électro', type:'select', options:['','Mat','Brillant']},
+    {k:'Lave-vaisselle type', label:'Lave-vaisselle type', type:'select', options:['','Pause libre','Encastrable','Intégrable']},
+    {k:'Lave-vaisselle paniers', label:'Lave-vaisselle paniers', type:'select', options:['','Panier à couverts','Tiroir à couverts']},
+    {k:'Type pose cuisson', label:'Type pose cuisson', type:'select', options:['','Affleur','Encastré']}
+  ]}
+];
+
+function openDecouverteForm(id){
+  const existing = id ? DATA['fiches-decouverte'].find(x=>x.id===id) : null;
+  const data = existing || {};
+  let html = `<button class="devis-back" onclick="closeDecouverteForm()">← Retour aux fiches</button>
+    <form class="decouverte-form" onsubmit="return saveDecouverte(event, ${id?`'${id}'`:'null'})">`;
+  for (const sec of DF_SECTIONS) {
+    html += `<div class="df-section"><h3>${sec.title}</h3><div class="df-grid">`;
+    for (const f of sec.fields) {
+      const val = data[f.k] || '';
+      const idAttr = 'df_'+f.k.replace(/\W/g,'_');
+      const span = f.col===2?' style="grid-column:span 2"':'';
+      html += `<div class="df-field"${span}><label>${f.label}${f.req?' *':''}</label>`;
+      if (f.type === 'select') {
+        html += `<select id="${idAttr}">${f.options.map(o=>`<option value="${esc(o)}"${o===val?' selected':''}>${esc(o)}</option>`).join('')}</select>`;
+      } else if (f.type === 'textarea') {
+        html += `<textarea id="${idAttr}">${esc(val)}</textarea>`;
+      } else {
+        html += `<input id="${idAttr}" type="${f.type||'text'}" value="${esc(val)}"${f.req?' required':''}>`;
+      }
+      html += '</div>';
+    }
+    html += '</div></div>';
+  }
+  html += `<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+    <button type="button" class="mbtn cancel" onclick="closeDecouverteForm()">Annuler</button>
+    <button type="submit" class="mbtn primary">Enregistrer</button>
+  </div></form>`;
+  $('#decouverte-form-view').innerHTML = html;
+  $('#decouverte-list-view').style.display='none';
+  $('#decouverte-form-view').style.display='block';
+}
+
+function closeDecouverteForm(){
+  $('#decouverte-form-view').style.display='none';
+  $('#decouverte-list-view').style.display='block';
+}
+
+async function saveDecouverte(e, id){
+  e.preventDefault();
+  const fields = {};
+  for (const sec of DF_SECTIONS) for (const f of sec.fields) {
+    const el = document.getElementById('df_'+f.k.replace(/\W/g,'_'));
+    if (!el) continue;
+    let v = el.value.trim();
+    if (!v) continue;
+    if (f.type === 'number') v = Number(v);
+    fields[f.k] = v;
+  }
+  showLoader(id?'Mise à jour…':'Création…');
+  try {
+    const url = '/api/data/fiches-decouverte' + (id?'/'+id:'');
+    const method = id?'PATCH':'POST';
+    const r = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error||'Erreur');
+    closeDecouverteForm();
+    await loadAll();
+  } catch(er) { alert('Erreur: '+er.message); }
+  finally { hideLoader(); }
+  return false;
+}
+
+// ============ PLAUD ============
+function plaudCard(p){
+  const synth = (p.Synthèse||'').slice(0,160);
+  return `<div class="card plaud-card">
+    <div class="card-top">
+      <div class="card-nom">${esc(p.Titre||'Réunion')} <span class="badge b-blue">${esc(p['Type réunion']||'')}</span></div>
+      <div class="card-amt">${esc((p['Date heure']||'').slice(0,10))}</div>
+    </div>
+    <div class="card-meta">
+      <span>${esc(p.Lieu||'')}</span>
+      <span class="badge b-gray">${esc(p['Statut traitement']||'')}</span>
+    </div>
+    ${synth?`<div class="plaud-section"><span class="plaud-tag">Synthèse</span>${esc(synth)}${p.Synthèse&&p.Synthèse.length>160?'…':''}</div>`:''}
+  </div>`;
+}
+function renderPlaud(){
+  $('#list-reunions-plaud').innerHTML = DATA['reunions-plaud'].length ? DATA['reunions-plaud'].map(plaudCard).join('') : emptyState('Aucune réunion','Collez une transcription Plaud pour commencer');
+}
+
+function openPlaudModal(){
+  $('#modalTitle').textContent = 'Nouvelle transcription Plaud';
+  $('#modalBody').innerHTML = `
+    <label>Type de réunion</label>
+    <select id="plaud-type"><option>Découverte</option><option>Présentation devis</option><option>Chantier</option><option>SAV</option><option>Autre</option></select>
+    <label>Transcription brute (coller le texte du Plaud)</label>
+    <textarea id="plaud-transcript" style="min-height:180px" placeholder="Colle ici la transcription complète..."></textarea>
+    <div style="font-size:11px;color:var(--ink4);margin-top:-8px;margin-bottom:12px">Claude va extraire automatiquement : synthèse, contexte, points de douleur, attentes, tâches.</div>
+  `;
+  currentModalTable = '__plaud__';
+  $('#modalBg').classList.add('on');
+}
+
+async function submitPlaud(){
+  const transcript = document.getElementById('plaud-transcript').value.trim();
+  const type_reunion = document.getElementById('plaud-type').value;
+  if (!transcript) { alert('Transcription requise'); return; }
+  closeModal();
+  showLoader('Analyse Claude en cours…');
+  try {
+    const r = await fetch('/api/plaud/parse', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transcript, type_reunion})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error||'Erreur');
+    await loadAll();
+  } catch(e) { alert('Erreur: '+e.message); }
+  finally { hideLoader(); }
+}
+
 // ============ TABS ============
 $$('.nb').forEach(btn => btn.addEventListener('click', () => {
   $$('.nb').forEach(b => b.classList.toggle('on', b===btn));
@@ -613,6 +1040,7 @@ function closeModal(){
 
 async function submitModal(){
   if (!currentModalTable) return;
+  if (currentModalTable === '__plaud__') { return submitPlaud(); }
   const form = FORMS[currentModalTable];
   const fields = {};
   for (const f of form) {

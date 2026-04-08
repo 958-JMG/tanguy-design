@@ -1,6 +1,6 @@
 {
   "name": "tanguy-design",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Cockpit gestion chantiers cuisines Tanguy Design",
   "main": "server.js",
   "scripts": {
@@ -8,9 +8,11 @@
     "hash": "node scripts/hash-password.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.1",
+    "bcrypt": "^5.1.1",
     "express": "^4.19.2",
     "express-session": "^1.18.0",
-    "bcrypt": "^5.1.1",
+    "multer": "^1.4.5-lts.1",
     "node-fetch": "^2.7.0"
   },
   "engines": {
