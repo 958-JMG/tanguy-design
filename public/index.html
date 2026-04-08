@@ -145,6 +145,27 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 .btn-ghost:hover{background:var(--ink);color:var(--paper)}
 .edit-inp{border:1px solid var(--gold);background:var(--gold-bg);font-family:inherit;font-size:12px;color:var(--ink);width:100%;padding:4px 6px;border-radius:3px;outline:none}
 .edit-inp:focus{border-color:var(--ink);background:#fff}
+.btn-danger{background:transparent;color:#B83A3A;border:1px solid #B83A3A;padding:8px 14px;border-radius:4px;font-family:inherit;font-size:12px;font-weight:500;cursor:pointer}
+.btn-danger:hover{background:#B83A3A;color:#fff}
+.btn-del-card{position:absolute;top:8px;right:8px;width:24px;height:24px;border:none;background:transparent;color:var(--ink4);font-size:20px;line-height:1;cursor:pointer;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.btn-del-card:hover{background:#B83A3A;color:#fff}
+/* Kanban */
+.kanban-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:16px}
+.kanban-col{background:#fff;border:1px solid var(--border);border-radius:6px;padding:12px;min-height:400px;transition:background .15s}
+.kanban-col.drop{background:var(--gold-bg);border-color:var(--gold)}
+.kanban-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.kanban-count{font-family:'DM Mono',monospace;color:var(--ink4);font-size:11px}
+.kanban-empty{text-align:center;color:var(--ink4);font-size:11px;padding:20px 0;font-style:italic}
+.kanban-card{background:var(--paper);border:1px solid var(--border);border-left:3px solid var(--gold);border-radius:4px;padding:10px;margin-bottom:8px;cursor:grab;transition:transform .1s,box-shadow .1s}
+.kanban-card:hover{box-shadow:0 2px 8px rgba(0,0,0,.08);transform:translateY(-1px)}
+.kanban-card:active{cursor:grabbing}
+.kc-title{font-size:13px;font-weight:500;color:var(--ink);margin-bottom:6px;line-height:1.3}
+.kc-meta{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:6px}
+.kc-who{font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.04em}
+.kc-date{font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace}
+.kc-date.overdue{color:#B83A3A;font-weight:600}
+.kc-desc{font-size:11px;color:var(--ink4);margin-top:4px;line-height:1.4}
+@media(max-width:900px){.kanban-grid{grid-template-columns:1fr}}
 
 /* Découverte form */
 .decouverte-form{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:22px;margin-top:10px}
@@ -311,8 +332,20 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 
   <!-- TACHES -->
   <section class="scr" id="scr-taches">
-    <div class="sh"><div class="st">Tâches · 4 équipes</div><button class="abtn primary" onclick="openModal('taches')">+ Nouvelle tâche</button></div>
-    <div class="list" id="list-taches"></div>
+    <div class="sh">
+      <div class="st">Tâches · Kanban</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="taches-filter" onchange="renderTaches()" style="padding:7px 10px;border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:12px;background:#fff">
+          <option value="">Toute l'équipe</option>
+          <option value="Virginie">Virginie</option>
+          <option value="Solène">Solène</option>
+          <option value="Sébastien">Sébastien</option>
+          <option value="Marine">Marine</option>
+        </select>
+        <button class="abtn primary" onclick="openModal('taches')">+ Nouvelle tâche</button>
+      </div>
+    </div>
+    <div id="taches-kanban"></div>
   </section>
 
   <!-- SAV -->
@@ -621,23 +654,92 @@ function renderClients(){ $('#list-clients').innerHTML = DATA.clients.length ? D
 function renderArtisans(){ $('#list-artisans').innerHTML = DATA.artisans.length ? DATA.artisans.map(artisanCard).join('') : emptyState('Aucun artisan','Ajoutez vos partenaires artisans'); }
 function renderFournisseurs(){ $('#list-fournisseurs').innerHTML = DATA.fournisseurs.length ? DATA.fournisseurs.map(fournisseurCard).join('') : emptyState('Aucun fournisseur','Ajoutez vos fournisseurs'); }
 function renderCommandes(){ $('#list-commandes').innerHTML = DATA.commandes.length ? DATA.commandes.map(commandeCard).join('') : emptyState('Aucune commande','Les commandes fournisseurs apparaîtront ici'); }
-function renderTaches(){ $('#list-taches').innerHTML = DATA.taches.length ? DATA.taches.map(taskCard).join('') : emptyState('Aucune tâche','Créez la première tâche'); }
+function renderTaches(){
+  const filter = document.getElementById('taches-filter')?.value || '';
+  const persons = filter ? [filter] : ['Virginie','Solène','Sébastien','Marine'];
+  const statuts = ['À faire','En cours','Terminée'];
+  const tasksFiltered = filter ? DATA.taches.filter(t => t['Assignée à'] === filter) : DATA.taches;
+
+  const columnsHtml = statuts.map(st => {
+    const col = tasksFiltered.filter(t => (t.Statut||'À faire') === st);
+    const stClass = {'À faire':'b-gray','En cours':'b-amber','Terminée':'b-green'}[st];
+    return `<div class="kanban-col" data-statut="${esc(st)}" ondragover="event.preventDefault();this.classList.add('drop');" ondragleave="this.classList.remove('drop');" ondrop="dropTask(event,'${esc(st)}')">
+      <div class="kanban-head"><span class="badge ${stClass}">${esc(st)}</span><span class="kanban-count">${col.length}</span></div>
+      ${col.length ? col.map(t => kanbanCard(t)).join('') : '<div class="kanban-empty">—</div>'}
+    </div>`;
+  }).join('');
+
+  $('#taches-kanban').innerHTML = `<div class="kanban-grid">${columnsHtml}</div>`;
+}
+function kanbanCard(t){
+  const prioClass = {'Haute':'b-red','Moyenne':'b-amber','Basse':'b-gray'}[t.Priorité]||'b-gray';
+  const overdue = t.Échéance && t.Échéance < new Date().toISOString().slice(0,10) && t.Statut !== 'Terminée';
+  return `<div class="kanban-card" draggable="true" ondragstart="event.dataTransfer.setData('rid','${t.id}')">
+    <div class="kc-title">${esc(t.Titre||'—')}</div>
+    <div class="kc-meta">
+      <span class="badge ${prioClass}">${esc(t.Priorité||'—')}</span>
+      <span class="kc-who">${esc(t['Assignée à']||'—')}</span>
+    </div>
+    ${t.Échéance?`<div class="kc-date${overdue?' overdue':''}">📅 ${esc(t.Échéance)}</div>`:''}
+    ${t.Description?`<div class="kc-desc">${esc(t.Description.slice(0,90))}${t.Description.length>90?'…':''}</div>`:''}
+  </div>`;
+}
+async function dropTask(ev, newStatut){
+  ev.preventDefault();
+  document.querySelectorAll('.kanban-col.drop').forEach(c=>c.classList.remove('drop'));
+  const rid = ev.dataTransfer.getData('rid');
+  if (!rid) return;
+  const task = DATA.taches.find(t => t.id === rid);
+  if (!task || task.Statut === newStatut) return;
+  task.Statut = newStatut; // optimistic
+  renderTaches();
+  try {
+    await fetch('/api/data/taches/'+rid, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{Statut:newStatut}})});
+  } catch(e) { alert('Erreur: '+e.message); await loadAll(); }
+}
 function renderSAV(){ $('#list-sav').innerHTML = DATA.sav.length ? DATA.sav.map(savCard).join('') : emptyState('Aucun SAV','Les interventions SAV apparaîtront ici'); }
 
 // ============ DEVIS ============
 function devisCard(d){
   const statutClass = {'Brouillon':'b-gray','Envoyé':'b-amber','Signé':'b-green','Annulé':'b-red'}[d.Statut]||'b-gray';
-  return `<div class="card" onclick="openDevisDetail('${d.id}')" style="cursor:pointer">
-    <div class="card-top">
-      <div class="card-nom">${esc(d['Numéro devis']||'—')} <span class="badge ${statutClass}">${esc(d.Statut||'—')}</span> <span class="badge b-blue">${esc(d.Milieu||'')}</span></div>
-      <div class="card-amt">${euros(d['Total TTC'])}</div>
+  return `<div class="card" style="cursor:pointer;position:relative">
+    <div onclick="openDevisDetail('${d.id}')">
+      <div class="card-top">
+        <div class="card-nom">${esc(d['Numéro devis']||'—')} <span class="badge ${statutClass}">${esc(d.Statut||'—')}</span> <span class="badge b-blue">${esc(d.Milieu||'')}</span></div>
+        <div class="card-amt">${euros(d['Total TTC'])}</div>
+      </div>
+      <div class="card-meta">
+        <span>Date ${esc(d['Date devis']||'—')}</span>
+        <span>Valable ${esc(d["Valable jusqu'au"]||'—')}</span>
+        ${d['Alertes parsing']?`<span style="color:var(--amber)">⚠ Alertes parsing</span>`:''}
+      </div>
     </div>
-    <div class="card-meta">
-      <span>Date ${esc(d['Date devis']||'—')}</span>
-      <span>Valable ${esc(d["Valable jusqu'au"]||'—')}</span>
-      ${d['Alertes parsing']?`<span style="color:var(--amber)">⚠ Alertes parsing</span>`:''}
-    </div>
+    <button class="btn-del-card" onclick="event.stopPropagation();deleteDevis('${d.id}','${esc(d['Numéro devis']||'ce devis')}')" title="Supprimer">×</button>
   </div>`;
+}
+
+async function deleteDevis(devisId, label){
+  if (!confirm(`Supprimer définitivement "${label}" ?\n\nCela supprimera le devis, ses zones, lignes et échéances liées.\nLes commandes fournisseurs et tâches créées ne seront PAS supprimées.`)) return;
+  showLoader('Suppression…');
+  try {
+    // Fetch detail to know linked records
+    const r = await fetch('/api/devis/'+devisId+'/detail');
+    const d = await r.json();
+    const ids = {
+      'zones-devis': (d.zones||[]).map(z=>z.id),
+      'lignes-devis': (d.lignes||[]).map(l=>l.id),
+      'echeances-devis': (d.echeances||[]).map(e=>e.id)
+    };
+    for (const [table, list] of Object.entries(ids)) {
+      for (const rid of list) {
+        await fetch('/api/data/'+table+'/'+rid, {method:'DELETE'});
+      }
+    }
+    await fetch('/api/data/devis/'+devisId, {method:'DELETE'});
+    hideLoader();
+    await loadAll();
+    closeDevisDetail();
+  } catch(e) { hideLoader(); alert('Erreur: '+e.message); }
 }
 function renderDevis(){
   $('#list-devis').innerHTML = DATA.devis.length ? DATA.devis.map(devisCard).join('') : emptyState('Aucun devis','Importez un PDF Winner/Métron pour commencer');
@@ -800,6 +902,7 @@ function renderDevisDetail(data){
     : `<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
         <button class="btn-ghost" onclick="toggleDevisEdit(true)">Modifier</button>
         ${isSigned ? '' : `<button class="btn-primary" onclick="signDevis('${devisId}')">✓ Signer ce BC</button>`}
+        <button class="btn-danger" onclick="deleteDevis('${devisId}','${esc(dv['Numéro devis']||'ce devis')}')">Supprimer</button>
       </div>`;
 
   $('#devis-detail-view').innerHTML = `
