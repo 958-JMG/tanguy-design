@@ -340,6 +340,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 .sb-icon{font-size:13px;opacity:.7}
 .sb-txt{flex:1;text-align:left;color:rgba(247,244,239,.6)}
 .sb-kbd{font-family:'DM Mono',monospace;font-size:10px;color:rgba(247,244,239,.5);background:rgba(247,244,239,.1);padding:2px 6px;border-radius:3px}
+/* Bottom floating search */
+.bottom-search{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);border:1px solid var(--border);border-radius:999px;padding:12px 22px;display:flex;align-items:center;gap:10px;font-family:inherit;font-size:13px;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.25),0 2px 6px rgba(0,0,0,.15);z-index:1400;transition:all .2s;min-width:280px}
+.bottom-search:hover{background:var(--ink2);transform:translateX(-50%) translateY(-2px);box-shadow:0 12px 32px rgba(0,0,0,.3)}
+.bs-icon{font-size:14px}
+.bs-txt{flex:1;text-align:left;color:rgba(247,244,239,.7)}
+.bs-kbd{font-family:'DM Mono',monospace;font-size:10px;color:rgba(247,244,239,.5);background:rgba(247,244,239,.1);padding:2px 6px;border-radius:3px}
+@media(max-width:768px){
+  .bottom-search{min-width:auto;width:auto;padding:11px 18px;bottom:14px;font-size:12px}
+  .bs-kbd{display:none}
+}
 .cmdk-bg{position:fixed;inset:0;background:rgba(26,25,22,.6);display:flex;align-items:flex-start;justify-content:center;padding-top:12vh;z-index:1500;backdrop-filter:blur(4px)}
 .cmdk-card{background:var(--paper);border-radius:10px;width:640px;max-width:92vw;max-height:70vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 80px rgba(0,0,0,.4);border:1px solid var(--gold)}
 #cmdk-input{padding:18px 22px;border:none;border-bottom:1px solid var(--border);font-family:inherit;font-size:16px;outline:none;background:transparent;color:var(--ink)}
@@ -473,7 +483,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
   <button class="logout-btn" onclick="logout()">◂ SORTIR</button>
   <div class="logo"><img src="/img/logo.jpg" alt="Tanguy Design" class="logo-img"></div>
   <div class="header-right">
-    <button class="search-btn" onclick="openSearch()" title="Recherche globale (⌘K)"><span class="sb-icon">🔎</span><span class="sb-txt">Rechercher…</span><span class="sb-kbd">⌘K</span></button>
     <div class="header-user" id="headerUser">—</div>
     <div class="header-sync"><span class="sync-dot" id="syncDot"></span><span id="syncTxt">init</span></div>
   </div>
@@ -481,6 +490,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 
 <!-- Toast container -->
 <div id="toast-host"></div>
+
+<!-- Bottom floating search -->
+<button class="bottom-search" onclick="openSearch()" title="Rechercher (⌘K)">
+  <span class="bs-icon">🔎</span>
+  <span class="bs-txt">Rechercher…</span>
+  <span class="bs-kbd">⌘K</span>
+</button>
 
 <!-- Cmd+K palette -->
 <div id="cmdk-bg" class="cmdk-bg" onclick="if(event.target===this)closeSearch()" style="display:none">
