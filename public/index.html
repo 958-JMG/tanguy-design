@@ -340,6 +340,29 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 .sb-icon{font-size:13px;opacity:.7}
 .sb-txt{flex:1;text-align:left;color:rgba(247,244,239,.6)}
 .sb-kbd{font-family:'DM Mono',monospace;font-size:10px;color:rgba(247,244,239,.5);background:rgba(247,244,239,.1);padding:2px 6px;border-radius:3px}
+/* Admin */
+.admin-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:4px}
+.atb{font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:10px 18px;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;color:var(--ink3);font-weight:500}
+.atb.on{color:var(--gold);border-bottom-color:var(--gold)}
+.atb:hover:not(.on){color:var(--ink)}
+.admin-pane{display:none}
+.admin-pane.on{display:block}
+.admin-table{width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--r);border-collapse:separate;border-spacing:0;font-size:12px;overflow:hidden}
+.admin-table th{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink4);text-align:left;padding:10px 12px;background:#faf8f4;border-bottom:1px solid var(--border);font-weight:500}
+.admin-table td{padding:10px 12px;border-bottom:1px solid var(--border);color:var(--ink2)}
+.admin-table tr:last-child td{border-bottom:none}
+.admin-table tr:hover td{background:rgba(184,149,106,.04);cursor:pointer}
+.admin-table .num{text-align:right;font-family:'DM Mono',monospace;font-size:11px}
+.admin-table .marge-pos{color:#3a8259;font-weight:600}
+.admin-table .marge-neg{color:#c25656;font-weight:600}
+.admin-table .badge-mini{display:inline-block;font-size:9px;padding:2px 6px;border-radius:3px;background:var(--ink);color:var(--paper);font-family:'DM Mono',monospace;text-transform:uppercase}
+.stock-low{color:#c25656;font-weight:600}
+@media(max-width:768px){
+  .admin-table{font-size:11px}
+  .admin-table th,.admin-table td{padding:7px 8px}
+  .admin-table .hide-mob{display:none}
+}
+
 /* Bottom floating search */
 .bottom-search{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);border:1px solid var(--border);border-radius:999px;padding:12px 22px;display:flex;align-items:center;gap:10px;font-family:inherit;font-size:13px;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.25),0 2px 6px rgba(0,0,0,.15);z-index:1400;transition:all .2s;min-width:280px}
 .bottom-search:hover{background:var(--ink2);transform:translateX(-50%) translateY(-2px);box-shadow:0 12px 32px rgba(0,0,0,.3)}
@@ -512,6 +535,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
   <button class="nb" data-tab="projets">Projets <span class="count" id="cn-projets"></span></button>
   <button class="nb" data-tab="taches">Tâches <span class="count" id="cn-taches"></span></button>
   <button class="nb" data-tab="clients">Clients <span class="count" id="cn-clients"></span></button>
+  <button class="nb" data-tab="admin">Admin</button>
 </nav>
 
 <nav class="subnav" id="subnav">
@@ -657,6 +681,42 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
     <div class="list" id="list-clients"></div>
   </section>
 
+  <!-- ADMIN (Marges + Stock) -->
+  <section class="scr" id="scr-admin">
+    <div class="admin-tabs">
+      <button class="atb on" data-atab="marges" onclick="switchAdminTab('marges')">Marges</button>
+      <button class="atb" data-atab="stock" onclick="switchAdminTab('stock')">Stock</button>
+    </div>
+
+    <!-- MARGES -->
+    <div id="admin-marges" class="admin-pane on">
+      <div class="kpis" style="margin-top:14px">
+        <div class="kpi"><div class="kpi-l">CA signé</div><div class="kpi-v" id="mg-ca">—</div><div class="kpi-s">total HT</div></div>
+        <div class="kpi"><div class="kpi-l">Coûts</div><div class="kpi-v" id="mg-couts">—</div><div class="kpi-s">commandes + override</div></div>
+        <div class="kpi"><div class="kpi-l">Marge €</div><div class="kpi-v" id="mg-marge">—</div><div class="kpi-s">HT</div></div>
+        <div class="kpi"><div class="kpi-l">Marge %</div><div class="kpi-v" id="mg-pct">—</div><div class="kpi-s">moyenne</div></div>
+      </div>
+      <div class="sh"><div class="st">Marge par projet · cliquer pour ajuster les coûts</div></div>
+      <div id="marges-table"></div>
+    </div>
+
+    <!-- STOCK -->
+    <div id="admin-stock" class="admin-pane">
+      <div class="sh" style="margin-top:14px">
+        <div class="st">Stock · <span id="stock-count">0</span> articles · valeur <span id="stock-value">—</span></div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="stock-filter" onchange="renderStock()" style="padding:7px 10px;border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:12px;background:#fff">
+            <option value="">Toutes catégories</option>
+            <option>Électroménager</option><option>Sanitaire</option><option>Évier</option>
+            <option>Robinetterie</option><option>Accessoire</option><option>Autre</option>
+          </select>
+          <button class="abtn primary" onclick="openStockEdit(null)">+ Nouvel article</button>
+        </div>
+      </div>
+      <div id="stock-table"></div>
+    </div>
+  </section>
+
   <!-- ARTISANS -->
   <section class="scr" id="scr-artisans">
     <div class="sh"><div class="st">Artisans · contractuels & non-contractuels</div><button class="abtn primary" onclick="openModal('artisans')">+ Nouvel artisan</button></div>
@@ -750,7 +810,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 
 <script>
 // ============ STATE ============
-const DATA = { clients:[], projets:[], artisans:[], fournisseurs:[], commandes:[], taches:[], sav:[], devis:[], 'fiches-decouverte':[], 'reunions-plaud':[] };
+const DATA = { clients:[], projets:[], artisans:[], fournisseurs:[], commandes:[], taches:[], sav:[], devis:[], 'fiches-decouverte':[], 'reunions-plaud':[], stock:[] };
 const PIPE_STATUTS = ['Découverte','Dessin','Devis','Signé','Commandes','Pose','SAV','Terminé'];
 let currentModalTable = null;
 
@@ -875,6 +935,8 @@ function renderAll(){
   renderDevis();
   renderFichesDecouverte();
   renderPlaud();
+  renderMarges();
+  renderStock();
 }
 
 // ============ NEW MENU ============
@@ -1691,6 +1753,225 @@ async function dropTask(ev, newStatut){
   } catch(e) { toastError('Erreur : '+e.message); await loadAll(); }
 }
 function renderSAV(){ $('#list-sav').innerHTML = DATA.sav.length ? DATA.sav.map(savCard).join('') : emptyState('Aucun SAV','Les interventions SAV apparaîtront ici'); }
+
+// ============ ADMIN — MARGES & STOCK ============
+function switchAdminTab(tab){
+  document.querySelectorAll('.atb').forEach(b=>b.classList.toggle('on', b.dataset.atab===tab));
+  document.querySelectorAll('.admin-pane').forEach(p=>p.classList.toggle('on', p.id==='admin-'+tab));
+}
+function computeProjetMarge(p){
+  // CA = somme Total HT final des devis Signé liés
+  const devisSignes = DATA.devis.filter(d => Array.isArray(d.Projet) && d.Projet.includes(p.id) && d.Statut==='Signé');
+  const ca = devisSignes.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
+  // Coûts auto = somme Montant HT des commandes liées
+  const cmds = DATA.commandes.filter(c => Array.isArray(c.Projet) && c.Projet.includes(p.id));
+  const coutsAuto = cmds.reduce((s,c)=>s+(c['Montant HT']||0),0);
+  // Override hybride
+  const override = p['Coûts réels override'];
+  const couts = (override!=null && override!=='') ? override : coutsAuto;
+  const marge = ca - couts;
+  const pct = ca>0 ? (marge/ca*100) : null;
+  return {ca, coutsAuto, couts, override, marge, pct, isOverride: override!=null && override!=='' };
+}
+function renderMarges(){
+  const rows = DATA.projets
+    .filter(p=>p.Statut && p.Statut!=='Découverte' && p.Statut!=='Dessin')
+    .map(p=>({p, ...computeProjetMarge(p)}))
+    .sort((a,b)=>b.ca-a.ca);
+  const totCA = rows.reduce((s,r)=>s+r.ca,0);
+  const totCouts = rows.reduce((s,r)=>s+r.couts,0);
+  const totMarge = totCA - totCouts;
+  const totPct = totCA>0 ? (totMarge/totCA*100) : 0;
+  $('#mg-ca').textContent = euros(totCA);
+  $('#mg-couts').textContent = euros(totCouts);
+  $('#mg-marge').textContent = euros(totMarge);
+  $('#mg-pct').textContent = totCA>0 ? totPct.toFixed(1)+'%' : '—';
+  if (!rows.length) {
+    $('#marges-table').innerHTML = emptyState('Aucun projet signé','Les marges apparaîtront dès qu\'un devis sera signé');
+    return;
+  }
+  $('#marges-table').innerHTML = `<table class="admin-table">
+    <thead><tr>
+      <th>Projet</th><th class="hide-mob">Statut</th>
+      <th class="num">CA HT</th><th class="num">Coûts</th>
+      <th class="num">Marge €</th><th class="num">Marge %</th>
+    </tr></thead><tbody>
+    ${rows.map(r=>{
+      const cls = r.marge>=0?'marge-pos':'marge-neg';
+      const pctStr = r.pct!=null ? r.pct.toFixed(1)+'%' : '—';
+      const overrideTag = r.isOverride ? ' <span class="badge-mini" title="Coûts saisis manuellement">M</span>' : '';
+      return `<tr onclick="openMargeEdit('${r.p.id}')">
+        <td><strong>${esc(r.p.Référence||'—')}</strong></td>
+        <td class="hide-mob">${esc(r.p.Statut||'')}</td>
+        <td class="num">${euros(r.ca)}</td>
+        <td class="num">${euros(r.couts)}${overrideTag}</td>
+        <td class="num ${cls}">${euros(r.marge)}</td>
+        <td class="num ${cls}">${pctStr}</td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+function openMargeEdit(projetId){
+  const p = DATA.projets.find(x=>x.id===projetId); if(!p) return;
+  const calc = computeProjetMarge(p);
+  const html = `<div class="modal-bg on" id="marge-edit-bg" onclick="if(event.target===this)closeMargeEdit()">
+    <div class="modal-card" style="max-width:480px">
+      <div class="modal-head">
+        <div class="modal-title">${esc(p.Référence||'Projet')} · Marge</div>
+        <button class="modal-close" onclick="closeMargeEdit()">×</button>
+      </div>
+      <div class="modal-body">
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:14px;margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span>CA signé</span><strong>${euros(calc.ca)}</strong></div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;color:var(--ink3)"><span>Coûts auto (commandes fournisseurs)</span><span>${euros(calc.coutsAuto)}</span></div>
+        </div>
+        <div class="form-row"><label>Coûts réels override (€) — laisser vide pour calcul auto</label><input id="me-override" type="number" step="0.01" value="${calc.override||''}" placeholder="${calc.coutsAuto}"></div>
+        <div style="font-size:11px;color:var(--ink4);margin-top:8px">Si tu renseignes une valeur, elle remplacera le calcul automatique pour le calcul de marge.</div>
+      </div>
+      <div class="modal-foot" style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--border)">
+        <button class="abtn" onclick="closeMargeEdit()">Annuler</button>
+        <button class="abtn primary" onclick="saveMargeOverride('${p.id}')">Enregistrer</button>
+      </div>
+    </div></div>`;
+  const host=document.createElement('div'); host.id='marge-edit-host'; host.innerHTML=html;
+  document.body.appendChild(host);
+}
+function closeMargeEdit(){ document.getElementById('marge-edit-host')?.remove(); }
+async function saveMargeOverride(projetId){
+  const v = document.getElementById('me-override').value.trim();
+  const fields = {'Coûts réels override': v===''?null:Number(v)};
+  try {
+    const r = await fetch('/api/data/projets/'+projetId, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields})});
+    if (!r.ok) throw new Error((await r.json()).error||'erreur');
+    toastSuccess('Coûts mis à jour');
+    closeMargeEdit();
+    await loadAll();
+  } catch(e) { toastError('Erreur : '+e.message); }
+}
+
+function renderStock(){
+  const filter = document.getElementById('stock-filter')?.value || '';
+  let items = DATA.stock||[];
+  if (filter) items = items.filter(s=>s.Catégorie===filter);
+  items = items.slice().sort((a,b)=>(a.Désignation||'').localeCompare(b.Désignation||''));
+  const totalValue = items.reduce((s,i)=>s+((i['Quantité en stock']||0)*(i['Prix achat HT']||0)),0);
+  $('#stock-count').textContent = items.length;
+  $('#stock-value').textContent = euros(totalValue);
+  if (!items.length) {
+    $('#stock-table').innerHTML = emptyState('Stock vide','Ajoute ton premier article avec « + Nouvel article »');
+    return;
+  }
+  $('#stock-table').innerHTML = `<table class="admin-table">
+    <thead><tr>
+      <th>Désignation</th><th class="hide-mob">Catégorie</th><th class="hide-mob">Marque</th>
+      <th class="num">Stock</th><th class="num hide-mob">Réservé</th>
+      <th class="num">PA HT</th><th class="num hide-mob">Valeur</th>
+    </tr></thead><tbody>
+    ${items.map(i=>{
+      const qte = i['Quantité en stock']||0;
+      const res = i['Quantité réservée']||0;
+      const dispo = qte - res;
+      const valeur = qte * (i['Prix achat HT']||0);
+      const lowCls = dispo<=1 ? 'stock-low' : '';
+      return `<tr onclick="openStockEdit('${i.id}')">
+        <td><strong>${esc(i.Désignation||'—')}</strong>${i.Référence?`<br><span style="font-size:10px;color:var(--ink4);font-family:'DM Mono',monospace">${esc(i.Référence)}</span>`:''}</td>
+        <td class="hide-mob">${esc(i.Catégorie||'—')}</td>
+        <td class="hide-mob">${esc(i.Marque||'')}</td>
+        <td class="num ${lowCls}">${qte}${res?` <span style="color:var(--ink4);font-size:10px">(-${res})</span>`:''}</td>
+        <td class="num hide-mob">${res||'—'}</td>
+        <td class="num">${euros(i['Prix achat HT'])}</td>
+        <td class="num hide-mob">${euros(valeur)}</td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+function openStockEdit(stockId){
+  const isNew = !stockId;
+  const s = isNew ? {id:null,Référence:'',Désignation:'',Catégorie:'Électroménager',Marque:'',Fournisseur:[],'Quantité en stock':0,'Quantité réservée':0,Emplacement:'','Prix achat HT':0,'Date entrée':'','Affecté à':[],Notes:''}
+                  : (DATA.stock.find(x=>x.id===stockId)||{});
+  const cats = ['Électroménager','Sanitaire','Évier','Robinetterie','Accessoire','Autre'];
+  const fournOptions = ['<option value="">—</option>'].concat(DATA.fournisseurs.map(f=>{
+    const sel = Array.isArray(s.Fournisseur)&&s.Fournisseur.includes(f.id)?'selected':'';
+    return `<option value="${f.id}" ${sel}>${esc(f.Nom||'—')}</option>`;
+  })).join('');
+  const projOptions = ['<option value="">—</option>'].concat(DATA.projets.map(p=>{
+    const sel = Array.isArray(s['Affecté à'])&&s['Affecté à'].includes(p.id)?'selected':'';
+    return `<option value="${p.id}" ${sel}>${esc(p.Référence||'—')}</option>`;
+  })).join('');
+  const html = `<div class="modal-bg on" id="stock-edit-bg" onclick="if(event.target===this)closeStockEdit()">
+    <div class="modal-card" style="max-width:560px">
+      <div class="modal-head">
+        <div class="modal-title">${isNew?'Nouvel article stock':'Modifier l\\'article'}</div>
+        <button class="modal-close" onclick="closeStockEdit()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid2">
+          <div class="form-row"><label>Référence</label><input id="se-Reference" value="${esc(s.Référence||'')}"></div>
+          <div class="form-row"><label>Catégorie</label><select id="se-Categorie">${cats.map(c=>`<option ${s.Catégorie===c?'selected':''}>${c}</option>`).join('')}</select></div>
+        </div>
+        <div class="form-row"><label>Désignation *</label><input id="se-Designation" value="${esc(s.Désignation||'')}"></div>
+        <div class="form-grid2">
+          <div class="form-row"><label>Marque</label><input id="se-Marque" value="${esc(s.Marque||'')}"></div>
+          <div class="form-row"><label>Fournisseur</label><select id="se-Fournisseur">${fournOptions}</select></div>
+          <div class="form-row"><label>Quantité en stock</label><input id="se-Qte" type="number" step="1" value="${s['Quantité en stock']||0}"></div>
+          <div class="form-row"><label>Quantité réservée</label><input id="se-QteRes" type="number" step="1" value="${s['Quantité réservée']||0}"></div>
+          <div class="form-row"><label>Prix achat HT (€)</label><input id="se-PA" type="number" step="0.01" value="${s['Prix achat HT']||0}"></div>
+          <div class="form-row"><label>Date entrée</label><input id="se-Date" type="date" value="${esc(s['Date entrée']||'')}"></div>
+          <div class="form-row"><label>Emplacement</label><input id="se-Emplacement" value="${esc(s.Emplacement||'')}"></div>
+          <div class="form-row"><label>Affecté à projet</label><select id="se-Projet">${projOptions}</select></div>
+        </div>
+        <div class="form-row"><label>Notes</label><textarea id="se-Notes" rows="2">${esc(s.Notes||'')}</textarea></div>
+      </div>
+      <div class="modal-foot" style="display:flex;justify-content:space-between;gap:8px;padding:14px 20px;border-top:1px solid var(--border)">
+        ${isNew?'<span></span>':`<button class="abtn" style="color:#c25656;border-color:#e0a8a8" onclick="deleteStock('${s.id}')">Supprimer</button>`}
+        <div style="display:flex;gap:8px">
+          <button class="abtn" onclick="closeStockEdit()">Annuler</button>
+          <button class="abtn primary" onclick="saveStock('${s.id||''}')">Enregistrer</button>
+        </div>
+      </div>
+    </div></div>`;
+  const host=document.createElement('div'); host.id='stock-edit-host'; host.innerHTML=html;
+  document.body.appendChild(host);
+}
+function closeStockEdit(){ document.getElementById('stock-edit-host')?.remove(); }
+async function saveStock(stockId){
+  const fournId = document.getElementById('se-Fournisseur').value;
+  const projId = document.getElementById('se-Projet').value;
+  const fields = {
+    'Référence': document.getElementById('se-Reference').value.trim(),
+    'Désignation': document.getElementById('se-Designation').value.trim(),
+    'Catégorie': document.getElementById('se-Categorie').value,
+    'Marque': document.getElementById('se-Marque').value.trim(),
+    'Fournisseur': fournId?[fournId]:[],
+    'Quantité en stock': Number(document.getElementById('se-Qte').value)||0,
+    'Quantité réservée': Number(document.getElementById('se-QteRes').value)||0,
+    'Prix achat HT': Number(document.getElementById('se-PA').value)||0,
+    'Date entrée': document.getElementById('se-Date').value || null,
+    'Emplacement': document.getElementById('se-Emplacement').value.trim(),
+    'Affecté à': projId?[projId]:[],
+    'Notes': document.getElementById('se-Notes').value.trim(),
+  };
+  if (!fields.Désignation) { toastError('Désignation obligatoire'); return; }
+  try {
+    const url = stockId ? '/api/data/stock/'+stockId : '/api/data/stock';
+    const method = stockId ? 'PATCH' : 'POST';
+    const r = await fetch(url, {method,headers:{'Content-Type':'application/json'},body:JSON.stringify({fields})});
+    if (!r.ok) throw new Error((await r.json()).error||'erreur');
+    toastSuccess(stockId?'Article mis à jour':'Article créé');
+    closeStockEdit();
+    await loadAll();
+  } catch(e) { toastError('Erreur : '+e.message); }
+}
+async function deleteStock(stockId){
+  if (!confirm('Supprimer définitivement cet article ?')) return;
+  try {
+    const r = await fetch('/api/data/stock/'+stockId, {method:'DELETE'});
+    if (!r.ok) throw new Error('erreur');
+    toastSuccess('Article supprimé');
+    closeStockEdit();
+    await loadAll();
+  } catch(e) { toastError('Erreur : '+e.message); }
+}
 
 // ============ DEVIS ============
 function devisCard(d){

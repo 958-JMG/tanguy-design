@@ -26,7 +26,8 @@ const TABLES = {
   devis:           { id: 'tblWklGEKMiBStXCs', name: 'Devis' },
   'zones-devis':   { id: 'tbl6FmEIIR15NMsgZ', name: 'Zones devis' },
   'lignes-devis':  { id: 'tblCxDvzQAqBzpCx2', name: 'Lignes devis' },
-  'echeances-devis': { id: 'tblML7D7MXeWnMcxy', name: 'Échéances devis' }
+  'echeances-devis': { id: 'tblML7D7MXeWnMcxy', name: 'Échéances devis' },
+  stock:           { id: 'tblENw2eBplwUZ4nd', name: 'Stock' }
 };
 
 // --- Users ---
