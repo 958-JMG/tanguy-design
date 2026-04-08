@@ -1541,7 +1541,7 @@ async function openClientDetail(clientId){
   const linkedProjets = DATA.projets.filter(p => Array.isArray(p.Client) && p.Client.includes(clientId));
 
   const html = `
-    <div class="modal-bg" onclick="if(event.target===this)closeClientDetail()">
+    <div class="modal-bg on" onclick="if(event.target===this)closeClientDetail()">
       <div class="modal-card client-modal">
         <div class="modal-head">
           <div class="modal-title">${isNew?'Nouveau client':esc(c.Nom||'Client')}</div>
