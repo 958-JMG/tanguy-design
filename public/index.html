@@ -206,6 +206,25 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 .tl-date{font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);min-width:90px}
 .tl-label{font-size:13px;color:var(--ink)}
 @media(max-width:700px){.proj-grid{grid-template-columns:1fr}.form-grid2{grid-template-columns:1fr}}
+/* Calendrier mensuel */
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-top:10px}
+.cal-dow{background:var(--ink);color:var(--paper);font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:8px 6px;text-align:center;font-weight:500}
+.cal-cell{background:#fff;min-height:96px;padding:6px;display:flex;flex-direction:column;gap:3px;position:relative}
+.cal-cell.empty{background:#FAF8F4}
+.cal-cell.today{background:var(--gold-bg);box-shadow:inset 0 0 0 2px var(--gold)}
+.cal-d{font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);font-weight:500}
+.cal-cell.today .cal-d{color:var(--gold);font-weight:700}
+.cal-ev{font-size:10px;padding:2px 5px;border-radius:3px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4;font-weight:500;border-left:2px solid}
+.cal-ev:hover{filter:brightness(.94)}
+.cal-ev-pose{background:#FFF1D6;border-color:#D9941A;color:#6B4500}
+.cal-ev-livraison{background:#E8E5DC;border-color:var(--ink2);color:var(--ink)}
+.cal-ev-decouverte{background:#E8F1E0;border-color:#5BAA6E;color:#2F5635}
+.cal-ev-devis{background:#E5EBFA;border-color:#5570B8;color:#2A3A6B}
+.cal-more{font-size:9px;color:var(--ink4);font-family:'DM Mono',monospace;padding-left:4px}
+.cal-legend{display:flex;gap:18px;align-items:center;margin-top:10px;padding:10px 12px;background:#fff;border:1px solid var(--border);border-radius:5px;font-size:11px;color:var(--ink3)}
+.cal-legend .lg{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.lg-pose{background:#D9941A}.lg-livraison{background:var(--ink2)}.lg-decouverte{background:#5BAA6E}.lg-devis{background:#5570B8}
+@media(max-width:700px){.cal-cell{min-height:60px}.cal-ev{font-size:8px}.cal-legend{flex-wrap:wrap;gap:10px}}
 
 /* Découverte form */
 .decouverte-form{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:22px;margin-top:10px}
@@ -330,7 +349,25 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
       <div class="kpi"><div class="kpi-l">SAV ouverts</div><div class="kpi-v" id="kpi-sav">—</div><div class="kpi-s">non facturés</div></div>
     </div>
 
-    <div class="sh"><div class="st">Agenda · 30 prochains jours</div><div class="st" style="color:var(--ink3)">Poses · Livraisons · Commandes · SAV</div></div>
+    <div class="sh">
+      <div class="st">Calendrier chantiers</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn-ghost" onclick="calNav(-1)">‹</button>
+        <span id="cal-month-label" style="font-family:'DM Serif Display',serif;font-size:18px;min-width:160px;text-align:center"></span>
+        <button class="btn-ghost" onclick="calNav(1)">›</button>
+        <button class="btn-ghost" onclick="calToday()" style="margin-left:6px">Aujourd'hui</button>
+      </div>
+    </div>
+    <div id="month-cal"></div>
+    <div class="cal-legend">
+      <span><i class="lg lg-pose"></i> Pose</span>
+      <span><i class="lg lg-livraison"></i> Livraison prévue</span>
+      <span><i class="lg lg-decouverte"></i> Découverte</span>
+      <span><i class="lg lg-devis"></i> Devis</span>
+      <span style="margin-left:auto;color:var(--ink4);font-size:11px;font-style:italic">🔒 Sync Google Calendar à venir</span>
+    </div>
+
+    <div class="sh" style="margin-top:28px"><div class="st">Agenda · 30 prochains jours</div><div class="st" style="color:var(--ink3)">Poses · Livraisons · Commandes · SAV</div></div>
     <div class="agenda" id="agenda"></div>
 
     <div class="sh" style="margin-top:28px"><div class="st">Pipeline projets</div></div>
@@ -519,6 +556,7 @@ function renderDashboard(){
   $('#kpi-sav').textContent = savOuverts.length;
 
   renderAgenda();
+  renderMonthCal();
 
   // Pipeline Kanban
   const pipe = $('#pipeline');
@@ -542,6 +580,78 @@ function renderDashboard(){
     })
     .slice(0,5);
   $('#dash-taches').innerHTML = topTaches.length ? topTaches.map(taskCard).join('') : emptyState('Aucune tâche','Les tâches en cours apparaîtront ici');
+}
+
+// ============ MONTH CALENDAR ============
+let CAL_YEAR = null, CAL_MONTH = null; // 0-indexed
+function calToday(){ const d=new Date(); CAL_YEAR=d.getFullYear(); CAL_MONTH=d.getMonth(); renderMonthCal(); }
+function calNav(delta){
+  if (CAL_YEAR===null) calToday();
+  CAL_MONTH += delta;
+  if (CAL_MONTH<0) { CAL_MONTH=11; CAL_YEAR--; }
+  if (CAL_MONTH>11) { CAL_MONTH=0; CAL_YEAR++; }
+  renderMonthCal();
+}
+function collectCalEvents(){
+  const ev = [];
+  DATA.projets.forEach(p => {
+    if (p['Date pose prévue']) ev.push({date:p['Date pose prévue'],type:'pose',label:'Pose · '+(p.Référence||'—'),projetId:p.id});
+    if (p['Date découverte']) ev.push({date:p['Date découverte'],type:'decouverte',label:'Découverte · '+(p.Référence||'—'),projetId:p.id});
+  });
+  DATA.commandes.forEach(c => {
+    if (c['Date livraison prévue']) {
+      const projetId = Array.isArray(c.Projet)?c.Projet[0]:null;
+      ev.push({date:c['Date livraison prévue'],type:'livraison',label:'Livraison · '+(c.Numéro||'—'),projetId});
+    }
+  });
+  DATA.devis.forEach(d => {
+    if (d['Date devis']) {
+      const projetId = Array.isArray(d.Projet)?d.Projet[0]:null;
+      ev.push({date:d['Date devis'],type:'devis',label:'Devis · '+(d['Numéro devis']||'—'),projetId});
+    }
+  });
+  return ev;
+}
+function renderMonthCal(){
+  if (CAL_YEAR===null) calToday();
+  const host = document.getElementById('month-cal');
+  if (!host) return;
+  const moisFr = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  document.getElementById('cal-month-label').textContent = moisFr[CAL_MONTH]+' '+CAL_YEAR;
+
+  const first = new Date(CAL_YEAR, CAL_MONTH, 1);
+  const last = new Date(CAL_YEAR, CAL_MONTH+1, 0);
+  // Lundi=0
+  let startDow = (first.getDay()+6)%7;
+  const totalDays = last.getDate();
+  const today = new Date().toISOString().slice(0,10);
+
+  const events = collectCalEvents();
+  const byDay = {};
+  events.forEach(e => { (byDay[e.date]=byDay[e.date]||[]).push(e); });
+
+  const cells = [];
+  for (let i=0;i<startDow;i++) cells.push({empty:true});
+  for (let d=1;d<=totalDays;d++) {
+    const iso = `${CAL_YEAR}-${String(CAL_MONTH+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    cells.push({day:d,iso,events:byDay[iso]||[],isToday:iso===today});
+  }
+  while (cells.length%7!==0) cells.push({empty:true});
+
+  const dows = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+  const html = `
+    <div class="cal-grid">
+      ${dows.map(d=>`<div class="cal-dow">${d}</div>`).join('')}
+      ${cells.map(c => c.empty
+        ? '<div class="cal-cell empty"></div>'
+        : `<div class="cal-cell${c.isToday?' today':''}">
+            <div class="cal-d">${c.day}</div>
+            ${c.events.slice(0,3).map(e=>`<div class="cal-ev cal-ev-${e.type}" ${e.projetId?`onclick="switchTab('projets');openProjetDetail('${e.projetId}')"`:''} title="${esc(e.label)}">${esc(e.label)}</div>`).join('')}
+            ${c.events.length>3?`<div class="cal-more">+${c.events.length-3}</div>`:''}
+          </div>`
+      ).join('')}
+    </div>`;
+  host.innerHTML = html;
 }
 
 function renderAgenda(){
