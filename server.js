@@ -1,5 +1,5 @@
 const express = require('express');
-const session = require('express-session');
+const session = require('cookie-session');
 const bcrypt = require('bcrypt');
 const path = require('path');
 const fetch = require('node-fetch');
@@ -52,11 +52,13 @@ const USERS = parseUsers(USERS_RAW);
 // --- Middleware ---
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.set('trust proxy', 1);
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'dev-only-change-me',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { httpOnly: true, secure: false, maxAge: 1000 * 60 * 60 * 24 * 30 }
+  name: 'tanguy.sid',
+  keys: [process.env.SESSION_SECRET || 'dev-only-change-me'],
+  httpOnly: true,
+  sameSite: 'lax',
+  maxAge: 1000 * 60 * 60 * 24 * 30
 }));
 
 function requireAuth(req, res, next) {
@@ -171,7 +173,7 @@ app.post('/api/login', async (req, res) => {
   res.json({ ok: true, user: req.session.user });
 });
 
-app.post('/api/logout', (req, res) => req.session.destroy(() => res.json({ ok: true })));
+app.post('/api/logout', (req, res) => { req.session = null; res.json({ ok: true }); });
 
 app.get('/api/me', (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: 'not authenticated' });
