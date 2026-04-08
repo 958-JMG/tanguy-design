@@ -227,10 +227,17 @@ app.get('/api/devis/:id/detail', requireAuth, async (req, res) => {
     if (!dr.ok) throw new Error('Devis introuvable');
     const devis = await dr.json();
 
-    // Zones liées
-    const zones = await atFetchFiltered(TABLES['zones-devis'].id, `FIND("${devisId}", ARRAYJOIN({Devis}))`);
-    const lignes = await atFetchFiltered(TABLES['lignes-devis'].id, `FIND("${devisId}", ARRAYJOIN({Devis}))`);
-    const echeances = await atFetchFiltered(TABLES['echeances-devis'].id, `FIND("${devisId}", ARRAYJOIN({Devis}))`);
+    // Zones / lignes / échéances : on fetch tout et on filtre par l'ID du devis lié
+    // (ARRAYJOIN sur un linked field renvoie la valeur primaire, pas les IDs)
+    const linkedToDevis = (rec) => Array.isArray(rec.fields?.Devis) && rec.fields.Devis.includes(devisId);
+    const [allZones, allLignes, allEcheances] = await Promise.all([
+      atFetchAll(TABLES['zones-devis'].id),
+      atFetchAll(TABLES['lignes-devis'].id),
+      atFetchAll(TABLES['echeances-devis'].id)
+    ]);
+    const zones = allZones.filter(linkedToDevis);
+    const lignes = allLignes.filter(linkedToDevis);
+    const echeances = allEcheances.filter(linkedToDevis);
 
     res.json({ ok: true, devis, zones, lignes, echeances });
   } catch (e) {
