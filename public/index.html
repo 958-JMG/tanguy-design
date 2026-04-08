@@ -50,6 +50,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 .nb.on{color:var(--ink);border-bottom-color:var(--gold)}
 .nb:hover:not(.on){color:var(--ink2)}
 .nb .count{font-family:'DM Mono',monospace;font-size:11px;color:var(--ink4);margin-left:6px;font-weight:400}
+.subnav{background:#faf8f4;border-bottom:1px solid var(--border);padding:0 16px;display:none;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.subnav.on{display:flex}
+.subnav::-webkit-scrollbar{display:none}
+.snb{font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);padding:10px 14px;cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;font-weight:500}
+.snb.on{color:var(--gold);border-bottom-color:var(--gold)}
+.snb:hover:not(.on){color:var(--ink)}
+.snb .count{font-size:10px;color:var(--ink4);margin-left:5px}
 
 /* Shell */
 .shell{max-width:1080px;margin:0 auto;padding:20px 16px 80px}
@@ -457,17 +464,21 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 </div>
 
 <nav class="nav">
-  <button class="nb on" data-tab="dashboard">Dashboard</button>
+  <button class="nb on" data-tab="dashboard">Accueil</button>
   <button class="nb" data-tab="projets">Projets <span class="count" id="cn-projets"></span></button>
-  <button class="nb" data-tab="clients">Clients <span class="count" id="cn-clients"></span></button>
-  <button class="nb" data-tab="artisans">Artisans <span class="count" id="cn-artisans"></span></button>
-  <button class="nb" data-tab="fournisseurs">Fournisseurs <span class="count" id="cn-fournisseurs"></span></button>
-  <button class="nb" data-tab="commandes">Commandes <span class="count" id="cn-commandes"></span></button>
   <button class="nb" data-tab="taches">Tâches <span class="count" id="cn-taches"></span></button>
-  <button class="nb" data-tab="sav">SAV <span class="count" id="cn-sav"></span></button>
-  <button class="nb" data-tab="devis">Devis <span class="count" id="cn-devis"></span></button>
-  <button class="nb" data-tab="decouverte">Découverte <span class="count" id="cn-fiches-decouverte"></span></button>
-  <button class="nb" data-tab="plaud">Plaud <span class="count" id="cn-reunions-plaud"></span></button>
+  <button class="nb" data-tab="clients">Clients <span class="count" id="cn-clients"></span></button>
+</nav>
+
+<nav class="subnav" id="subnav">
+  <button class="snb" data-tab="projets">Projets</button>
+  <button class="snb" data-tab="devis">Devis <span class="count" id="cn-devis"></span></button>
+  <button class="snb" data-tab="decouverte">Découverte <span class="count" id="cn-fiches-decouverte"></span></button>
+  <button class="snb" data-tab="plaud">Plaud <span class="count" id="cn-reunions-plaud"></span></button>
+  <button class="snb" data-tab="commandes">Commandes <span class="count" id="cn-commandes"></span></button>
+  <button class="snb" data-tab="artisans">Artisans <span class="count" id="cn-artisans"></span></button>
+  <button class="snb" data-tab="fournisseurs">Fournisseurs <span class="count" id="cn-fournisseurs"></span></button>
+  <button class="snb" data-tab="sav">SAV <span class="count" id="cn-sav"></span></button>
 </nav>
 
 <main class="shell">
@@ -483,10 +494,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
       <div class="new-menu">
         <button class="new-btn" onclick="toggleNewMenu(event)">+ Nouveau ▾</button>
         <div class="new-pop" id="new-pop">
-          <button onclick="closeNewMenu();switchTab('projets');openModal('projets')">Projet</button>
-          <button onclick="closeNewMenu();switchTab('devis');document.getElementById('devis-pdf-input').click()">Devis (PDF)</button>
-          <button onclick="closeNewMenu();switchTab('taches');openModal('taches')">Tâche</button>
-          <button onclick="closeNewMenu();switchTab('clients');openClientDetail(null)">Client</button>
+          <button onclick="closeNewMenu();switchTab('clients');openClientDetail(null)">＋ Client</button>
+          <button onclick="closeNewMenu();switchTab('projets');openModal('projets')">＋ Projet</button>
+          <button onclick="closeNewMenu();switchTab('devis');document.getElementById('devis-pdf-input').click()">＋ Devis (PDF)</button>
+          <button onclick="closeNewMenu();openTaskEdit(null)">＋ Tâche</button>
+          <button onclick="closeNewMenu();switchTab('artisans');openModal('artisans')">＋ Artisan</button>
+          <button onclick="closeNewMenu();switchTab('fournisseurs');openModal('fournisseurs')">＋ Fournisseur</button>
+          <button onclick="closeNewMenu();switchTab('commandes');openModal('commandes')">＋ Commande</button>
+          <button onclick="closeNewMenu();switchTab('sav');openModal('sav')">＋ Ticket SAV</button>
         </div>
       </div>
     </div>
@@ -628,7 +643,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
           <option value="Sébastien">Sébastien</option>
           <option value="Marine">Marine</option>
         </select>
-        <button class="abtn primary" onclick="openModal('taches')">+ Nouvelle tâche</button>
+        <button class="abtn primary" onclick="openTaskEdit(null)">+ Nouvelle tâche</button>
       </div>
     </div>
     <div id="taches-kanban"></div>
@@ -1389,10 +1404,26 @@ async function deleteProjet(projetId){
   finally { hideLoader(); }
 }
 
+const PROJET_GROUP = ['projets','devis','decouverte','plaud','commandes','artisans','fournisseurs','sav'];
 function switchTab(tabName){
-  document.querySelectorAll('.nb').forEach(b => b.classList.toggle('on', b.dataset.tab===tabName));
+  // Map sub-nav tab → which top-level button stays highlighted
+  const inGroup = PROJET_GROUP.includes(tabName);
+  const topTab = inGroup ? 'projets' : tabName;
+  document.querySelectorAll('.nb').forEach(b => b.classList.toggle('on', b.dataset.tab===topTab));
   document.querySelectorAll('.scr').forEach(s => s.classList.toggle('on', s.id==='scr-'+tabName));
+  // Sub-nav visibility + active state
+  const subnav = document.getElementById('subnav');
+  if (subnav) {
+    subnav.classList.toggle('on', inGroup);
+    subnav.querySelectorAll('.snb').forEach(b => b.classList.toggle('on', b.dataset.tab===tabName));
+  }
+  window.scrollTo({top:0,behavior:'instant'});
 }
+// Wire sub-nav click
+document.addEventListener('click', e=>{
+  const snb = e.target.closest('.snb');
+  if (snb) switchTab(snb.dataset.tab);
+});
 
 // ============ CLIENT DETAIL (modal) ============
 async function openClientDetail(clientId){
@@ -1510,7 +1541,7 @@ function kanbanCard(t){
   const prioClass = {'Haute':'b-red','Moyenne':'b-amber','Basse':'b-gray'}[t.Priorité]||'b-gray';
   const overdue = t.Échéance && t.Échéance < new Date().toISOString().slice(0,10) && t.Statut !== 'Terminée';
   const persons = ['Virginie','Solène','Sébastien','Marine'];
-  return `<div class="kanban-card" draggable="true" ondragstart="event.dataTransfer.setData('rid','${t.id}')">
+  return `<div class="kanban-card" draggable="true" ondragstart="event.dataTransfer.setData('rid','${t.id}')" onclick="if(!event.target.closest('.kc-assign'))openTaskEdit('${t.id}')" style="cursor:pointer">
     <div class="kc-title">${esc(t.Titre||'—')}</div>
     <div class="kc-meta">
       <span class="badge ${prioClass}">${esc(t.Priorité||'—')}</span>
@@ -1521,6 +1552,77 @@ function kanbanCard(t){
     ${t.Échéance?`<div class="kc-date${overdue?' overdue':''}">📅 ${esc(t.Échéance)}</div>`:''}
     ${t.Description?`<div class="kc-desc">${esc(t.Description.slice(0,90))}${t.Description.length>90?'…':''}</div>`:''}
   </div>`;
+}
+
+// ============ TASK EDIT MODAL ============
+function openTaskEdit(taskId){
+  const isNew = !taskId;
+  const t = isNew ? {id:null,Titre:'',Description:'',Priorité:'Moyenne','Assignée à':'',Statut:'À faire',Échéance:''}
+                  : (DATA.taches.find(x=>x.id===taskId)||{});
+  const persons = ['','Virginie','Solène','Sébastien','Marine'];
+  const prios = ['Basse','Moyenne','Haute'];
+  const statuts = ['À faire','En cours','Terminée'];
+  const html = `
+    <div class="modal-bg on" id="task-edit-bg" onclick="if(event.target===this)closeTaskEdit()">
+      <div class="modal-card" style="max-width:520px">
+        <div class="modal-head">
+          <div class="modal-title">${isNew?'Nouvelle tâche':'Modifier la tâche'}</div>
+          <button class="modal-close" onclick="closeTaskEdit()">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-row"><label>Titre *</label><input id="te-Titre" value="${esc(t.Titre||'')}"></div>
+          <div class="form-row"><label>Description</label><textarea id="te-Description" rows="3">${esc(t.Description||'')}</textarea></div>
+          <div class="form-grid2">
+            <div class="form-row"><label>Statut</label><select id="te-Statut">${statuts.map(s=>`<option ${t.Statut===s?'selected':''}>${s}</option>`).join('')}</select></div>
+            <div class="form-row"><label>Priorité</label><select id="te-Priorite">${prios.map(p=>`<option ${t.Priorité===p?'selected':''}>${p}</option>`).join('')}</select></div>
+            <div class="form-row"><label>Assignée à</label><select id="te-Assignee">${persons.map(p=>`<option ${(t['Assignée à']||'')===p?'selected':''}>${p}</option>`).join('')}</select></div>
+            <div class="form-row"><label>Échéance</label><input id="te-Echeance" type="date" value="${esc(t.Échéance||'')}"></div>
+          </div>
+        </div>
+        <div class="modal-foot" style="display:flex;justify-content:space-between;gap:8px;padding:14px 20px;border-top:1px solid var(--border)">
+          ${isNew?'<span></span>':`<button class="abtn" style="color:#c25656;border-color:#e0a8a8" onclick="deleteTask('${t.id}')">Supprimer</button>`}
+          <div style="display:flex;gap:8px">
+            <button class="abtn" onclick="closeTaskEdit()">Annuler</button>
+            <button class="abtn primary" onclick="saveTaskEdit('${t.id||''}')">Enregistrer</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  const host = document.createElement('div');
+  host.id = 'task-edit-host';
+  host.innerHTML = html;
+  document.body.appendChild(host);
+}
+function closeTaskEdit(){ document.getElementById('task-edit-host')?.remove(); }
+async function saveTaskEdit(taskId){
+  const fields = {
+    Titre: document.getElementById('te-Titre').value.trim(),
+    Description: document.getElementById('te-Description').value.trim(),
+    Statut: document.getElementById('te-Statut').value,
+    Priorité: document.getElementById('te-Priorite').value,
+    'Assignée à': document.getElementById('te-Assignee').value,
+    Échéance: document.getElementById('te-Echeance').value || null,
+  };
+  if (!fields.Titre) { toastError('Titre obligatoire'); return; }
+  try {
+    const url = taskId ? '/api/data/taches/'+taskId : '/api/data/taches';
+    const method = taskId ? 'PATCH' : 'POST';
+    const r = await fetch(url, {method,headers:{'Content-Type':'application/json'},body:JSON.stringify({fields})});
+    if (!r.ok) throw new Error((await r.json()).error||'erreur');
+    toastSuccess(taskId?'Tâche mise à jour':'Tâche créée');
+    closeTaskEdit();
+    await loadAll();
+  } catch(e) { toastError('Erreur : '+e.message); }
+}
+async function deleteTask(taskId){
+  if (!confirm('Supprimer définitivement cette tâche ?')) return;
+  try {
+    const r = await fetch('/api/data/taches/'+taskId, {method:'DELETE'});
+    if (!r.ok) throw new Error('erreur');
+    toastSuccess('Tâche supprimée');
+    closeTaskEdit();
+    await loadAll();
+  } catch(e) { toastError('Erreur : '+e.message); }
 }
 async function reassignTask(taskId, newPerson){
   const t = DATA.taches.find(x=>x.id===taskId);
@@ -2018,11 +2120,7 @@ async function submitPlaud(){
 }
 
 // ============ TABS ============
-$$('.nb').forEach(btn => btn.addEventListener('click', () => {
-  $$('.nb').forEach(b => b.classList.toggle('on', b===btn));
-  const tab = btn.dataset.tab;
-  $$('.scr').forEach(s => s.classList.toggle('on', s.id === 'scr-'+tab));
-}));
+$$('.nb').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
 
 // ============ MODAL (formulaires de création) ============
 const FORMS = {
