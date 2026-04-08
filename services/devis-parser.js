@@ -144,7 +144,7 @@ async function parseDevisPdf(pdfBuffer) {
 
   const response = await client.messages.create({
     model: MODEL,
-    max_tokens: 16000,
+    max_tokens: 64000,
     messages: [
       {
         role: 'user',
