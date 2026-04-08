@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tanguy Design — Connexion</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,sans-serif}
+body{background:#F7F4EF;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+.box{background:#fff;padding:40px;border-radius:8px;box-shadow:0 2px 20px rgba(0,0,0,.06);width:100%;max-width:360px}
+h1{font-size:22px;font-weight:500;margin-bottom:6px;color:#1A1916}
+.sub{font-size:13px;color:#8A8680;margin-bottom:24px}
+label{display:block;font-size:12px;color:#8A8680;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+input{width:100%;padding:12px;border:1px solid #E5E0D8;border-radius:6px;font-size:15px;margin-bottom:16px;background:#FAFAF7}
+input:focus{outline:none;border-color:#1A1916}
+button{width:100%;padding:13px;background:#1A1916;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer;font-weight:500}
+button:hover{background:#000}
+.err{background:#FEE;color:#C33;padding:10px;border-radius:6px;font-size:13px;margin-bottom:16px;display:none}
+</style>
+</head>
+<body>
+<form class="box" onsubmit="return doLogin(event)">
+  <h1>Tanguy Design</h1>
+  <div class="sub">Cockpit chantiers — connexion</div>
+  <div class="err" id="err"></div>
+  <label>Identifiant</label>
+  <input id="login" autocomplete="username" autofocus required>
+  <label>Mot de passe</label>
+  <input id="password" type="password" autocomplete="current-password" required>
+  <button type="submit">Se connecter</button>
+</form>
+<script>
+async function doLogin(e){
+  e.preventDefault();
+  const err=document.getElementById('err');err.style.display='none';
+  const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({login:login.value,password:password.value})});
+  if(r.ok){location.href='/';}
+  else{const d=await r.json().catch(()=>({}));err.textContent=d.error||'Erreur';err.style.display='block';}
+  return false;
+}
+</script>
+</body>
+</html>
