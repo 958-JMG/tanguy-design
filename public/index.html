@@ -166,6 +166,46 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 .kc-date.overdue{color:#B83A3A;font-weight:600}
 .kc-desc{font-size:11px;color:var(--ink4);margin-top:4px;line-height:1.4}
 @media(max-width:900px){.kanban-grid{grid-template-columns:1fr}}
+.kc-assign{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3);background:transparent;border:1px solid var(--border);border-radius:3px;padding:2px 6px;cursor:pointer;outline:none}
+.kc-assign:hover{border-color:var(--gold);color:var(--ink)}
+/* Modal client */
+.modal-bg{position:fixed;inset:0;background:rgba(26,25,22,.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
+.modal-card{background:var(--paper);border-radius:8px;max-width:640px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.client-modal{max-width:680px}
+.modal-head{display:flex;justify-content:space-between;align-items:center;padding:18px 22px;border-bottom:1px solid var(--border)}
+.modal-title{font-family:'DM Serif Display',serif;font-size:22px;color:var(--ink)}
+.modal-close{background:transparent;border:none;font-size:28px;color:var(--ink3);cursor:pointer;line-height:1;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%}
+.modal-close:hover{background:var(--ink);color:var(--paper)}
+.modal-body{padding:20px 22px;overflow-y:auto;flex:1}
+.modal-foot{display:flex;justify-content:space-between;align-items:center;padding:14px 22px;border-top:1px solid var(--border);background:#fff;border-radius:0 0 8px 8px}
+.form-row{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
+.form-row label{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink4);font-weight:500}
+.form-row input,.form-row select,.form-row textarea{padding:9px 11px;border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:13px;background:#fff;color:var(--ink);outline:none}
+.form-row input:focus,.form-row select:focus,.form-row textarea:focus{border-color:var(--gold)}
+.form-row textarea{resize:vertical;font-family:inherit}
+.form-grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.linked-block{margin-top:18px;padding-top:18px;border-top:1px solid var(--border)}
+.linked-title{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink4);margin-bottom:8px}
+.linked-item{padding:8px 12px;background:#fff;border:1px solid var(--border);border-radius:4px;margin-bottom:6px;font-size:13px;cursor:pointer}
+.linked-item:hover{border-color:var(--gold);background:var(--gold-bg)}
+/* Projet detail */
+.proj-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px 24px;margin-top:10px}
+.proj-grid > div{display:flex;flex-direction:column;gap:4px}
+.proj-lbl{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink4)}
+.proj-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.proj-row{display:flex;justify-content:space-between;align-items:center;padding:11px 14px;background:#fff;border:1px solid var(--border);border-radius:5px;font-size:13px;cursor:pointer;transition:border-color .12s}
+.proj-row:hover{border-color:var(--gold)}
+/* Timeline */
+.timeline{position:relative;padding-left:22px;margin-top:12px}
+.timeline::before{content:'';position:absolute;left:6px;top:6px;bottom:6px;width:2px;background:var(--border)}
+.tl-item{position:relative;padding:10px 0 10px 16px;display:flex;gap:14px;align-items:baseline}
+.tl-item::before{content:'';position:absolute;left:-22px;top:14px;width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid var(--gold)}
+.tl-item.tl-signe::before{background:#5BAA6E;border-color:#5BAA6E}
+.tl-item.tl-pose::before{background:var(--amber);border-color:var(--amber)}
+.tl-item.tl-livraison::before{background:var(--ink2);border-color:var(--ink2)}
+.tl-date{font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);min-width:90px}
+.tl-label{font-size:13px;color:var(--ink)}
+@media(max-width:700px){.proj-grid{grid-template-columns:1fr}.form-grid2{grid-template-columns:1fr}}
 
 /* Découverte form */
 .decouverte-form{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:22px;margin-top:10px}
@@ -302,13 +342,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 
   <!-- PROJETS -->
   <section class="scr" id="scr-projets">
-    <div class="sh"><div class="st">Projets · tous statuts</div><button class="abtn primary" onclick="openModal('projets')">+ Nouveau projet</button></div>
-    <div class="list" id="list-projets"></div>
+    <div id="projets-list-view">
+      <div class="sh"><div class="st">Projets · tous statuts</div><button class="abtn primary" onclick="openModal('projets')">+ Nouveau projet</button></div>
+      <div class="list" id="list-projets"></div>
+    </div>
+    <div id="projet-detail-view" style="display:none"></div>
   </section>
 
   <!-- CLIENTS -->
   <section class="scr" id="scr-clients">
-    <div class="sh"><div class="st">Clients</div><button class="abtn primary" onclick="openModal('clients')">+ Nouveau client</button></div>
+    <div class="sh">
+      <div class="st">Clients · <span id="clients-count-badge">0</span></div>
+      <div style="display:flex;gap:8px;align-items:center;flex:1;justify-content:flex-end;max-width:600px">
+        <input id="clients-search" type="search" placeholder="🔎 Rechercher nom, prénom, email, téléphone, ville…" oninput="renderClients()" style="flex:1;padding:9px 14px;border:1px solid var(--border);border-radius:5px;font-family:inherit;font-size:13px;background:#fff;outline:none">
+        <button class="abtn primary" onclick="openClientDetail(null)">+ Nouveau</button>
+      </div>
+    </div>
     <div class="list" id="list-clients"></div>
   </section>
 
@@ -548,7 +597,7 @@ function projetCard(p){
     'Découverte':'b-gray','Dessin':'b-blue','Devis':'b-amber','Signé':'b-green',
     'Commandes':'b-blue','Pose':'b-amber','SAV':'b-red','Terminé':'b-gray'
   }[p.Statut] || 'b-gray';
-  return `<div class="card">
+  return `<div class="card" onclick="openProjetDetail('${p.id}')" style="cursor:pointer">
     <div class="card-top">
       <div class="card-nom">${esc(p.Référence||'—')} <span class="badge ${statutClass}">${esc(p.Statut||'—')}</span></div>
       <div class="card-amt">${euros(p['Budget HT'])}</div>
@@ -561,7 +610,7 @@ function projetCard(p){
 }
 
 function clientCard(c){
-  return `<div class="card">
+  return `<div class="card" onclick="openClientDetail('${c.id}')" style="cursor:pointer">
     <div class="card-top">
       <div class="card-nom">${esc(c.Nom||'—')} <span class="badge b-gray">${esc(c.Type||'—')}</span></div>
       <div class="card-amt">${esc(c.Source||'')}</div>
@@ -570,6 +619,7 @@ function clientCard(c){
       <span>${esc(c.Contact||'—')}</span>
       <span>${esc(c.Email||'')}</span>
       <span>${esc(c.Téléphone||'')}</span>
+      ${c.Adresse?`<span>${esc(c.Adresse.split('\n').pop())}</span>`:''}
     </div>
   </div>`;
 }
@@ -650,7 +700,261 @@ function emptyState(title, sub){
 }
 
 function renderProjets(){ $('#list-projets').innerHTML = DATA.projets.length ? DATA.projets.map(projetCard).join('') : emptyState('Aucun projet','Créez le premier projet chantier'); }
-function renderClients(){ $('#list-clients').innerHTML = DATA.clients.length ? DATA.clients.map(clientCard).join('') : emptyState('Aucun client','Ajoutez votre premier client'); }
+function renderClients(){
+  const q = (document.getElementById('clients-search')?.value||'').trim().toLowerCase();
+  let list = DATA.clients;
+  if (q) {
+    const tokens = q.split(/\s+/).filter(Boolean);
+    list = list.filter(c => {
+      const blob = [c.Nom,c.Contact,c.Email,c.Téléphone,c.Adresse,c.Notes,c.Type,c.Source].filter(Boolean).join(' ').toLowerCase();
+      return tokens.every(t => blob.includes(t));
+    });
+  }
+  list = list.slice().sort((a,b)=>(a.Nom||'').localeCompare(b.Nom||'','fr',{sensitivity:'base'}));
+  document.getElementById('clients-count-badge').textContent = list.length + (q?' / '+DATA.clients.length:'');
+  $('#list-clients').innerHTML = list.length ? list.slice(0,200).map(clientCard).join('') + (list.length>200?`<div class="muted" style="text-align:center;padding:14px;color:var(--ink4);font-size:11px">… ${list.length-200} autres résultats — affinez la recherche</div>`:'') : emptyState('Aucun résultat',q?'Essayez d\'autres mots-clés':'Ajoutez votre premier client');
+}
+
+// ============ PROJET DETAIL (page) ============
+let PROJET_EDIT = false;
+function openProjetDetail(projetId){
+  const p = DATA.projets.find(x => x.id === projetId);
+  if (!p) return;
+  PROJET_EDIT = false;
+  renderProjetDetail(p);
+  document.getElementById('projets-list-view').style.display = 'none';
+  document.getElementById('projet-detail-view').style.display = 'block';
+}
+function closeProjetDetail(){
+  document.getElementById('projet-detail-view').style.display = 'none';
+  document.getElementById('projets-list-view').style.display = 'block';
+}
+function toggleProjetEdit(on){ PROJET_EDIT = on; const p = DATA.projets.find(x=>x.id===CURRENT_PROJET_ID); if(p)renderProjetDetail(p); }
+let CURRENT_PROJET_ID = null;
+
+function renderProjetDetail(p){
+  CURRENT_PROJET_ID = p.id;
+  const editing = PROJET_EDIT;
+  const clientId = Array.isArray(p.Client) ? p.Client[0] : null;
+  const client = clientId ? DATA.clients.find(c => c.id === clientId) : null;
+
+  // Linked
+  const devisLies = DATA.devis.filter(d => Array.isArray(d.Projet) && d.Projet.includes(p.id))
+    .sort((a,b)=>(b['Date devis']||'').localeCompare(a['Date devis']||''));
+  const commandesLiees = DATA.commandes.filter(c => Array.isArray(c.Projet) && c.Projet.includes(p.id));
+  const tachesLiees = DATA.taches.filter(t => Array.isArray(t.Projet) && t.Projet.includes(p.id));
+
+  // Timeline events
+  const events = [];
+  if (p['Date découverte']) events.push({date:p['Date découverte'],label:'Découverte',type:'decouverte'});
+  devisLies.forEach(d => { if (d['Date devis']) events.push({date:d['Date devis'],label:`Devis ${d['Numéro devis']||''} · ${euros(d['Total TTC'])}`,type:d.Statut==='Signé'?'signe':'devis'}); });
+  commandesLiees.forEach(c => { if (c['Date création']) events.push({date:c['Date création'],label:`Commande ${c['Numéro']||''}`,type:'commande'}); if (c['Date livraison prévue']) events.push({date:c['Date livraison prévue'],label:`Livraison prévue ${c['Numéro']||''}`,type:'livraison'}); });
+  if (p['Date pose prévue']) events.push({date:p['Date pose prévue'],label:'Pose prévue',type:'pose'});
+  events.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+
+  const statuts = ['Découverte','Dessin','Devis','Signé','Commandes','Pose','SAV','Terminé'];
+  const statutClass = {'Découverte':'b-gray','Dessin':'b-blue','Devis':'b-amber','Signé':'b-green','Commandes':'b-blue','Pose':'b-amber','SAV':'b-red','Terminé':'b-gray'}[p.Statut]||'b-gray';
+
+  const fld = (key, val, type='text') => editing
+    ? `<input class="edit-inp" data-pf="${key}" value="${esc(val||'')}" ${type==='date'?'type="date"':''} ${type==='number'?'type="number" step="0.01"':''}>`
+    : `<strong>${type==='euros'?euros(val):type==='pct'?pct(val):esc(val||'—')}</strong>`;
+
+  const html = `
+    <button class="devis-back" onclick="closeProjetDetail()">← Retour aux projets</button>
+    <div class="devis-detail">
+      <div class="devis-header">
+        <div>
+          <div class="devis-title">${esc(p.Référence||'Projet')} <span class="badge ${statutClass}">${esc(p.Statut||'')}</span></div>
+          <div class="devis-sub">${client?`Client : <a href="#" onclick="event.preventDefault();openClientDetail('${client.id}')" style="color:var(--gold)">${esc(client.Nom)}</a>`:'Client non lié'}</div>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:24px">
+          <div>
+            <div class="devis-total-lbl">Budget HT</div>
+            <div class="devis-total">${euros(p['Budget HT'])}</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+            ${editing
+              ? `<button class="btn-primary" onclick="saveProjet('${p.id}')">Enregistrer</button><button class="btn-ghost" onclick="toggleProjetEdit(false)">Annuler</button>`
+              : `<button class="btn-ghost" onclick="toggleProjetEdit(true)">Modifier</button><button class="btn-danger" onclick="deleteProjet('${p.id}')">Supprimer</button>`}
+          </div>
+        </div>
+      </div>
+
+      <div class="zone-title">Informations</div>
+      <div class="proj-grid">
+        <div><span class="proj-lbl">Référence</span>${editing?fld('Référence',p.Référence):'<strong>'+esc(p.Référence||'—')+'</strong>'}</div>
+        <div><span class="proj-lbl">Statut</span>${editing?`<select class="edit-inp" data-pf="Statut">${statuts.map(s=>`<option ${p.Statut===s?'selected':''}>${s}</option>`).join('')}</select>`:'<strong>'+esc(p.Statut||'—')+'</strong>'}</div>
+        <div><span class="proj-lbl">Budget HT</span>${editing?fld('Budget HT',p['Budget HT'],'number'):'<strong>'+euros(p['Budget HT'])+'</strong>'}</div>
+        <div><span class="proj-lbl">Marge prévisionnelle</span>${editing?fld('Marge prévisionnelle',p['Marge prévisionnelle'],'number'):'<strong>'+pct(p['Marge prévisionnelle'])+'</strong>'}</div>
+        <div><span class="proj-lbl">Date découverte</span>${editing?fld('Date découverte',p['Date découverte'],'date'):'<strong>'+esc(p['Date découverte']||'—')+'</strong>'}</div>
+        <div><span class="proj-lbl">Date pose prévue</span>${editing?fld('Date pose prévue',p['Date pose prévue'],'date'):'<strong>'+esc(p['Date pose prévue']||'—')+'</strong>'}</div>
+      </div>
+      <div class="form-row" style="margin-top:14px"><label class="proj-lbl">Description</label>${editing?`<textarea class="edit-inp" data-pf="Description" rows="3">${esc(p.Description||'')}</textarea>`:'<div style="font-size:13px;color:var(--ink2);white-space:pre-wrap">'+esc(p.Description||'—')+'</div>'}</div>
+
+      ${events.length ? `
+        <div class="zone-title" style="margin-top:24px">Timeline du chantier</div>
+        <div class="timeline">
+          ${events.map(e=>`<div class="tl-item tl-${e.type}"><div class="tl-date">${esc(e.date)}</div><div class="tl-label">${esc(e.label)}</div></div>`).join('')}
+        </div>` : ''}
+
+      <div class="zone-title" style="margin-top:24px">Devis & bons de commande (${devisLies.length})</div>
+      ${devisLies.length ? `<div class="proj-list">${devisLies.map(d=>{
+        const sc = {'Brouillon':'b-gray','Envoyé':'b-amber','Signé':'b-green','Annulé':'b-red'}[d.Statut]||'b-gray';
+        return `<div class="proj-row" onclick="switchTab('devis');openDevisDetail('${d.id}')">
+          <div><strong>${esc(d['Numéro devis']||'—')}</strong> <span class="badge ${sc}">${esc(d.Statut||'')}</span> <span class="badge b-blue">${esc(d.Milieu||'')}</span></div>
+          <div style="font-family:'DM Mono',monospace">${euros(d['Total TTC'])}</div>
+        </div>`;
+      }).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucun devis</div>'}
+
+      <div class="zone-title" style="margin-top:24px">Commandes fournisseurs (${commandesLiees.length})</div>
+      ${commandesLiees.length ? `<div class="proj-list">${commandesLiees.map(c=>{
+        const sc = {'Créée':'b-gray','Envoyée':'b-amber','Confirmée':'b-blue','Livrée':'b-green','Posée':'b-ink'}[c.Statut]||'b-gray';
+        return `<div class="proj-row">
+          <div><strong>${esc(c['Numéro']||'—')}</strong> <span class="badge ${sc}">${esc(c.Statut||'')}</span></div>
+          <div style="font-family:'DM Mono',monospace">${euros(c['Montant HT'])}</div>
+        </div>`;
+      }).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucune commande</div>'}
+
+      <div class="zone-title" style="margin-top:24px">Tâches (${tachesLiees.length})</div>
+      ${tachesLiees.length ? `<div class="proj-list">${tachesLiees.map(t=>{
+        const pc = {'Haute':'b-red','Moyenne':'b-amber','Basse':'b-gray'}[t.Priorité]||'b-gray';
+        const sc = {'À faire':'b-gray','En cours':'b-amber','Terminée':'b-green'}[t.Statut]||'b-gray';
+        return `<div class="proj-row">
+          <div><strong>${esc(t.Titre||'—')}</strong> <span class="badge ${pc}">${esc(t.Priorité||'')}</span> <span class="badge ${sc}">${esc(t.Statut||'')}</span></div>
+          <div style="font-size:11px;color:var(--ink3)">${esc(t['Assignée à']||'')} · ${esc(t.Échéance||'')}</div>
+        </div>`;
+      }).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucune tâche</div>'}
+
+    </div>`;
+  document.getElementById('projet-detail-view').innerHTML = html;
+}
+
+async function saveProjet(projetId){
+  const fields = {};
+  document.querySelectorAll('#projet-detail-view [data-pf]').forEach(inp => {
+    const key = inp.dataset.pf;
+    let v = inp.value;
+    if (['Budget HT','Marge prévisionnelle'].includes(key)) v = v?parseFloat(v):null;
+    if (v !== '' && v !== null) fields[key] = v;
+  });
+  showLoader('Enregistrement…');
+  try {
+    await fetch('/api/data/projets/'+projetId, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields})});
+    await loadAll();
+    PROJET_EDIT = false;
+    const p = DATA.projets.find(x=>x.id===projetId);
+    if (p) renderProjetDetail(p);
+  } catch(e) { alert('Erreur: '+e.message); }
+  finally { hideLoader(); }
+}
+async function deleteProjet(projetId){
+  if (!confirm('Supprimer ce projet ?\n\nLes devis, commandes et tâches liés ne seront PAS supprimés mais perdront le lien.')) return;
+  showLoader('Suppression…');
+  try {
+    await fetch('/api/data/projets/'+projetId, {method:'DELETE'});
+    await loadAll();
+    closeProjetDetail();
+  } catch(e) { alert('Erreur: '+e.message); }
+  finally { hideLoader(); }
+}
+
+function switchTab(tabName){
+  document.querySelectorAll('.nb').forEach(b => b.classList.toggle('on', b.dataset.tab===tabName));
+  document.querySelectorAll('.scr').forEach(s => s.classList.toggle('on', s.id==='scr-'+tabName));
+}
+
+// ============ CLIENT DETAIL (modal) ============
+async function openClientDetail(clientId){
+  const isNew = !clientId;
+  const c = isNew ? { id:null, Nom:'', Contact:'', Email:'', Téléphone:'', Adresse:'', Type:'Particulier', Source:'', Notes:'' }
+                  : (DATA.clients.find(x => x.id === clientId) || {});
+  // Linked records
+  const linkedDevis = DATA.devis.filter(d => Array.isArray(d.Client) && d.Client.includes(clientId));
+  const linkedProjets = DATA.projets.filter(p => Array.isArray(p.Client) && p.Client.includes(clientId));
+
+  const html = `
+    <div class="modal-bg" onclick="if(event.target===this)closeClientDetail()">
+      <div class="modal-card client-modal">
+        <div class="modal-head">
+          <div class="modal-title">${isNew?'Nouveau client':esc(c.Nom||'Client')}</div>
+          <button class="modal-close" onclick="closeClientDetail()">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-row"><label>Nom</label><input id="cf-Nom" value="${esc(c.Nom||'')}"></div>
+          <div class="form-row"><label>Contact (prénoms)</label><input id="cf-Contact" value="${esc(c.Contact||'')}"></div>
+          <div class="form-grid2">
+            <div class="form-row"><label>Email</label><input id="cf-Email" type="email" value="${esc(c.Email||'')}"></div>
+            <div class="form-row"><label>Téléphone</label><input id="cf-Téléphone" value="${esc(c.Téléphone||'')}"></div>
+          </div>
+          <div class="form-row"><label>Adresse</label><textarea id="cf-Adresse" rows="3">${esc(c.Adresse||'')}</textarea></div>
+          <div class="form-grid2">
+            <div class="form-row"><label>Type</label>
+              <select id="cf-Type">
+                <option ${c.Type==='Particulier'?'selected':''}>Particulier</option>
+                <option ${c.Type==='Professionnel'?'selected':''}>Professionnel</option>
+              </select>
+            </div>
+            <div class="form-row"><label>Source</label>
+              <select id="cf-Source">
+                <option value="">—</option>
+                ${['Showroom','Architecte','Recommandation','Web'].map(s=>`<option ${c.Source===s?'selected':''}>${s}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="form-row"><label>Notes / Suivi</label><textarea id="cf-Notes" rows="5" placeholder="Suivi commercial, historique, préférences…">${esc(c.Notes||'')}</textarea></div>
+
+          ${!isNew && (linkedProjets.length||linkedDevis.length) ? `
+            <div class="linked-block">
+              <div class="linked-title">Projets liés (${linkedProjets.length})</div>
+              ${linkedProjets.length ? linkedProjets.map(p=>`<div class="linked-item" onclick="closeClientDetail();openProjetDetail('${p.id}')">${esc(p.Référence||'—')} <span style="color:var(--ink4)">· ${esc(p.Statut||'')}</span></div>`).join('') : '<div class="muted" style="font-size:11px;color:var(--ink4)">Aucun</div>'}
+              <div class="linked-title" style="margin-top:14px">Devis liés (${linkedDevis.length})</div>
+              ${linkedDevis.length ? linkedDevis.map(d=>`<div class="linked-item" onclick="closeClientDetail();switchTab('devis');openDevisDetail('${d.id}')">${esc(d['Numéro devis']||'—')} <span style="color:var(--ink4)">· ${euros(d['Total TTC'])}</span></div>`).join('') : '<div class="muted" style="font-size:11px;color:var(--ink4)">Aucun</div>'}
+            </div>` : ''}
+        </div>
+        <div class="modal-foot">
+          ${!isNew?`<button class="btn-danger" onclick="deleteClient('${clientId}')">Supprimer</button>`:'<span></span>'}
+          <div style="display:flex;gap:8px">
+            <button class="btn-ghost" onclick="closeClientDetail()">Annuler</button>
+            <button class="btn-primary" onclick="saveClient('${clientId||''}')">${isNew?'Créer':'Enregistrer'}</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  let host = document.getElementById('client-modal-host');
+  if (!host) { host = document.createElement('div'); host.id='client-modal-host'; document.body.appendChild(host); }
+  host.innerHTML = html;
+}
+function closeClientDetail(){ const h=document.getElementById('client-modal-host'); if(h)h.innerHTML=''; }
+
+async function saveClient(clientId){
+  const fields = {};
+  ['Nom','Contact','Email','Téléphone','Adresse','Type','Source','Notes'].forEach(k=>{
+    const v = document.getElementById('cf-'+k)?.value?.trim();
+    if (v) fields[k] = v;
+  });
+  if (!fields.Nom) { alert('Le nom est obligatoire'); return; }
+  showLoader('Enregistrement…');
+  try {
+    if (clientId) {
+      await fetch('/api/data/clients/'+clientId, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields})});
+    } else {
+      await fetch('/api/data/clients', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields})});
+    }
+    await loadAll();
+    closeClientDetail();
+  } catch(e) { alert('Erreur: '+e.message); }
+  finally { hideLoader(); }
+}
+async function deleteClient(clientId){
+  if (!confirm('Supprimer ce client ?\n\nLes projets/devis liés ne seront PAS supprimés mais perdront le lien.')) return;
+  showLoader('Suppression…');
+  try {
+    await fetch('/api/data/clients/'+clientId, {method:'DELETE'});
+    await loadAll();
+    closeClientDetail();
+  } catch(e) { alert('Erreur: '+e.message); }
+  finally { hideLoader(); }
+}
 function renderArtisans(){ $('#list-artisans').innerHTML = DATA.artisans.length ? DATA.artisans.map(artisanCard).join('') : emptyState('Aucun artisan','Ajoutez vos partenaires artisans'); }
 function renderFournisseurs(){ $('#list-fournisseurs').innerHTML = DATA.fournisseurs.length ? DATA.fournisseurs.map(fournisseurCard).join('') : emptyState('Aucun fournisseur','Ajoutez vos fournisseurs'); }
 function renderCommandes(){ $('#list-commandes').innerHTML = DATA.commandes.length ? DATA.commandes.map(commandeCard).join('') : emptyState('Aucune commande','Les commandes fournisseurs apparaîtront ici'); }
@@ -674,15 +978,27 @@ function renderTaches(){
 function kanbanCard(t){
   const prioClass = {'Haute':'b-red','Moyenne':'b-amber','Basse':'b-gray'}[t.Priorité]||'b-gray';
   const overdue = t.Échéance && t.Échéance < new Date().toISOString().slice(0,10) && t.Statut !== 'Terminée';
+  const persons = ['Virginie','Solène','Sébastien','Marine'];
   return `<div class="kanban-card" draggable="true" ondragstart="event.dataTransfer.setData('rid','${t.id}')">
     <div class="kc-title">${esc(t.Titre||'—')}</div>
     <div class="kc-meta">
       <span class="badge ${prioClass}">${esc(t.Priorité||'—')}</span>
-      <span class="kc-who">${esc(t['Assignée à']||'—')}</span>
+      <select class="kc-assign" onclick="event.stopPropagation()" onchange="reassignTask('${t.id}',this.value)">
+        ${persons.map(p=>`<option ${t['Assignée à']===p?'selected':''}>${p}</option>`).join('')}
+      </select>
     </div>
     ${t.Échéance?`<div class="kc-date${overdue?' overdue':''}">📅 ${esc(t.Échéance)}</div>`:''}
     ${t.Description?`<div class="kc-desc">${esc(t.Description.slice(0,90))}${t.Description.length>90?'…':''}</div>`:''}
   </div>`;
+}
+async function reassignTask(taskId, newPerson){
+  const t = DATA.taches.find(x=>x.id===taskId);
+  if (!t || t['Assignée à'] === newPerson) return;
+  t['Assignée à'] = newPerson;
+  renderTaches();
+  try {
+    await fetch('/api/data/taches/'+taskId, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{'Assignée à':newPerson}})});
+  } catch(e) { alert('Erreur: '+e.message); await loadAll(); }
 }
 async function dropTask(ev, newStatut){
   ev.preventDefault();
