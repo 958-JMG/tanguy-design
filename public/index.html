@@ -23,7 +23,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 .header{background:var(--ink);border-bottom:2px solid var(--gold);padding:14px 20px;display:flex;align-items:center;justify-content:center;position:relative;min-height:74px;color:var(--paper)}
 
 /* Logo lockup (reproduction typographique) */
-.logo{display:flex;flex-direction:column;align-items:center;gap:2px;user-select:none;color:var(--paper)}
+.logo{display:flex;align-items:center;justify-content:center;user-select:none}
+.logo-img{height:64px;width:auto;display:block;border-radius:4px}
+@media(max-width:700px){.logo-img{height:48px}}
 .logo-accent-wrap{display:flex;align-items:center;gap:5px;align-self:flex-start;margin-left:2px}
 .logo-bar{width:2px;height:14px;background:var(--gold)}
 .logo-accent{font-size:8px;color:var(--gold);font-weight:400;letter-spacing:.01em;line-height:1.1;text-align:left}
@@ -344,16 +346,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 
 <div class="header">
   <button class="logout-btn" onclick="logout()">◂ SORTIR</button>
-  <div class="logo">
-    <div class="logo-accent-wrap">
-      <div class="logo-bar"></div>
-      <div class="logo-accent">Architecture<br>— d'intérieur</div>
-    </div>
-    <div class="logo-main">
-      <div class="logo-tanguy">TANGUY</div>
-      <div class="logo-design">design</div>
-    </div>
-  </div>
+  <div class="logo"><img src="/img/logo.jpg" alt="Tanguy Design" class="logo-img"></div>
   <div class="header-right">
     <button class="search-btn" onclick="openSearch()" title="Recherche globale (⌘K)"><span class="sb-icon">🔎</span><span class="sb-txt">Rechercher…</span><span class="sb-kbd">⌘K</span></button>
     <div class="header-user" id="headerUser">—</div>
@@ -553,6 +546,15 @@ const esc = s => String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','
 const setSync = (state, txt) => { $('#syncDot').className='sync-dot '+state; $('#syncTxt').textContent=txt; };
 const showLoader = (txt) => { $('#loaderTxt').textContent=txt||'Chargement…'; $('#loaderOverlay').classList.add('on'); };
 const hideLoader = () => $('#loaderOverlay').classList.remove('on');
+
+function toggleCat(k){
+  const b = document.getElementById(k+'-body');
+  const t = document.getElementById(k+'-tog');
+  if (!b) return;
+  const open = b.style.display !== 'none';
+  b.style.display = open ? 'none' : 'block';
+  if (t) t.textContent = open ? '▸' : '▾';
+}
 
 // ============ TOAST ============
 let TOAST_ID = 0;
@@ -1486,7 +1488,6 @@ function renderDevisDetail(data){
       <div class="zone-title" style="margin-top:22px">Lignes · ${lignes.length} articles <span style="color:var(--ink4);font-size:11px;font-weight:400;text-transform:none;letter-spacing:0">— clique sur une catégorie pour déplier</span></div>
       ${lignesHtml}
 
-      <script>function toggleCat(k){const b=document.getElementById(k+'-body');const t=document.getElementById(k+'-tog');if(!b)return;const open=b.style.display!=='none';b.style.display=open?'none':'block';t.textContent=open?'▸':'▾';}<\/script>
 
       ${echeancesHtml}
 
