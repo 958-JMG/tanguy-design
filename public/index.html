@@ -907,7 +907,7 @@ fetch('/api/me').then(r=>r.json()).then(d=>{ window.ME = d.user||''; $('#headerU
 async function loadAll(){
   setSync('loading','chargement');
   try {
-    const tables = ['clients','projets','artisans','fournisseurs','commandes','taches','sav','devis','fiches-decouverte','reunions-plaud'];
+    const tables = ['clients','projets','artisans','fournisseurs','commandes','taches','sav','devis','fiches-decouverte','reunions-plaud','stock'];
     const results = await Promise.all(tables.map(t => fetch('/api/data/'+t).then(r=>r.json())));
     tables.forEach((t,i) => { DATA[t] = (results[i].records||[]).map(r=>({id:r.id, ...r.fields})); });
     renderAll();
@@ -1901,7 +1901,7 @@ function openStockEdit(stockId){
   const html = `<div class="modal-bg on" id="stock-edit-bg" onclick="if(event.target===this)closeStockEdit()">
     <div class="modal-card" style="max-width:560px">
       <div class="modal-head">
-        <div class="modal-title">${isNew?'Nouvel article stock':'Modifier l\\'article'}</div>
+        <div class="modal-title">${isNew?'Nouvel article stock':"Modifier l'article"}</div>
         <button class="modal-close" onclick="closeStockEdit()">×</button>
       </div>
       <div class="modal-body">
