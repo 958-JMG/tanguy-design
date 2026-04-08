@@ -44,10 +44,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 /* Nav */
 .nav{background:#fff;border-bottom:1px solid var(--border);padding:0 16px;display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
 .nav::-webkit-scrollbar{display:none}
-.nb{font-size:12px;color:var(--ink3);padding:12px 14px 11px;cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;flex-shrink:0;font-family:inherit}
-.nb.on{color:var(--ink);font-weight:500;border-bottom-color:var(--ink)}
+.nb{font-size:15px;color:var(--ink3);padding:16px 18px 14px;cursor:pointer;border:none;background:none;border-bottom:3px solid transparent;margin-bottom:-1px;white-space:nowrap;flex-shrink:0;font-family:inherit;font-weight:500;letter-spacing:.01em}
+.nb.on{color:var(--ink);border-bottom-color:var(--gold)}
 .nb:hover:not(.on){color:var(--ink2)}
-.nb .count{font-family:'DM Mono',monospace;font-size:9px;color:var(--ink4);margin-left:4px}
+.nb .count{font-family:'DM Mono',monospace;font-size:11px;color:var(--ink4);margin-left:6px;font-weight:400}
 
 /* Shell */
 .shell{max-width:1080px;margin:0 auto;padding:20px 16px 80px}
@@ -95,6 +95,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 .kcard:hover{border-color:var(--border2)}
 .kcard-nom{font-size:12px;font-weight:500;margin-bottom:3px;line-height:1.3}
 .kcard-meta{font-family:'DM Mono',monospace;font-size:10px;color:var(--ink4)}
+
+/* Agenda */
+.agenda{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.agenda-day{display:flex;gap:14px;background:var(--card);border:1px solid var(--border);border-radius:var(--r2);padding:11px 14px;align-items:flex-start}
+.agenda-day.today{border-color:var(--gold);background:var(--gold-bg)}
+.agenda-day.past{opacity:.55}
+.agenda-date{font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.04em;min-width:78px;flex-shrink:0;line-height:1.4}
+.agenda-date strong{display:block;color:var(--ink);font-size:14px;font-weight:500}
+.agenda-events{flex:1;display:flex;flex-direction:column;gap:4px}
+.agenda-event{font-size:13px;color:var(--ink2);display:flex;align-items:center;gap:8px;line-height:1.4}
+.agenda-event .ev-tag{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:3px;flex-shrink:0}
+.ev-pose{background:var(--gold-bg);color:var(--gold-dark)}
+.ev-livraison{background:var(--blue-bg);color:var(--blue)}
+.ev-commande{background:var(--paper);color:var(--ink3);border:1px solid var(--border)}
+.ev-sav{background:var(--red-bg);color:var(--red)}
+.ev-decouverte{background:var(--green-bg);color:var(--green)}
 
 /* Empty state */
 .empty{text-align:center;padding:40px 20px;color:var(--ink4);font-size:13px}
@@ -189,7 +205,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
       <div class="kpi"><div class="kpi-l">SAV ouverts</div><div class="kpi-v" id="kpi-sav">—</div><div class="kpi-s">non facturés</div></div>
     </div>
 
-    <div class="sh"><div class="st">Pipeline projets</div></div>
+    <div class="sh"><div class="st">Agenda · 30 prochains jours</div><div class="st" style="color:var(--ink3)">Poses · Livraisons · Commandes · SAV</div></div>
+    <div class="agenda" id="agenda"></div>
+
+    <div class="sh" style="margin-top:28px"><div class="st">Pipeline projets</div></div>
     <div class="kanban" id="pipeline"></div>
 
     <div class="sh" style="margin-top:28px"><div class="st">Tâches prioritaires</div></div>
@@ -313,6 +332,8 @@ function renderDashboard(){
   $('#kpi-taches').textContent = tachesEnCours.length;
   $('#kpi-sav').textContent = savOuverts.length;
 
+  renderAgenda();
+
   // Pipeline Kanban
   const pipe = $('#pipeline');
   pipe.innerHTML = PIPE_STATUTS.map(st => {
@@ -335,6 +356,54 @@ function renderDashboard(){
     })
     .slice(0,5);
   $('#dash-taches').innerHTML = topTaches.length ? topTaches.map(taskCard).join('') : emptyState('Aucune tâche','Les tâches en cours apparaîtront ici');
+}
+
+function renderAgenda(){
+  const events = [];
+  const push = (date, type, label, ref) => { if (date) events.push({date, type, label, ref}); };
+  DATA.projets.forEach(p => {
+    push(p['Date pose prévue'], 'pose', 'Pose ' + (p.Référence||''), p.id);
+    push(p['Date découverte'], 'decouverte', 'Découverte ' + (p.Référence||''), p.id);
+  });
+  DATA.commandes.forEach(c => {
+    push(c['Date livraison prévue'], 'livraison', 'Livraison ' + (c.Numéro||''), c.id);
+    push(c['Date création'], 'commande', 'Commande créée ' + (c.Numéro||''), c.id);
+  });
+  DATA.sav.forEach(s => {
+    push(s['Date réalisation'], 'sav', 'SAV ' + (s.Référence||''), s.id);
+    push(s['Date demande'], 'sav', 'Demande SAV ' + (s.Référence||''), s.id);
+  });
+  // Filtre 30 jours
+  const today = new Date(); today.setHours(0,0,0,0);
+  const horizon = new Date(today); horizon.setDate(horizon.getDate()+30);
+  const past = new Date(today); past.setDate(past.getDate()-7);
+  const inRange = events.filter(e => {
+    const d = new Date(e.date);
+    return d >= past && d <= horizon;
+  }).sort((a,b) => new Date(a.date) - new Date(b.date));
+  // Group par date
+  const groups = {};
+  inRange.forEach(e => { (groups[e.date] = groups[e.date]||[]).push(e); });
+  const dates = Object.keys(groups).sort();
+  if (!dates.length) {
+    $('#agenda').innerHTML = '<div class="empty"><strong>Aucun événement</strong>Les poses, livraisons et commandes des 30 prochains jours apparaîtront ici</div>';
+    return;
+  }
+  $('#agenda').innerHTML = dates.map(d => {
+    const dt = new Date(d);
+    const isToday = dt.getTime() === today.getTime();
+    const isPast = dt < today;
+    const cls = isToday ? 'today' : (isPast ? 'past' : '');
+    const day = dt.toLocaleDateString('fr-FR', {day:'2-digit'});
+    const month = dt.toLocaleDateString('fr-FR', {month:'short'}).replace('.','');
+    const wd = dt.toLocaleDateString('fr-FR', {weekday:'short'}).replace('.','');
+    return `<div class="agenda-day ${cls}">
+      <div class="agenda-date">${esc(wd)}<strong>${day} ${esc(month)}</strong>${isToday?'aujourd\'hui':''}</div>
+      <div class="agenda-events">
+        ${groups[d].map(e => `<div class="agenda-event"><span class="ev-tag ev-${e.type}">${e.type}</span>${esc(e.label)}</div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function projetCard(p){
