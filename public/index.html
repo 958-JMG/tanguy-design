@@ -666,6 +666,20 @@ function toggleDevisEdit(on){
   renderDevisDetail(DEVIS_CURRENT);
 }
 
+async function signDevis(devisId){
+  if (!confirm('Signer ce bon de commande ?\n\nCela va :\n- Passer le statut en SIGNÉ\n- Générer les commandes fournisseurs par catégorie\n- Créer les tâches de suivi (acompte, commandes, pose)\n- Passer le projet en statut "Commandes"')) return;
+  showLoader('Signature en cours…');
+  try {
+    const r = await fetch('/api/devis/'+devisId+'/sign', {method:'POST'});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error||'Erreur signature');
+    hideLoader();
+    alert(`✓ BC signé\n\n${d.commandes_creees} commande(s) fournisseur créée(s)\n${d.taches_creees} tâche(s) de suivi créée(s)`);
+    await loadAll();
+    openDevisDetail(devisId);
+  } catch(e) { hideLoader(); alert('Erreur: '+e.message); }
+}
+
 async function saveDevisEdits(){
   const inputs = document.querySelectorAll('#devis-detail-view [data-dirty-key]');
   const patches = {}; // { "lignes-devis/recXXX": { field: value } }
@@ -780,9 +794,13 @@ function renderDevisDetail(data){
       </tr>`).join('')}</tbody>
     </table>` : '';
 
+  const isSigned = dv.Statut === 'Signé';
   const actionsBar = editing
     ? `<div style="display:flex;gap:8px"><button class="btn-primary" onclick="saveDevisEdits()">Enregistrer</button><button class="btn-ghost" onclick="toggleDevisEdit(false)">Annuler</button></div>`
-    : `<div style="display:flex;gap:8px"><button class="btn-ghost" onclick="toggleDevisEdit(true)">Modifier</button></div>`;
+    : `<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn-ghost" onclick="toggleDevisEdit(true)">Modifier</button>
+        ${isSigned ? '' : `<button class="btn-primary" onclick="signDevis('${devisId}')">✓ Signer ce BC</button>`}
+      </div>`;
 
   $('#devis-detail-view').innerHTML = `
     <button class="devis-back" onclick="closeDevisDetail()">← Retour aux devis</button>

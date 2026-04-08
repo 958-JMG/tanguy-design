@@ -287,8 +287,48 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
       'Total TTC': parsed.totaux?.total_ttc || null,
       'Alertes parsing': parsed.alertes_parsing || ''
     };
-    if (projetId) devisFields['Projet'] = [projetId];
-    if (clientId) devisFields['Client'] = [clientId];
+    // --- Résolution Client (par nom normalisé) ---
+    let resolvedClientId = clientId;
+    if (!resolvedClientId && parsed.client?.nom) {
+      const nomNorm = String(parsed.client.nom).trim().toUpperCase().replace(/\s+/g,' ');
+      const allClients = await atFetchAll(TABLES.clients.id);
+      const match = allClients.find(c => (c.fields?.Nom||'').trim().toUpperCase().replace(/\s+/g,' ') === nomNorm);
+      if (match) {
+        resolvedClientId = match.id;
+        console.log(`[devis/import] client existant matché: ${match.fields.Nom}`);
+      } else {
+        const c = parsed.client;
+        const adresseLignes = [c.adresse, [c.cp, c.ville].filter(Boolean).join(' ')].filter(Boolean).join('\n');
+        const cf = { Nom: c.nom, Type: 'Particulier' };
+        if (c.civilite || c.prenom) cf.Contact = [c.civilite, c.prenom].filter(Boolean).join(' ');
+        if (c.email) cf.Email = c.email;
+        if (c.telephone_portable || c.telephone_domicile) cf['Téléphone'] = c.telephone_portable || c.telephone_domicile;
+        if (adresseLignes) cf.Adresse = adresseLignes;
+        cf.Notes = 'Créé automatiquement via import devis';
+        const nc = await atCreate(TABLES.clients.id, cf);
+        resolvedClientId = nc.id;
+        console.log(`[devis/import] nouveau client créé: ${c.nom}`);
+      }
+    }
+
+    // --- Résolution Projet (création auto si aucun) ---
+    let resolvedProjetId = projetId;
+    if (!resolvedProjetId && resolvedClientId) {
+      const ref = `${parsed.client?.nom || 'Projet'} · ${parsed.metadata?.milieu || ''}`.trim();
+      const pf = {
+        'Référence': ref,
+        'Client': [resolvedClientId],
+        'Statut': 'Devis',
+        'Description': `Projet créé automatiquement depuis le devis ${parsed.metadata?.numero_devis || ''}`
+      };
+      if (parsed.totaux?.total_ht_final) pf['Budget HT'] = parsed.totaux.total_ht_final;
+      const np = await atCreate(TABLES.projets.id, pf);
+      resolvedProjetId = np.id;
+      console.log(`[devis/import] projet créé: ${ref}`);
+    }
+
+    if (resolvedProjetId) devisFields['Projet'] = [resolvedProjetId];
+    if (resolvedClientId) devisFields['Client'] = [resolvedClientId];
 
     // Nettoyage des null
     Object.keys(devisFields).forEach(k => { if (devisFields[k] === null || devisFields[k] === '') delete devisFields[k]; });
@@ -395,6 +435,91 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
     });
   } catch (e) {
     console.error('[devis/import] error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- DEVIS : signature → génération commandes fournisseurs + tâches ---
+// Mapping catégorie devis → Type fournisseur
+const CAT_TO_FOURNISSEUR_TYPE = {
+  'Meubles': 'Meubles',
+  'Panneaux de recouvrement': 'Meubles',
+  'Electroménager': 'Électroménager',
+  'Eviers et robinetterie': 'Sanitaire',
+  'Sanitaires': 'Sanitaire',
+  'Produits de vente': 'Accessoires'
+  // Dépose et Divers : pas de commande fournisseur auto
+};
+
+app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
+  const devisId = req.params.id;
+  try {
+    // 1. Récup devis + lignes
+    const devisUrl = `https://api.airtable.com/v0/${BASE_ID}/${TABLES.devis.id}/${devisId}`;
+    const dr = await fetch(devisUrl, { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!dr.ok) throw new Error('Devis introuvable');
+    const devis = await dr.json();
+    const dv = devis.fields || {};
+    const projetId = Array.isArray(dv['Projet']) ? dv['Projet'][0] : null;
+    const numero = dv['Numéro devis'] || devisId;
+
+    if (dv.Statut === 'Signé') return res.status(400).json({ error: 'Déjà signé' });
+
+    // 2. Récup toutes les lignes du devis
+    const allLignes = await atFetchAll(TABLES['lignes-devis'].id);
+    const lignes = allLignes.filter(l => Array.isArray(l.fields?.Devis) && l.fields.Devis.includes(devisId));
+
+    // 3. Groupement par catégorie mappée
+    const totauxParCat = {};
+    for (const l of lignes) {
+      const cat = l.fields['Catégorie'];
+      const type = CAT_TO_FOURNISSEUR_TYPE[cat];
+      if (!type) continue;
+      totauxParCat[type] = (totauxParCat[type] || 0) + (parseFloat(l.fields['Montant HT']) || 0);
+    }
+
+    // 4. Création des commandes fournisseurs
+    const commandesCreees = [];
+    let idx = 1;
+    for (const [type, montant] of Object.entries(totauxParCat)) {
+      if (montant <= 0) continue;
+      const cf = {
+        'Numéro': `${numero}-${type.slice(0,3).toUpperCase()}-${idx}`,
+        'Statut': 'Créée',
+        'Date création': new Date().toISOString().slice(0,10),
+        'Montant HT': Math.round(montant * 100) / 100
+      };
+      if (projetId) cf['Projet'] = [projetId];
+      const c = await atCreate(TABLES.commandes.id, cf);
+      commandesCreees.push({ id: c.id, type, montant });
+      idx++;
+    }
+
+    // 5. Création des tâches de suivi
+    const today = new Date().toISOString().slice(0,10);
+    const plus7 = new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+    const tachesFields = [
+      { 'Titre': `Envoyer facture acompte — ${numero}`, 'Assignée à': 'Virginie', 'Priorité': 'Haute', 'Statut': 'À faire', 'Échéance': today, 'Description': `BC signé ${numero}. Générer et envoyer facture acompte (30%) au client.` },
+      { 'Titre': `Envoyer commandes fournisseurs — ${numero}`, 'Assignée à': 'Virginie', 'Priorité': 'Haute', 'Statut': 'À faire', 'Échéance': plus7, 'Description': `${commandesCreees.length} commande(s) à envoyer : ${commandesCreees.map(c=>c.type).join(', ')}.` },
+      { 'Titre': `Planifier pose — ${numero}`, 'Assignée à': 'Sébastien', 'Priorité': 'Moyenne', 'Statut': 'À faire', 'Description': `Définir la date de pose et affecter l'équipe pour le BC ${numero}.` }
+    ];
+    if (projetId) tachesFields.forEach(t => t['Projet'] = [projetId]);
+    await atCreateBatch(TABLES.taches.id, tachesFields);
+
+    // 6. MAJ du statut devis + projet
+    await atPatch(TABLES.devis.id, devisId, { 'Statut': 'Signé' });
+    if (projetId) {
+      try { await atPatch(TABLES.projets.id, projetId, { 'Statut': 'Commandes' }); } catch(e){}
+    }
+
+    res.json({
+      ok: true,
+      commandes_creees: commandesCreees.length,
+      taches_creees: tachesFields.length,
+      detail: commandesCreees
+    });
+  } catch (e) {
+    console.error('[devis/sign] error:', e);
     res.status(500).json({ error: e.message });
   }
 });
