@@ -56,11 +56,60 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 .scr{display:none}.scr.on{display:block}
 
 /* KPIs */
-.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:24px}
-.kpi{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:18px}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;cursor:pointer;transition:all .12s;position:relative}
+.kpi:hover{border-color:var(--gold);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.04)}
 .kpi-l{font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px}
 .kpi-v{font-size:26px;font-weight:300;letter-spacing:-.02em;line-height:1;margin-bottom:3px}
 .kpi-s{font-size:11px;color:var(--ink4)}
+.kpi-trend{position:absolute;top:14px;right:14px;font-family:'DM Mono',monospace;font-size:10px;font-weight:500;padding:2px 6px;border-radius:3px}
+.kpi-trend.up{background:rgba(76,167,116,.12);color:#3a8259}
+.kpi-trend.down{background:rgba(224,116,116,.12);color:#c25656}
+.kpi-trend.flat{background:rgba(0,0,0,.05);color:var(--ink4)}
+
+/* Dash hello */
+.dash-hello{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.dash-hello h2{font-family:'DM Serif Display',serif;font-size:22px;font-weight:400;letter-spacing:-.01em}
+.dash-hello .dh-date{font-family:'DM Mono',monospace;font-size:10px;color:var(--ink4);text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
+.new-menu{position:relative}
+.new-btn{background:var(--ink);color:var(--paper);border:none;padding:9px 16px;border-radius:5px;font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.06em;cursor:pointer;display:flex;align-items:center;gap:6px}
+.new-btn:hover{background:var(--gold);color:var(--ink)}
+.new-pop{position:absolute;top:calc(100% + 6px);right:0;background:var(--paper);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.08);min-width:180px;display:none;z-index:50;overflow:hidden}
+.new-pop.on{display:block}
+.new-pop button{display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;font-family:inherit;font-size:13px;color:var(--ink2);cursor:pointer;border-bottom:1px solid var(--border)}
+.new-pop button:last-child{border-bottom:none}
+.new-pop button:hover{background:var(--ink);color:var(--paper)}
+
+/* Alert bar */
+.alert-bar{background:linear-gradient(90deg,rgba(224,116,116,.10),rgba(224,116,116,.04));border:1px solid rgba(224,116,116,.35);border-left:3px solid #c25656;border-radius:var(--r);padding:14px 18px;margin-bottom:18px}
+.alert-bar.calm{background:rgba(76,167,116,.06);border-color:rgba(76,167,116,.25);border-left-color:#4ca774}
+.alert-bar-title{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#c25656;margin-bottom:8px;font-weight:500}
+.alert-bar.calm .alert-bar-title{color:#3a8259}
+.alert-items{display:flex;flex-wrap:wrap;gap:8px}
+.alert-chip{background:var(--paper);border:1px solid rgba(224,116,116,.4);border-radius:20px;padding:6px 12px;font-size:12px;color:var(--ink2);cursor:pointer;transition:all .12s;display:inline-flex;align-items:center;gap:6px}
+.alert-chip:hover{background:#c25656;color:#fff;border-color:#c25656}
+.alert-chip strong{font-weight:600}
+.alert-empty{font-size:12px;color:#3a8259;font-style:italic}
+
+/* Dash grid */
+.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
+@media(max-width:760px){.dash-grid{grid-template-columns:1fr}}
+.dash-panel{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px}
+.dash-panel-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.dash-panel-hd .dp-title{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink3)}
+.dash-panel-hd a{font-size:11px;color:var(--gold);text-decoration:none;font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.05em}
+.dash-panel-hd a:hover{text-decoration:underline}
+.dp-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;cursor:pointer}
+.dp-row:last-child{border-bottom:none}
+.dp-row:hover{color:var(--gold)}
+.dp-row .dp-time{font-family:'DM Mono',monospace;font-size:11px;color:var(--ink4);min-width:42px}
+.dp-row .dp-tag{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;padding:2px 6px;border-radius:3px;background:var(--ink);color:var(--paper)}
+.dp-row .dp-tag.pose{background:#c25656}
+.dp-row .dp-tag.livraison{background:#3a8259}
+.dp-row .dp-tag.decouverte{background:var(--gold);color:var(--ink)}
+.dp-row .dp-tag.devis{background:var(--ink2)}
+.dp-row .dp-tag.tache{background:var(--ink3)}
+.dp-empty{font-size:12px;color:var(--ink4);font-style:italic;padding:14px 0;text-align:center}
 
 /* Section header */
 .sh{display:flex;align-items:center;justify-content:space-between;margin:22px 0 12px}
@@ -384,11 +433,69 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 
   <!-- DASHBOARD -->
   <section class="scr on" id="scr-dashboard">
+    <!-- Hello header -->
+    <div class="dash-hello">
+      <div>
+        <h2 id="dh-greet">Bonjour</h2>
+        <div class="dh-date" id="dh-date"></div>
+      </div>
+      <div class="new-menu">
+        <button class="new-btn" onclick="toggleNewMenu(event)">+ Nouveau ▾</button>
+        <div class="new-pop" id="new-pop">
+          <button onclick="closeNewMenu();switchTab('projets');openModal('projets')">Projet</button>
+          <button onclick="closeNewMenu();switchTab('devis');document.getElementById('devis-pdf-input').click()">Devis (PDF)</button>
+          <button onclick="closeNewMenu();switchTab('taches');openModal('taches')">Tâche</button>
+          <button onclick="closeNewMenu();switchTab('clients');openClientDetail(null)">Client</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alert bar -->
+    <div id="alert-bar"></div>
+
+    <!-- KPIs cliquables -->
     <div class="kpis">
-      <div class="kpi"><div class="kpi-l">Projets actifs</div><div class="kpi-v" id="kpi-projets-actifs">—</div><div class="kpi-s">hors terminés</div></div>
-      <div class="kpi"><div class="kpi-l">CA signé</div><div class="kpi-v" id="kpi-ca-signe">—</div><div class="kpi-s">budget HT cumulé</div></div>
-      <div class="kpi"><div class="kpi-l">Tâches en cours</div><div class="kpi-v" id="kpi-taches">—</div><div class="kpi-s">toutes équipes</div></div>
-      <div class="kpi"><div class="kpi-l">SAV ouverts</div><div class="kpi-v" id="kpi-sav">—</div><div class="kpi-s">non facturés</div></div>
+      <div class="kpi" onclick="switchTab('projets')">
+        <div class="kpi-l">Projets actifs</div>
+        <div class="kpi-v" id="kpi-projets-actifs">—</div>
+        <div class="kpi-s">hors terminés</div>
+        <div class="kpi-trend flat" id="trend-projets">—</div>
+      </div>
+      <div class="kpi" onclick="switchTab('devis')">
+        <div class="kpi-l">CA signé</div>
+        <div class="kpi-v" id="kpi-ca-signe">—</div>
+        <div class="kpi-s">budget HT cumulé</div>
+        <div class="kpi-trend flat" id="trend-ca">—</div>
+      </div>
+      <div class="kpi" onclick="switchTab('taches')">
+        <div class="kpi-l">Tâches en cours</div>
+        <div class="kpi-v" id="kpi-taches">—</div>
+        <div class="kpi-s" id="kpi-taches-sub">toutes équipes</div>
+        <div class="kpi-trend flat" id="trend-taches">—</div>
+      </div>
+      <div class="kpi" onclick="switchTab('sav')">
+        <div class="kpi-l">SAV ouverts</div>
+        <div class="kpi-v" id="kpi-sav">—</div>
+        <div class="kpi-s">non facturés</div>
+        <div class="kpi-trend flat" id="trend-sav">—</div>
+      </div>
+    </div>
+
+    <!-- Ma journée + Mes tâches -->
+    <div class="dash-grid">
+      <div class="dash-panel">
+        <div class="dash-panel-hd">
+          <span class="dp-title">📅 Ma journée · 7 prochains jours</span>
+        </div>
+        <div id="my-day"></div>
+      </div>
+      <div class="dash-panel">
+        <div class="dash-panel-hd">
+          <span class="dp-title">✓ Mes tâches</span>
+          <a onclick="switchTab('taches')" style="cursor:pointer">Voir tout →</a>
+        </div>
+        <div id="my-tasks"></div>
+      </div>
     </div>
 
     <div class="sh">
@@ -624,7 +731,7 @@ document.addEventListener('keydown', e => {
 
 // ============ AUTH ============
 async function logout(){ await fetch('/api/logout',{method:'POST'}); location.href='/login'; }
-fetch('/api/me').then(r=>r.json()).then(d=>{ $('#headerUser').textContent = d.user||''; });
+fetch('/api/me').then(r=>r.json()).then(d=>{ window.ME = d.user||''; $('#headerUser').textContent = d.user||''; if(typeof renderDashboard==='function') renderDashboard(); });
 
 // ============ FETCH ============
 async function loadAll(){
@@ -660,10 +767,35 @@ function renderAll(){
   renderPlaud();
 }
 
+// ============ NEW MENU ============
+function toggleNewMenu(e){ e?.stopPropagation(); document.getElementById('new-pop').classList.toggle('on'); }
+function closeNewMenu(){ document.getElementById('new-pop')?.classList.remove('on'); }
+document.addEventListener('click', e=>{ if(!e.target.closest('.new-menu')) closeNewMenu(); });
+
+// ============ TREND HELPER ============
+function setTrend(elId, delta, suffix=''){
+  const el = document.getElementById(elId); if(!el) return;
+  if (delta === null || delta === undefined || isNaN(delta)) { el.className='kpi-trend flat'; el.textContent='—'; return; }
+  if (delta > 0) { el.className='kpi-trend up'; el.textContent='▲ +'+delta+suffix; }
+  else if (delta < 0) { el.className='kpi-trend down'; el.textContent='▼ '+delta+suffix; }
+  else { el.className='kpi-trend flat'; el.textContent='= 0'+suffix; }
+}
+
 function renderDashboard(){
+  const todayIso = new Date().toISOString().slice(0,10);
+  const now = new Date();
+  const moisFr=['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+  const joursFr=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+  const me = (window.ME||'').toLowerCase();
+  const meCap = me ? me[0].toUpperCase()+me.slice(1) : '';
+  const hour = now.getHours();
+  const greet = hour<12?'Bonjour':(hour<18?'Bon après-midi':'Bonsoir');
+  $('#dh-greet').textContent = `${greet}${meCap?' '+meCap:''}`;
+  $('#dh-date').textContent = `${joursFr[now.getDay()]} ${now.getDate()} ${moisFr[now.getMonth()]} ${now.getFullYear()}`;
+
   const actifs = DATA.projets.filter(p => p.Statut && p.Statut !== 'Terminé');
-  const caSigne = DATA.projets.filter(p => ['Signé','Commandes','Pose','SAV','Terminé'].includes(p.Statut))
-                              .reduce((s,p) => s + (p['Budget HT']||0), 0);
+  const signesProjets = DATA.projets.filter(p => ['Signé','Commandes','Pose','SAV','Terminé'].includes(p.Statut));
+  const caSigne = signesProjets.reduce((s,p) => s + (p['Budget HT']||0), 0);
   const tachesEnCours = DATA.taches.filter(t => t.Statut && t.Statut !== 'Terminée');
   const savOuverts = DATA.sav.filter(s => !s.Facturé);
 
@@ -671,6 +803,109 @@ function renderDashboard(){
   $('#kpi-ca-signe').textContent = euros(caSigne);
   $('#kpi-taches').textContent = tachesEnCours.length;
   $('#kpi-sav').textContent = savOuverts.length;
+
+  // Tendances vs M-1 (signés ce mois vs mois dernier)
+  const ymThis = now.toISOString().slice(0,7);
+  const lastM = new Date(now.getFullYear(), now.getMonth()-1, 1);
+  const ymLast = lastM.toISOString().slice(0,7);
+  const projThis = DATA.projets.filter(p=>(p['Date création']||'').startsWith(ymThis)).length;
+  const projLast = DATA.projets.filter(p=>(p['Date création']||'').startsWith(ymLast)).length;
+  setTrend('trend-projets', projThis-projLast);
+  const caThis = DATA.devis.filter(d=>d.Statut==='Signé' && (d['Date devis']||'').startsWith(ymThis)).reduce((s,d)=>s+(d['Total HT']||0),0);
+  const caLast = DATA.devis.filter(d=>d.Statut==='Signé' && (d['Date devis']||'').startsWith(ymLast)).reduce((s,d)=>s+(d['Total HT']||0),0);
+  const caPct = caLast>0 ? Math.round((caThis-caLast)/caLast*100) : null;
+  setTrend('trend-ca', caPct, '%');
+  const tachesRetard = tachesEnCours.filter(t=>t.Échéance && t.Échéance < todayIso).length;
+  $('#kpi-taches-sub').innerHTML = tachesRetard ? `<span style="color:#c25656">⚠ ${tachesRetard} en retard</span>` : 'toutes équipes';
+  setTrend('trend-taches', null);
+  setTrend('trend-sav', null);
+
+  // ====== ALERT BAR ======
+  const alerts = [];
+  // Devis en attente client (envoyés non signés)
+  const devisAttente = DATA.devis.filter(d=>d.Statut==='Envoyé').length;
+  if (devisAttente) alerts.push({label:`<strong>${devisAttente}</strong> devis en attente client`, action:`switchTab('devis')`});
+  // BC à signer
+  const bcASigner = DATA.devis.filter(d=>d.Statut==='Validé interne'||d.Statut==='À signer').length;
+  if (bcASigner) alerts.push({label:`<strong>${bcASigner}</strong> BC à signer`, action:`switchTab('devis')`});
+  // Tâches en retard
+  if (tachesRetard) alerts.push({label:`<strong>${tachesRetard}</strong> tâches en retard`, action:`switchTab('taches')`});
+  // Commandes sans date livraison
+  const cmdSansLiv = DATA.commandes.filter(c=>!c['Date livraison prévue'] && c.Statut!=='Livrée').length;
+  if (cmdSansLiv) alerts.push({label:`<strong>${cmdSansLiv}</strong> commandes sans date livraison`, action:`switchTab('commandes')`});
+  // SAV ouverts
+  if (savOuverts.length) alerts.push({label:`<strong>${savOuverts.length}</strong> SAV ouverts`, action:`switchTab('sav')`});
+
+  const alertHost = document.getElementById('alert-bar');
+  if (alerts.length) {
+    alertHost.innerHTML = `<div class="alert-bar">
+      <div class="alert-bar-title">⚠ À traiter aujourd'hui</div>
+      <div class="alert-items">${alerts.map(a=>`<span class="alert-chip" onclick="${a.action}">${a.label}</span>`).join('')}</div>
+    </div>`;
+  } else {
+    alertHost.innerHTML = `<div class="alert-bar calm">
+      <div class="alert-bar-title">✓ Tout est sous contrôle</div>
+      <div class="alert-empty">Rien d'urgent à traiter — bonne journée !</div>
+    </div>`;
+  }
+
+  // ====== MA JOURNÉE (7 prochains jours) ======
+  const in7 = new Date(now.getTime()+7*86400000).toISOString().slice(0,10);
+  const dayEvents = [];
+  DATA.projets.forEach(p=>{
+    if (p['Date pose prévue'] && p['Date pose prévue']>=todayIso && p['Date pose prévue']<=in7)
+      dayEvents.push({date:p['Date pose prévue'],type:'pose',label:'Pose · '+(p.Référence||'—'),action:`switchTab('projets');openProjetDetail('${p.id}')`});
+    if (p['Date découverte'] && p['Date découverte']>=todayIso && p['Date découverte']<=in7)
+      dayEvents.push({date:p['Date découverte'],type:'decouverte',label:'Découverte · '+(p.Référence||'—'),action:`switchTab('projets');openProjetDetail('${p.id}')`});
+  });
+  DATA.commandes.forEach(c=>{
+    if (c['Date livraison prévue'] && c['Date livraison prévue']>=todayIso && c['Date livraison prévue']<=in7) {
+      const pid = Array.isArray(c.Projet)?c.Projet[0]:null;
+      dayEvents.push({date:c['Date livraison prévue'],type:'livraison',label:'Livraison · '+(c.Numéro||'—'),action:pid?`switchTab('projets');openProjetDetail('${pid}')`:`switchTab('commandes')`});
+    }
+  });
+  dayEvents.sort((a,b)=>a.date.localeCompare(b.date));
+  const myDayHost = document.getElementById('my-day');
+  if (dayEvents.length) {
+    myDayHost.innerHTML = dayEvents.slice(0,8).map(e=>{
+      const d = new Date(e.date);
+      const lbl = d.getDate()+'/'+(d.getMonth()+1);
+      return `<div class="dp-row" onclick="${e.action}">
+        <span class="dp-time">${lbl}</span>
+        <span class="dp-tag ${e.type}">${e.type}</span>
+        <span style="flex:1">${esc(e.label.replace(/^[^·]+· /,''))}</span>
+      </div>`;
+    }).join('');
+  } else {
+    myDayHost.innerHTML = '<div class="dp-empty">Aucun événement prévu cette semaine</div>';
+  }
+
+  // ====== MES TÂCHES ======
+  let myTasks = DATA.taches.filter(t=>t.Statut!=='Terminée');
+  if (me) {
+    const myTasksFiltered = myTasks.filter(t=>(t['Assignée à']||'').toLowerCase().includes(me));
+    if (myTasksFiltered.length) myTasks = myTasksFiltered;
+  }
+  myTasks.sort((a,b)=>{
+    const ar = (a.Échéance||'') < todayIso ? 0 : 1;
+    const br = (b.Échéance||'') < todayIso ? 0 : 1;
+    if (ar!==br) return ar-br;
+    return (a.Échéance||'9999').localeCompare(b.Échéance||'9999');
+  });
+  const myTasksHost = document.getElementById('my-tasks');
+  if (myTasks.length) {
+    myTasksHost.innerHTML = myTasks.slice(0,7).map(t=>{
+      const late = t.Échéance && t.Échéance<todayIso;
+      const ech = t.Échéance ? new Date(t.Échéance).getDate()+'/'+(new Date(t.Échéance).getMonth()+1) : '—';
+      return `<div class="dp-row" onclick="switchTab('taches')">
+        <span class="dp-time" style="${late?'color:#c25656;font-weight:600':''}">${ech}</span>
+        <span style="flex:1">${esc(t.Titre||'—')}</span>
+        ${t['Assignée à']?`<span style="font-size:10px;color:var(--ink4);font-family:'DM Mono',monospace">${esc(t['Assignée à'])}</span>`:''}
+      </div>`;
+    }).join('');
+  } else {
+    myTasksHost.innerHTML = '<div class="dp-empty">Aucune tâche en cours 🎉</div>';
+  }
 
   renderAgenda();
   renderMonthCal();
