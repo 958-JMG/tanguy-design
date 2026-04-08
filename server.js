@@ -561,6 +561,7 @@ app.post('/api/plaud/parse', requireAuth, async (req, res) => {
 // --- Static ---
 app.get('/', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
+app.use('/img', express.static(path.join(__dirname, 'public', 'img')));
 
 app.listen(PORT, () => {
   console.log(`✅ Tanguy Design — Cockpit v0.2.0 on port ${PORT}`);
