@@ -2,40 +2,134 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
 <title>Tanguy Design — Connexion</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;700&display=swap" rel="stylesheet">
 <style>
-*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,sans-serif}
-body{background:#F7F4EF;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
-.box{background:#fff;padding:40px;border-radius:8px;box-shadow:0 2px 20px rgba(0,0,0,.06);width:100%;max-width:360px}
-h1{font-size:22px;font-weight:500;margin-bottom:6px;color:#1A1916}
-.sub{font-size:13px;color:#8A8680;margin-bottom:24px}
-label{display:block;font-size:12px;color:#8A8680;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
-input{width:100%;padding:12px;border:1px solid #E5E0D8;border-radius:6px;font-size:15px;margin-bottom:16px;background:#FAFAF7}
-input:focus{outline:none;border-color:#1A1916}
-button{width:100%;padding:13px;background:#1A1916;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer;font-weight:500}
-button:hover{background:#000}
-.err{background:#FEE;color:#C33;padding:10px;border-radius:6px;font-size:13px;margin-bottom:16px;display:none}
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ink:#1A1916;--ink2:#2A2824;--paper:#F7F4EF;
+  --gold:#B8956A;--gold-light:#D4B48A;
+  --border:#3A3732;--err:#E07474;
+}
+html,body{min-height:100%}
+body{
+  font-family:'DM Sans',sans-serif;
+  background:var(--ink);
+  color:var(--paper);
+  display:flex;align-items:center;justify-content:center;
+  min-height:100vh;padding:24px;
+  background-image:radial-gradient(ellipse at center,#242220 0%,#141310 100%);
+}
+.wrap{width:100%;max-width:420px;display:flex;flex-direction:column;align-items:center;gap:40px}
+
+/* ======= LOGO LOCKUP (reproduction typographique) ======= */
+.logo{display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--paper);user-select:none}
+.logo-accent-wrap{display:flex;align-items:center;gap:6px;align-self:flex-start;margin-left:4px}
+.logo-bar{width:2px;height:22px;background:var(--gold)}
+.logo-accent{font-size:11px;color:var(--gold);font-weight:400;letter-spacing:.01em;line-height:1.2;text-align:left}
+.logo-main{display:flex;align-items:baseline;gap:10px;line-height:.9}
+.logo-tanguy{font-size:56px;font-weight:700;letter-spacing:.02em}
+.logo-design{font-size:38px;font-weight:300;letter-spacing:.01em;color:var(--paper)}
+
+/* ======= FORM ======= */
+.box{
+  background:rgba(255,255,255,.04);
+  backdrop-filter:blur(10px);
+  border:1px solid var(--border);
+  padding:32px 28px;
+  border-radius:10px;
+  width:100%;
+}
+.box h1{
+  font-size:13px;font-weight:400;text-transform:uppercase;letter-spacing:.14em;
+  color:var(--gold);margin-bottom:4px;text-align:center;
+}
+.box .sub{
+  font-size:11px;color:#8A8680;margin-bottom:26px;text-align:center;letter-spacing:.04em;
+}
+label{
+  display:block;font-size:10px;color:#8A8680;margin-bottom:6px;
+  text-transform:uppercase;letter-spacing:.08em;font-weight:500;
+}
+input{
+  width:100%;padding:13px 14px;
+  border:1px solid var(--border);border-radius:6px;
+  font-size:15px;margin-bottom:18px;
+  background:rgba(0,0,0,.25);color:var(--paper);
+  font-family:inherit;outline:none;transition:border-color .15s;
+}
+input:focus{border-color:var(--gold)}
+input::placeholder{color:#5A5650}
+button{
+  width:100%;padding:14px;
+  background:var(--gold);color:var(--ink);
+  border:none;border-radius:6px;
+  font-size:14px;cursor:pointer;font-weight:500;
+  font-family:inherit;letter-spacing:.04em;text-transform:uppercase;
+  transition:background .15s;
+}
+button:hover{background:var(--gold-light)}
+.err{
+  background:rgba(224,116,116,.12);
+  border:1px solid rgba(224,116,116,.4);
+  color:var(--err);
+  padding:10px 12px;border-radius:6px;
+  font-size:12px;margin-bottom:16px;display:none;
+}
+.footer{font-size:10px;color:#4A4742;text-align:center;letter-spacing:.08em;text-transform:uppercase}
+
+/* ======= RESPONSIVE ======= */
+@media(max-width:480px){
+  body{padding:16px}
+  .wrap{gap:28px}
+  .logo-tanguy{font-size:42px}
+  .logo-design{font-size:28px}
+  .logo-accent{font-size:10px}
+  .logo-bar{height:18px}
+  .box{padding:24px 20px}
+}
+@media(max-width:360px){
+  .logo-tanguy{font-size:36px}
+  .logo-design{font-size:24px}
+  .logo-main{gap:7px}
+}
 </style>
 </head>
 <body>
-<form class="box" onsubmit="return doLogin(event)">
-  <h1>Tanguy Design</h1>
-  <div class="sub">Cockpit chantiers — connexion</div>
-  <div class="err" id="err"></div>
-  <label>Identifiant</label>
-  <input id="login" autocomplete="username" autofocus required>
-  <label>Mot de passe</label>
-  <input id="password" type="password" autocomplete="current-password" required>
-  <button type="submit">Se connecter</button>
-</form>
+<div class="wrap">
+  <div class="logo">
+    <div class="logo-accent-wrap">
+      <div class="logo-bar"></div>
+      <div class="logo-accent">Architecture<br>— d'intérieur</div>
+    </div>
+    <div class="logo-main">
+      <div class="logo-tanguy">TANGUY</div>
+      <div class="logo-design">design</div>
+    </div>
+  </div>
+
+  <form class="box" onsubmit="return doLogin(event)">
+    <h1>Cockpit Chantiers</h1>
+    <div class="sub">Accès réservé · 4 collaborateurs</div>
+    <div class="err" id="err"></div>
+    <label>Identifiant</label>
+    <input id="login" autocomplete="username" autofocus required placeholder="prénom">
+    <label>Mot de passe</label>
+    <input id="password" type="password" autocomplete="current-password" required placeholder="••••••••">
+    <button type="submit">Se connecter</button>
+  </form>
+
+  <div class="footer">© Tanguy Design · Vannes</div>
+</div>
 <script>
 async function doLogin(e){
   e.preventDefault();
   const err=document.getElementById('err');err.style.display='none';
   const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({login:login.value,password:password.value})});
-  if(r.ok){location.href='/';}
-  else{const d=await r.json().catch(()=>({}));err.textContent=d.error||'Erreur';err.style.display='block';}
+  if(r.ok){location.href='/';return false;}
+  const d=await r.json().catch(()=>({}));
+  err.textContent=d.error||'Erreur';err.style.display='block';
   return false;
 }
 </script>

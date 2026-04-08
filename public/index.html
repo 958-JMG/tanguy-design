@@ -2,39 +2,583 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Tanguy Design — Cockpit</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Tanguy Design — Cockpit Chantiers</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
 <style>
-*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,sans-serif}
-body{background:#F7F4EF;color:#1A1916;min-height:100vh}
-header{background:#fff;padding:20px 24px;border-bottom:1px solid #E5E0D8;display:flex;justify-content:space-between;align-items:center}
-h1{font-size:20px;font-weight:500}
-main{padding:32px 24px;max-width:1100px;margin:0 auto}
-.card{background:#fff;padding:24px;border-radius:8px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.04)}
-.muted{color:#8A8680;font-size:13px}
-button{padding:8px 14px;border:1px solid #E5E0D8;background:#fff;border-radius:6px;cursor:pointer;font-size:13px}
-button:hover{background:#FAFAF7}
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ink:#1A1916;--ink2:#4A4742;--ink3:#8A8680;--ink4:#C0BBB4;
+  --paper:#F7F4EF;--card:#FFF;--border:#E8E3DC;--border2:#C8C0B4;
+  --red:#B83232;--red-bg:#FBF0EE;
+  --amber:#9C6B0A;--amber-bg:#FBF5E6;
+  --green:#2A6B2A;--green-bg:#EEF5EE;
+  --blue:#2B5A8C;--blue-bg:#EEF3FB;
+  --gold:#B8956A;--gold-dark:#8F6F48;--gold-bg:#F5EEE2;
+  --r:8px;--r2:5px;
+}
+body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);font-size:14px;line-height:1.5;min-height:100vh}
+
+/* Header */
+.header{background:var(--ink);border-bottom:2px solid var(--gold);padding:14px 20px;display:flex;align-items:center;justify-content:center;position:relative;min-height:74px;color:var(--paper)}
+
+/* Logo lockup (reproduction typographique) */
+.logo{display:flex;flex-direction:column;align-items:center;gap:2px;user-select:none;color:var(--paper)}
+.logo-accent-wrap{display:flex;align-items:center;gap:5px;align-self:flex-start;margin-left:2px}
+.logo-bar{width:2px;height:14px;background:var(--gold)}
+.logo-accent{font-size:8px;color:var(--gold);font-weight:400;letter-spacing:.01em;line-height:1.1;text-align:left}
+.logo-main{display:flex;align-items:baseline;gap:7px;line-height:.9}
+.logo-tanguy{font-size:26px;font-weight:700;letter-spacing:.02em}
+.logo-design{font-size:19px;font-weight:300;letter-spacing:.01em}
+.header-right{position:absolute;right:14px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+.header-user{font-family:'DM Mono',monospace;font-size:10px;color:var(--gold);text-transform:uppercase;letter-spacing:.06em}
+.header-sync{font-family:'DM Mono',monospace;font-size:9px;color:#6A6660}
+.sync-dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:#6A6660;margin-right:4px;vertical-align:middle}
+.sync-dot.live{background:#6ABB6A}
+.sync-dot.loading{background:var(--gold);animation:pulse 1s infinite}
+.sync-dot.error{background:#E07474}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.logout-btn{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-family:'DM Mono',monospace;font-size:10px;color:var(--gold);background:none;border:0.5px solid rgba(184,149,106,.4);border-radius:3px;padding:4px 8px;cursor:pointer;font-family:'DM Mono',monospace}
+.logout-btn:hover{background:var(--gold);color:var(--ink);border-color:var(--gold)}
+
+/* Nav */
+.nav{background:#fff;border-bottom:1px solid var(--border);padding:0 16px;display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.nav::-webkit-scrollbar{display:none}
+.nb{font-size:12px;color:var(--ink3);padding:12px 14px 11px;cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;flex-shrink:0;font-family:inherit}
+.nb.on{color:var(--ink);font-weight:500;border-bottom-color:var(--ink)}
+.nb:hover:not(.on){color:var(--ink2)}
+.nb .count{font-family:'DM Mono',monospace;font-size:9px;color:var(--ink4);margin-left:4px}
+
+/* Shell */
+.shell{max-width:1080px;margin:0 auto;padding:20px 16px 80px}
+.scr{display:none}.scr.on{display:block}
+
+/* KPIs */
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:24px}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px}
+.kpi-l{font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px}
+.kpi-v{font-size:26px;font-weight:300;letter-spacing:-.02em;line-height:1;margin-bottom:3px}
+.kpi-s{font-size:11px;color:var(--ink4)}
+
+/* Section header */
+.sh{display:flex;align-items:center;justify-content:space-between;margin:22px 0 12px}
+.sh:first-child{margin-top:0}
+.st{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink4)}
+.abtn{font-family:'DM Mono',monospace;font-size:10px;padding:5px 11px;border-radius:3px;border:0.5px solid var(--border);background:var(--paper);color:var(--ink3);cursor:pointer}
+.abtn:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.abtn.primary{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+
+/* Cards list */
+.list{display:flex;flex-direction:column;gap:8px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:13px 16px;transition:border-color .1s}
+.card:hover{border-color:var(--border2)}
+.card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:6px}
+.card-nom{font-size:14px;font-weight:500;line-height:1.3;flex:1;min-width:0}
+.card-amt{font-family:'DM Mono',monospace;font-size:12px;color:var(--ink2);white-space:nowrap}
+.card-meta{display:flex;gap:12px;font-family:'DM Mono',monospace;font-size:10px;color:var(--ink4);flex-wrap:wrap;margin-top:4px}
+
+/* Badges / pills */
+.badge{display:inline-block;font-family:'DM Mono',monospace;font-size:9px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:3px;white-space:nowrap}
+.b-gray{background:var(--paper);color:var(--ink3);border:1px solid var(--border)}
+.b-green{background:var(--green-bg);color:var(--green)}
+.b-amber{background:var(--amber-bg);color:var(--amber)}
+.b-red{background:var(--red-bg);color:var(--red)}
+.b-blue{background:var(--blue-bg);color:var(--blue)}
+.b-ink{background:var(--ink);color:var(--paper)}
+
+/* Kanban */
+.kanban{display:grid;grid-template-columns:repeat(8,minmax(150px,1fr));gap:10px;margin-top:14px;overflow-x:auto;padding-bottom:8px}
+.col-hd{padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between}
+.col-label{font-size:11px;font-weight:500;color:var(--ink3)}
+.col-n{font-family:'DM Mono',monospace;font-size:10px;color:var(--ink4)}
+.kcard{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);padding:10px 12px;margin-bottom:6px;cursor:pointer;transition:border-color .1s}
+.kcard:hover{border-color:var(--border2)}
+.kcard-nom{font-size:12px;font-weight:500;margin-bottom:3px;line-height:1.3}
+.kcard-meta{font-family:'DM Mono',monospace;font-size:10px;color:var(--ink4)}
+
+/* Empty state */
+.empty{text-align:center;padding:40px 20px;color:var(--ink4);font-size:13px}
+.empty strong{display:block;color:var(--ink3);margin-bottom:4px;font-size:14px}
+
+/* Modal */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(26,25,22,.45);z-index:100;align-items:center;justify-content:center;padding:16px}
+.modal-bg.on{display:flex}
+.modal{background:#fff;border-radius:var(--r);padding:24px;width:100%;max-width:440px;max-height:90vh;overflow-y:auto}
+.modal h3{font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink4);margin-bottom:16px}
+.modal label{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);display:block;margin-bottom:5px;margin-top:10px}
+.modal label:first-of-type{margin-top:0}
+.modal input,.modal select,.modal textarea{width:100%;border:1px solid var(--border);border-radius:var(--r2);padding:9px 11px;font-family:inherit;font-size:13px;color:var(--ink);background:var(--paper);outline:none}
+.modal textarea{resize:vertical;min-height:70px}
+.modal input:focus,.modal select:focus,.modal textarea:focus{border-color:var(--ink2)}
+.modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+.mbtn{font-size:13px;padding:8px 18px;border-radius:var(--r2);border:none;cursor:pointer;font-family:inherit}
+.mbtn.primary{background:var(--ink);color:var(--paper)}
+.mbtn.cancel{background:var(--paper);color:var(--ink3);border:1px solid var(--border)}
+
+/* Nav active color — or plutôt doré */
+.nb.on{color:var(--ink);border-bottom-color:var(--gold)}
+
+/* Responsive */
+@media(max-width:768px){
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .kanban{grid-template-columns:repeat(3,minmax(150px,1fr))}
+  .logo-tanguy{font-size:22px}
+  .logo-design{font-size:16px}
+  .logo-accent{font-size:7px}
+  .logo-bar{height:12px}
+  .header{min-height:68px;padding:12px 14px}
+  .logout-btn{font-size:9px;padding:3px 6px}
+  .header-user{font-size:9px}
+}
+@media(max-width:480px){
+  .kanban{grid-template-columns:repeat(2,minmax(140px,1fr))}
+  .kpi-v{font-size:22px}
+  .shell{padding:16px 12px 60px}
+  .logo-tanguy{font-size:19px}
+  .logo-design{font-size:14px}
+  .logo-main{gap:5px}
+  .header-sync{display:none}
+  .header{min-height:62px;padding:10px 12px}
+}
+@media(max-width:360px){
+  .logo-tanguy{font-size:17px}
+  .logo-design{font-size:12px}
+  .logout-btn{padding:2px 5px;font-size:8px}
+}
 </style>
 </head>
 <body>
-<header>
-  <h1>Tanguy Design</h1>
-  <div><span class="muted" id="who"></span> <button onclick="logout()">Déconnexion</button></div>
-</header>
-<main>
-  <div class="card">
-    <h2 style="font-size:16px;margin-bottom:8px">Bienvenue</h2>
-    <p class="muted">Cockpit en cours de construction. Les modules (Clients, Projets, Artisans, Commandes, Tâches, SAV) arrivent.</p>
+
+<div class="header">
+  <button class="logout-btn" onclick="logout()">◂ SORTIR</button>
+  <div class="logo">
+    <div class="logo-accent-wrap">
+      <div class="logo-bar"></div>
+      <div class="logo-accent">Architecture<br>— d'intérieur</div>
+    </div>
+    <div class="logo-main">
+      <div class="logo-tanguy">TANGUY</div>
+      <div class="logo-design">design</div>
+    </div>
   </div>
-  <div class="card">
-    <h2 style="font-size:14px;margin-bottom:8px">État système</h2>
-    <pre id="health" class="muted" style="font-size:11px;font-family:monospace"></pre>
+  <div class="header-right">
+    <div class="header-user" id="headerUser">—</div>
+    <div class="header-sync"><span class="sync-dot" id="syncDot"></span><span id="syncTxt">init</span></div>
   </div>
+</div>
+
+<nav class="nav">
+  <button class="nb on" data-tab="dashboard">Dashboard</button>
+  <button class="nb" data-tab="projets">Projets <span class="count" id="cn-projets"></span></button>
+  <button class="nb" data-tab="clients">Clients <span class="count" id="cn-clients"></span></button>
+  <button class="nb" data-tab="artisans">Artisans <span class="count" id="cn-artisans"></span></button>
+  <button class="nb" data-tab="fournisseurs">Fournisseurs <span class="count" id="cn-fournisseurs"></span></button>
+  <button class="nb" data-tab="commandes">Commandes <span class="count" id="cn-commandes"></span></button>
+  <button class="nb" data-tab="taches">Tâches <span class="count" id="cn-taches"></span></button>
+  <button class="nb" data-tab="sav">SAV <span class="count" id="cn-sav"></span></button>
+</nav>
+
+<main class="shell">
+
+  <!-- DASHBOARD -->
+  <section class="scr on" id="scr-dashboard">
+    <div class="kpis">
+      <div class="kpi"><div class="kpi-l">Projets actifs</div><div class="kpi-v" id="kpi-projets-actifs">—</div><div class="kpi-s">hors terminés</div></div>
+      <div class="kpi"><div class="kpi-l">CA signé</div><div class="kpi-v" id="kpi-ca-signe">—</div><div class="kpi-s">budget HT cumulé</div></div>
+      <div class="kpi"><div class="kpi-l">Tâches en cours</div><div class="kpi-v" id="kpi-taches">—</div><div class="kpi-s">toutes équipes</div></div>
+      <div class="kpi"><div class="kpi-l">SAV ouverts</div><div class="kpi-v" id="kpi-sav">—</div><div class="kpi-s">non facturés</div></div>
+    </div>
+
+    <div class="sh"><div class="st">Pipeline projets</div></div>
+    <div class="kanban" id="pipeline"></div>
+
+    <div class="sh" style="margin-top:28px"><div class="st">Tâches prioritaires</div></div>
+    <div class="list" id="dash-taches"></div>
+  </section>
+
+  <!-- PROJETS -->
+  <section class="scr" id="scr-projets">
+    <div class="sh"><div class="st">Projets · tous statuts</div><button class="abtn primary" onclick="openModal('projets')">+ Nouveau projet</button></div>
+    <div class="list" id="list-projets"></div>
+  </section>
+
+  <!-- CLIENTS -->
+  <section class="scr" id="scr-clients">
+    <div class="sh"><div class="st">Clients</div><button class="abtn primary" onclick="openModal('clients')">+ Nouveau client</button></div>
+    <div class="list" id="list-clients"></div>
+  </section>
+
+  <!-- ARTISANS -->
+  <section class="scr" id="scr-artisans">
+    <div class="sh"><div class="st">Artisans · contractuels & non-contractuels</div><button class="abtn primary" onclick="openModal('artisans')">+ Nouvel artisan</button></div>
+    <div class="list" id="list-artisans"></div>
+  </section>
+
+  <!-- FOURNISSEURS -->
+  <section class="scr" id="scr-fournisseurs">
+    <div class="sh"><div class="st">Fournisseurs</div><button class="abtn primary" onclick="openModal('fournisseurs')">+ Nouveau fournisseur</button></div>
+    <div class="list" id="list-fournisseurs"></div>
+  </section>
+
+  <!-- COMMANDES -->
+  <section class="scr" id="scr-commandes">
+    <div class="sh"><div class="st">Commandes fournisseurs</div><button class="abtn primary" onclick="openModal('commandes')">+ Nouvelle commande</button></div>
+    <div class="list" id="list-commandes"></div>
+  </section>
+
+  <!-- TACHES -->
+  <section class="scr" id="scr-taches">
+    <div class="sh"><div class="st">Tâches · 4 équipes</div><button class="abtn primary" onclick="openModal('taches')">+ Nouvelle tâche</button></div>
+    <div class="list" id="list-taches"></div>
+  </section>
+
+  <!-- SAV -->
+  <section class="scr" id="scr-sav">
+    <div class="sh"><div class="st">Service après-vente</div><button class="abtn primary" onclick="openModal('sav')">+ Nouveau SAV</button></div>
+    <div class="list" id="list-sav"></div>
+  </section>
+
 </main>
+
+<!-- Modal générique -->
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h3 id="modalTitle">Nouveau</h3>
+    <div id="modalBody"></div>
+    <div class="modal-btns">
+      <button class="mbtn cancel" onclick="closeModal()">Annuler</button>
+      <button class="mbtn primary" onclick="submitModal()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
 <script>
-fetch('/api/me').then(r=>r.json()).then(d=>{document.getElementById('who').textContent=d.user||''});
-fetch('/api/health').then(r=>r.json()).then(d=>{document.getElementById('health').textContent=JSON.stringify(d,null,2)});
-async function logout(){await fetch('/api/logout',{method:'POST'});location.href='/login';}
+// ============ STATE ============
+const DATA = { clients:[], projets:[], artisans:[], fournisseurs:[], commandes:[], taches:[], sav:[] };
+const PIPE_STATUTS = ['Découverte','Dessin','Devis','Signé','Commandes','Pose','SAV','Terminé'];
+let currentModalTable = null;
+
+// ============ UTILS ============
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+const euros = n => n==null ? '—' : new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(n);
+const pct = n => n==null ? '—' : (n*100).toFixed(0)+'%';
+const esc = s => String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const setSync = (state, txt) => { $('#syncDot').className='sync-dot '+state; $('#syncTxt').textContent=txt; };
+
+// ============ AUTH ============
+async function logout(){ await fetch('/api/logout',{method:'POST'}); location.href='/login'; }
+fetch('/api/me').then(r=>r.json()).then(d=>{ $('#headerUser').textContent = d.user||''; });
+
+// ============ FETCH ============
+async function loadAll(){
+  setSync('loading','chargement');
+  try {
+    const tables = ['clients','projets','artisans','fournisseurs','commandes','taches','sav'];
+    const results = await Promise.all(tables.map(t => fetch('/api/data/'+t).then(r=>r.json())));
+    tables.forEach((t,i) => { DATA[t] = (results[i].records||[]).map(r=>({id:r.id, ...r.fields})); });
+    renderAll();
+    setSync('live','synchronisé ' + new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}));
+  } catch (e) {
+    console.error(e);
+    setSync('error','erreur');
+  }
+}
+
+// ============ RENDER ============
+function renderAll(){
+  // Counts
+  for (const t of Object.keys(DATA)) {
+    const el = $('#cn-'+t); if (el) el.textContent = DATA[t].length;
+  }
+  renderDashboard();
+  renderProjets();
+  renderClients();
+  renderArtisans();
+  renderFournisseurs();
+  renderCommandes();
+  renderTaches();
+  renderSAV();
+}
+
+function renderDashboard(){
+  const actifs = DATA.projets.filter(p => p.Statut && p.Statut !== 'Terminé');
+  const caSigne = DATA.projets.filter(p => ['Signé','Commandes','Pose','SAV','Terminé'].includes(p.Statut))
+                              .reduce((s,p) => s + (p['Budget HT']||0), 0);
+  const tachesEnCours = DATA.taches.filter(t => t.Statut && t.Statut !== 'Terminée');
+  const savOuverts = DATA.sav.filter(s => !s.Facturé);
+
+  $('#kpi-projets-actifs').textContent = actifs.length;
+  $('#kpi-ca-signe').textContent = euros(caSigne);
+  $('#kpi-taches').textContent = tachesEnCours.length;
+  $('#kpi-sav').textContent = savOuverts.length;
+
+  // Pipeline Kanban
+  const pipe = $('#pipeline');
+  pipe.innerHTML = PIPE_STATUTS.map(st => {
+    const items = DATA.projets.filter(p => p.Statut === st);
+    return `<div>
+      <div class="col-hd"><span class="col-label">${st}</span><span class="col-n">${items.length}</span></div>
+      ${items.map(p => `<div class="kcard">
+        <div class="kcard-nom">${esc(p.Référence || '—')}</div>
+        <div class="kcard-meta">${euros(p['Budget HT'])}</div>
+      </div>`).join('') || '<div class="col-n" style="padding:6px 2px">—</div>'}
+    </div>`;
+  }).join('');
+
+  // Top 5 tâches prioritaires non terminées
+  const topTaches = DATA.taches
+    .filter(t => t.Statut !== 'Terminée')
+    .sort((a,b) => {
+      const order = {Haute:0,Moyenne:1,Basse:2};
+      return (order[a.Priorité]??3) - (order[b.Priorité]??3);
+    })
+    .slice(0,5);
+  $('#dash-taches').innerHTML = topTaches.length ? topTaches.map(taskCard).join('') : emptyState('Aucune tâche','Les tâches en cours apparaîtront ici');
+}
+
+function projetCard(p){
+  const statutClass = {
+    'Découverte':'b-gray','Dessin':'b-blue','Devis':'b-amber','Signé':'b-green',
+    'Commandes':'b-blue','Pose':'b-amber','SAV':'b-red','Terminé':'b-gray'
+  }[p.Statut] || 'b-gray';
+  return `<div class="card">
+    <div class="card-top">
+      <div class="card-nom">${esc(p.Référence||'—')} <span class="badge ${statutClass}">${esc(p.Statut||'—')}</span></div>
+      <div class="card-amt">${euros(p['Budget HT'])}</div>
+    </div>
+    <div class="card-meta">
+      <span>Marge prév. ${pct(p['Marge prévisionnelle'])}</span>
+      <span>Pose ${esc(p['Date pose prévue']||'—')}</span>
+    </div>
+  </div>`;
+}
+
+function clientCard(c){
+  return `<div class="card">
+    <div class="card-top">
+      <div class="card-nom">${esc(c.Nom||'—')} <span class="badge b-gray">${esc(c.Type||'—')}</span></div>
+      <div class="card-amt">${esc(c.Source||'')}</div>
+    </div>
+    <div class="card-meta">
+      <span>${esc(c.Contact||'—')}</span>
+      <span>${esc(c.Email||'')}</span>
+      <span>${esc(c.Téléphone||'')}</span>
+    </div>
+  </div>`;
+}
+
+function artisanCard(a){
+  const typeClass = a.Type === 'Contractuel' ? 'b-green' : 'b-gray';
+  return `<div class="card">
+    <div class="card-top">
+      <div class="card-nom">${esc(a.Nom||'—')} <span class="badge b-blue">${esc(a.Spécialité||'—')}</span> <span class="badge ${typeClass}">${esc(a.Type||'—')}</span></div>
+      <div class="card-amt">${euros(a['CA cumulé'])}</div>
+    </div>
+    <div class="card-meta">
+      <span>${esc(a['Contact principal']||'—')}</span>
+      <span>${esc(a.Téléphone||'')}</span>
+      <span>${esc(a.Email||'')}</span>
+    </div>
+  </div>`;
+}
+
+function fournisseurCard(f){
+  return `<div class="card">
+    <div class="card-top">
+      <div class="card-nom">${esc(f.Nom||'—')} <span class="badge b-blue">${esc(f.Type||'—')}</span></div>
+      <div class="card-amt">${esc(f.Plateforme||'')}</div>
+    </div>
+    <div class="card-meta">
+      <span>${esc(f.Contact||'—')}</span>
+      <span>${esc(f['Email commande']||'')}</span>
+    </div>
+  </div>`;
+}
+
+function commandeCard(c){
+  const statutClass = {'Créée':'b-gray','Envoyée':'b-amber','Confirmée':'b-blue','Livrée':'b-green','Posée':'b-ink'}[c.Statut]||'b-gray';
+  return `<div class="card">
+    <div class="card-top">
+      <div class="card-nom">${esc(c.Numéro||'—')} <span class="badge ${statutClass}">${esc(c.Statut||'—')}</span> ${c['Facture reçue']?'<span class="badge b-green">Facture ✓</span>':''}</div>
+      <div class="card-amt">${euros(c['Montant HT'])}</div>
+    </div>
+    <div class="card-meta">
+      <span>Créée ${esc(c['Date création']||'—')}</span>
+      <span>Livraison ${esc(c['Date livraison prévue']||'—')}</span>
+    </div>
+  </div>`;
+}
+
+function taskCard(t){
+  const prioClass = {'Haute':'b-red','Moyenne':'b-amber','Basse':'b-gray'}[t.Priorité]||'b-gray';
+  const statutClass = {'À faire':'b-gray','En cours':'b-amber','Terminée':'b-green'}[t.Statut]||'b-gray';
+  return `<div class="card">
+    <div class="card-top">
+      <div class="card-nom">${esc(t.Titre||'—')} <span class="badge ${prioClass}">${esc(t.Priorité||'—')}</span> <span class="badge ${statutClass}">${esc(t.Statut||'—')}</span></div>
+      <div class="card-amt">${esc(t['Assignée à']||'—')}</div>
+    </div>
+    <div class="card-meta">
+      <span>Échéance ${esc(t.Échéance||'—')}</span>
+      ${t.Description?`<span>${esc(t.Description.slice(0,60))}${t.Description.length>60?'…':''}</span>`:''}
+    </div>
+  </div>`;
+}
+
+function savCard(s){
+  return `<div class="card">
+    <div class="card-top">
+      <div class="card-nom">${esc(s.Référence||'—')} ${s.Facturé?'<span class="badge b-green">Facturé</span>':'<span class="badge b-amber">En cours</span>'}</div>
+      <div class="card-amt">${esc(s['Réalisé par']||'')}</div>
+    </div>
+    <div class="card-meta">
+      <span>Demande ${esc(s['Date demande']||'—')}</span>
+      <span>Réception ${esc(s['Date réception']||'—')}</span>
+      <span>Réalisation ${esc(s['Date réalisation']||'—')}</span>
+    </div>
+  </div>`;
+}
+
+function emptyState(title, sub){
+  return `<div class="empty"><strong>${esc(title)}</strong>${esc(sub)}</div>`;
+}
+
+function renderProjets(){ $('#list-projets').innerHTML = DATA.projets.length ? DATA.projets.map(projetCard).join('') : emptyState('Aucun projet','Créez le premier projet chantier'); }
+function renderClients(){ $('#list-clients').innerHTML = DATA.clients.length ? DATA.clients.map(clientCard).join('') : emptyState('Aucun client','Ajoutez votre premier client'); }
+function renderArtisans(){ $('#list-artisans').innerHTML = DATA.artisans.length ? DATA.artisans.map(artisanCard).join('') : emptyState('Aucun artisan','Ajoutez vos partenaires artisans'); }
+function renderFournisseurs(){ $('#list-fournisseurs').innerHTML = DATA.fournisseurs.length ? DATA.fournisseurs.map(fournisseurCard).join('') : emptyState('Aucun fournisseur','Ajoutez vos fournisseurs'); }
+function renderCommandes(){ $('#list-commandes').innerHTML = DATA.commandes.length ? DATA.commandes.map(commandeCard).join('') : emptyState('Aucune commande','Les commandes fournisseurs apparaîtront ici'); }
+function renderTaches(){ $('#list-taches').innerHTML = DATA.taches.length ? DATA.taches.map(taskCard).join('') : emptyState('Aucune tâche','Créez la première tâche'); }
+function renderSAV(){ $('#list-sav').innerHTML = DATA.sav.length ? DATA.sav.map(savCard).join('') : emptyState('Aucun SAV','Les interventions SAV apparaîtront ici'); }
+
+// ============ TABS ============
+$$('.nb').forEach(btn => btn.addEventListener('click', () => {
+  $$('.nb').forEach(b => b.classList.toggle('on', b===btn));
+  const tab = btn.dataset.tab;
+  $$('.scr').forEach(s => s.classList.toggle('on', s.id === 'scr-'+tab));
+}));
+
+// ============ MODAL (formulaires de création) ============
+const FORMS = {
+  clients: [
+    {k:'Nom', label:'Nom *', req:true},
+    {k:'Contact', label:'Contact'},
+    {k:'Email', label:'Email', type:'email'},
+    {k:'Téléphone', label:'Téléphone'},
+    {k:'Type', label:'Type', type:'select', options:['Particulier','Professionnel']},
+    {k:'Source', label:'Source', type:'select', options:['Showroom','Architecte','Recommandation','Web']},
+    {k:'Adresse', label:'Adresse', type:'textarea'},
+    {k:'Notes', label:'Notes', type:'textarea'}
+  ],
+  projets: [
+    {k:'Référence', label:'Référence *', req:true},
+    {k:'Statut', label:'Statut', type:'select', options:PIPE_STATUTS},
+    {k:'Budget HT', label:'Budget HT (€)', type:'number'},
+    {k:'Marge prévisionnelle', label:'Marge prév. (0-1)', type:'number', step:'0.01'},
+    {k:'Date découverte', label:'Date découverte', type:'date'},
+    {k:'Date pose prévue', label:'Date pose prévue', type:'date'},
+    {k:'Description', label:'Description', type:'textarea'}
+  ],
+  artisans: [
+    {k:'Nom', label:'Nom *', req:true},
+    {k:'Spécialité', label:'Spécialité', type:'select', options:['Plomberie','Électricité','Carrelage','Menuiserie','Peinture','Maçonnerie']},
+    {k:'Type', label:'Type', type:'select', options:['Contractuel','Non contractuel']},
+    {k:'Contact principal', label:'Contact principal'},
+    {k:'Email', label:'Email', type:'email'},
+    {k:'Téléphone', label:'Téléphone'}
+  ],
+  fournisseurs: [
+    {k:'Nom', label:'Nom *', req:true},
+    {k:'Type', label:'Type', type:'select', options:['Meubles','Électroménager','Plan travail','Sanitaire','Accessoires']},
+    {k:'Plateforme', label:'Plateforme', type:'select', options:['Direct','Fundis','Autre']},
+    {k:'Email commande', label:'Email commande', type:'email'},
+    {k:'Contact', label:'Contact'},
+    {k:'Notes', label:'Notes', type:'textarea'}
+  ],
+  commandes: [
+    {k:'Numéro', label:'Numéro *', req:true},
+    {k:'Statut', label:'Statut', type:'select', options:['Créée','Envoyée','Confirmée','Livrée','Posée']},
+    {k:'Montant HT', label:'Montant HT (€)', type:'number'},
+    {k:'Date création', label:'Date création', type:'date'},
+    {k:'Date livraison prévue', label:'Date livraison prévue', type:'date'}
+  ],
+  taches: [
+    {k:'Titre', label:'Titre *', req:true},
+    {k:'Assignée à', label:'Assignée à', type:'select', options:['Virginie','Solène','Sébastien','Marine']},
+    {k:'Priorité', label:'Priorité', type:'select', options:['Haute','Moyenne','Basse']},
+    {k:'Statut', label:'Statut', type:'select', options:['À faire','En cours','Terminée']},
+    {k:'Échéance', label:'Échéance', type:'date'},
+    {k:'Description', label:'Description', type:'textarea'}
+  ],
+  sav: [
+    {k:'Référence', label:'Référence *', req:true},
+    {k:'Date demande', label:'Date demande', type:'date'},
+    {k:'Type', label:'Type / description', type:'textarea'},
+    {k:'Réalisé par', label:'Réalisé par', type:'select', options:['Sébastien','Artisan externe']},
+    {k:'Date réception', label:'Date réception', type:'date'},
+    {k:'Date réalisation', label:'Date réalisation', type:'date'}
+  ]
+};
+
+function openModal(table){
+  currentModalTable = table;
+  const form = FORMS[table];
+  $('#modalTitle').textContent = 'Nouveau · ' + table;
+  $('#modalBody').innerHTML = form.map(f => {
+    const id = 'f_'+f.k.replace(/\W/g,'_');
+    if (f.type === 'select') {
+      return `<label>${f.label}</label><select id="${id}"><option value="">—</option>${f.options.map(o=>`<option>${o}</option>`).join('')}</select>`;
+    }
+    if (f.type === 'textarea') {
+      return `<label>${f.label}</label><textarea id="${id}"></textarea>`;
+    }
+    return `<label>${f.label}</label><input id="${id}" type="${f.type||'text'}" ${f.step?`step="${f.step}"`:''}>`;
+  }).join('');
+  $('#modalBg').classList.add('on');
+}
+
+function closeModal(){
+  $('#modalBg').classList.remove('on');
+  currentModalTable = null;
+}
+
+async function submitModal(){
+  if (!currentModalTable) return;
+  const form = FORMS[currentModalTable];
+  const fields = {};
+  for (const f of form) {
+    const id = 'f_'+f.k.replace(/\W/g,'_');
+    const el = document.getElementById(id);
+    if (!el) continue;
+    let v = el.value.trim();
+    if (!v) continue;
+    if (f.type === 'number') v = Number(v);
+    fields[f.k] = v;
+  }
+  if (!fields[form[0].k]) { alert('Champ obligatoire manquant'); return; }
+  setSync('loading','envoi');
+  try {
+    const r = await fetch('/api/data/'+currentModalTable, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({fields})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error||'erreur');
+    closeModal();
+    await loadAll();
+  } catch(e) {
+    alert('Erreur: '+e.message);
+    setSync('error','erreur');
+  }
+}
+
+// Fermer modal clic fond
+$('#modalBg').addEventListener('click', e => { if (e.target === $('#modalBg')) closeModal(); });
+
+// ============ INIT ============
+loadAll();
+setInterval(loadAll, 2*60*1000); // refresh 2 min
 </script>
 </body>
 </html>
