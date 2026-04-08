@@ -35,7 +35,13 @@ function parseUsers(str) {
   }
   return map;
 }
-const USERS = parseUsers(process.env.USERS_HASHES);
+// Priorité au format base64 (évite tout problème d'échappement de $ sur Railway)
+let USERS_RAW = process.env.USERS_HASHES || '';
+if (process.env.USERS_HASHES_B64) {
+  try { USERS_RAW = Buffer.from(process.env.USERS_HASHES_B64, 'base64').toString('utf8'); }
+  catch (e) { console.error('USERS_HASHES_B64 decode failed:', e.message); }
+}
+const USERS = parseUsers(USERS_RAW);
 
 // --- Middleware ---
 app.use(express.json({ limit: '2mb' }));
