@@ -1577,24 +1577,30 @@ function openArtisanPicker(projetId){
     (bySpec[s] = bySpec[s] || []).push(a);
   });
   const sections = Object.keys(bySpec).sort().map(s => `
-    <div style="margin-top:14px">
-      <div style="font-size:10px;text-transform:uppercase;color:var(--ink3);letter-spacing:.06em;margin-bottom:6px;font-family:'DM Mono',monospace">${esc(s)}</div>
-      ${bySpec[s].map(a => `
-        <div onclick="toggleArtisanChk('${a.id}')" style="display:flex;align-items:center;gap:10px;padding:8px 10px;cursor:pointer;border-radius:6px;border:1px solid var(--border);margin-bottom:4px;background:#fff" onmouseover="this.style.background='#faf8f3'" onmouseout="this.style.background='#fff'">
+    <div class="ap-section" data-spec="${esc(s.toLowerCase())}" style="margin-top:14px">
+      <div class="ap-section-title" style="font-size:10px;text-transform:uppercase;color:var(--ink3);letter-spacing:.06em;margin-bottom:6px;font-family:'DM Mono',monospace">${esc(s)}</div>
+      ${bySpec[s].map(a => {
+        const searchBag = [a.Nom, a['Contact principal'], a.Email, a['Téléphone'], a['Spécialité']].filter(Boolean).join(' ').toLowerCase();
+        return `
+        <div class="ap-row" data-search="${esc(searchBag)}" onclick="toggleArtisanChk('${a.id}')" style="display:flex;align-items:center;gap:10px;padding:8px 10px;cursor:pointer;border-radius:6px;border:1px solid var(--border);margin-bottom:4px;background:#fff" onmouseover="this.style.background='#faf8f3'" onmouseout="this.style.background='#fff'">
           <input type="checkbox" class="ap-chk" id="ap-${a.id}" value="${a.id}" ${current.has(a.id)?'checked':''} style="width:16px;height:16px;padding:0;border:1px solid var(--border);margin:0;flex:none" onclick="event.stopPropagation()">
           <div style="flex:1;min-width:0">
             <div style="font-size:13px;color:var(--ink);font-weight:600">${esc(a.Nom)}</div>
             <div style="font-size:11px;color:var(--ink3);margin-top:2px">${esc(a['Contact principal']||'—')}${a.Email?' · '+esc(a.Email):''}${a['Téléphone']?' · '+esc(a['Téléphone']):''}</div>
           </div>
-        </div>
-      `).join('')}
+        </div>`;
+      }).join('')}
     </div>
   `).join('');
   const html = `
     <div class="modal-bg on" onclick="if(event.target===this)closeArtisanPicker()">
       <div style="background:#fff;border-radius:8px;padding:20px 22px;width:100%;max-width:600px;max-height:82vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)">
         <div style="font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink4);margin-bottom:10px">Choisir les artisans du projet</div>
-        <div style="flex:1;overflow-y:auto;margin:0 -4px;padding:0 4px">${sections}</div>
+        <div style="position:relative;margin-bottom:10px">
+          <input id="ap-search" type="text" placeholder="🔍 Rechercher par nom, lot, email, téléphone…" oninput="filterArtisanPicker(this.value)" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:#faf8f3;outline:none;font-family:inherit;color:var(--ink)" autofocus>
+        </div>
+        <div id="ap-empty" style="display:none;padding:20px;text-align:center;color:var(--ink3);font-size:12px">Aucun artisan ne correspond à votre recherche.</div>
+        <div id="ap-list" style="flex:1;overflow-y:auto;margin:0 -4px;padding:0 4px">${sections}</div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
           <button class="btn-ghost" onclick="closeArtisanPicker()">Annuler</button>
           <button class="btn-primary" onclick="saveArtisansProjet('${projetId}')">Enregistrer</button>
@@ -1614,6 +1620,23 @@ function closeArtisanPicker(){
 function toggleArtisanChk(artisanId){
   const chk = document.getElementById('ap-'+artisanId);
   if (chk) chk.checked = !chk.checked;
+}
+
+function filterArtisanPicker(q){
+  const qn = (q||'').trim().toLowerCase();
+  const rows = document.querySelectorAll('#ap-list .ap-row');
+  const sections = document.querySelectorAll('#ap-list .ap-section');
+  let totalVisible = 0;
+  rows.forEach(r => {
+    const hit = !qn || (r.dataset.search || '').includes(qn);
+    r.style.display = hit ? '' : 'none';
+    if (hit) totalVisible++;
+  });
+  sections.forEach(sec => {
+    const anyVisible = Array.from(sec.querySelectorAll('.ap-row')).some(r => r.style.display !== 'none');
+    sec.style.display = anyVisible ? '' : 'none';
+  });
+  document.getElementById('ap-empty').style.display = totalVisible === 0 ? 'block' : 'none';
 }
 
 async function saveArtisansProjet(projetId){
