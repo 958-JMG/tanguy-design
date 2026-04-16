@@ -5,6 +5,8 @@ const path = require('path');
 const fetch = require('node-fetch');
 const multer = require('multer');
 const { parseDevisPdf, parsePlaudTranscript } = require('./services/devis-parser');
+const { parseArtisanDevisPdf } = require('./services/artisan-devis-parser');
+const { generateFicheMission } = require('./services/fiche-mission-generator');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -27,7 +29,14 @@ const TABLES = {
   'zones-devis':   { id: 'tbl6FmEIIR15NMsgZ', name: 'Zones devis' },
   'lignes-devis':  { id: 'tblCxDvzQAqBzpCx2', name: 'Lignes devis' },
   'echeances-devis': { id: 'tblML7D7MXeWnMcxy', name: 'Échéances devis' },
-  stock:           { id: 'tblENw2eBplwUZ4nd', name: 'Stock' }
+  stock:           { id: 'tblENw2eBplwUZ4nd', name: 'Stock' },
+  'devis-artisans': { id: 'tblFxsJtEYpDOmQQj', name: 'Devis Artisans' }
+};
+
+// Field IDs des champs attachments de Devis Artisans (upload direct)
+const DA_FIELDS = {
+  pdfOriginal: 'fld92F9VmHpKSWSzE',
+  ficheMission: 'fld78s6hfTTexIjUC'
 };
 
 // --- Users ---
@@ -144,6 +153,22 @@ async function atDelete(tableId, recordId) {
     headers: { Authorization: `Bearer ${AT_KEY}` }
   });
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error?.message || `HTTP ${r.status}`); }
+  return r.json();
+}
+
+/**
+ * Upload un fichier dans un champ attachment Airtable (endpoint content API).
+ * Limite 5 MB par fichier. Retourne le JSON de la réponse Airtable.
+ */
+async function atUploadAttachment(recordId, fieldId, buffer, filename, contentType = 'application/pdf') {
+  if (buffer.length > 5 * 1024 * 1024) throw new Error(`Fichier trop gros (${buffer.length} bytes, max 5 MB)`);
+  const url = `https://content.airtable.com/v0/${BASE_ID}/${recordId}/${fieldId}/uploadAttachment`;
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${AT_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contentType, filename, file: buffer.toString('base64') })
+  });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(`upload attachment: ${e.error?.message || r.status}`); }
   return r.json();
 }
 
@@ -558,6 +583,197 @@ app.post('/api/plaud/parse', requireAuth, async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// --- DEVIS ARTISAN : import PDF + parsing + création record ---
+app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'PDF requis' });
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY non configurée' });
+
+  const projetId = req.body.projetId || null;
+  const artisanId = req.body.artisanId || null; // optionnel — sinon on match par nom d'entreprise
+
+  try {
+    console.log(`[artisan-devis/import] parsing ${req.file.originalname} (${req.file.size} bytes)`);
+    const parsed = await parseArtisanDevisPdf(req.file.buffer);
+    console.log(`[artisan-devis/import] ✓ parsed: ${parsed.artisan?.entreprise} / ${euros(parsed.totaux?.total_ht)}`);
+
+    // Résolution artisan : si pas fourni, match par nom d'entreprise
+    let resolvedArtisanId = artisanId;
+    if (!resolvedArtisanId && parsed.artisan?.entreprise) {
+      const nomNorm = String(parsed.artisan.entreprise).trim().toUpperCase();
+      const allArtisans = await atFetchAll(TABLES.artisans.id);
+      const match = allArtisans.find(a => (a.fields?.Nom || '').trim().toUpperCase().includes(nomNorm) ||
+                                            nomNorm.includes((a.fields?.Nom || '').trim().toUpperCase()));
+      if (match) {
+        resolvedArtisanId = match.id;
+        console.log(`[artisan-devis/import] artisan matché: ${match.fields.Nom}`);
+      }
+    }
+
+    const montantHT = Number(parsed.totaux?.total_ht) || 0;
+    const montantTTC = Number(parsed.totaux?.total_ttc) || 0;
+    const retrocom = Math.round(montantHT * 0.05 * 100) / 100;
+
+    // Adresse chantier : concat si multi-lignes
+    const adresseChantier = parsed.chantier?.adresse || parsed.client?.adresse_facturation || '';
+
+    const fields = {
+      'Numéro devis': parsed.metadata?.numero_devis || `AUTO-${Date.now()}`,
+      'Date devis': parsed.metadata?.date_devis || null,
+      'Montant HT': montantHT || null,
+      'Montant TTC': montantTTC || null,
+      'Rétro-commission HT': retrocom || null,
+      'Statut': 'À valider',
+      'Description travaux': parsed.description_travaux || '',
+      'Adresse chantier': adresseChantier,
+      'Notes': parsed.alertes_parsing || ''
+    };
+    if (projetId) fields['Projet'] = [projetId];
+    if (resolvedArtisanId) fields['Artisan'] = [resolvedArtisanId];
+
+    // Nettoyage null/empty
+    Object.keys(fields).forEach(k => { if (fields[k] === null || fields[k] === '') delete fields[k]; });
+
+    const rec = await atCreate(TABLES['devis-artisans'].id, fields);
+    const recordId = rec.id;
+
+    // Upload du PDF original en attachment
+    try {
+      await atUploadAttachment(recordId, DA_FIELDS.pdfOriginal, req.file.buffer, req.file.originalname || 'devis-artisan.pdf');
+      console.log(`[artisan-devis/import] PDF attaché au record ${recordId}`);
+    } catch (e) {
+      console.warn(`[artisan-devis/import] upload PDF échoué (record créé quand même): ${e.message}`);
+    }
+
+    res.json({
+      ok: true,
+      recordId,
+      artisan_matched: !!resolvedArtisanId,
+      artisan_name: parsed.artisan?.entreprise,
+      parsed_summary: {
+        numero: parsed.metadata?.numero_devis,
+        montant_ht: montantHT,
+        montant_ttc: montantTTC,
+        retrocommission: retrocom
+      }
+    });
+  } catch (e) {
+    console.error('[artisan-devis/import] error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- DEVIS ARTISAN : générer la Fiche de mission PDF + uploader sur le record + renvoyer mailto ---
+app.post('/api/artisan-devis/:id/fiche-mission', requireAuth, async (req, res) => {
+  const recordId = req.params.id;
+  try {
+    // 1. Récup le devis artisan
+    const daUrl = `https://api.airtable.com/v0/${BASE_ID}/${TABLES['devis-artisans'].id}/${recordId}`;
+    const dar = await fetch(daUrl, { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!dar.ok) throw new Error('Devis artisan introuvable');
+    const da = await dar.json();
+    const f = da.fields || {};
+
+    // 2. Résoudre l'artisan (infos email/tel/spécialité)
+    const artisanId = Array.isArray(f['Artisan']) ? f['Artisan'][0] : null;
+    if (!artisanId) return res.status(400).json({ error: 'Aucun artisan lié à ce devis' });
+    const aUrl = `https://api.airtable.com/v0/${BASE_ID}/${TABLES.artisans.id}/${artisanId}`;
+    const ar = await fetch(aUrl, { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!ar.ok) throw new Error('Artisan introuvable');
+    const artisan = (await ar.json()).fields || {};
+
+    // 3. Résoudre le projet (référence + client)
+    const projetId = Array.isArray(f['Projet']) ? f['Projet'][0] : null;
+    let projetRef = '—', clientNom = '—';
+    if (projetId) {
+      const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`,
+        { headers: { Authorization: `Bearer ${AT_KEY}` } });
+      if (pr.ok) {
+        const p = (await pr.json()).fields || {};
+        projetRef = p['Référence'] || '—';
+        const clientId = Array.isArray(p['Client']) ? p['Client'][0] : null;
+        if (clientId) {
+          const cr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.clients.id}/${clientId}`,
+            { headers: { Authorization: `Bearer ${AT_KEY}` } });
+          if (cr.ok) clientNom = ((await cr.json()).fields || {}).Nom || '—';
+        }
+      }
+    }
+
+    // 4. Générer le PDF
+    const pdfBuffer = await generateFicheMission({
+      projetRef,
+      clientNom,
+      adresseChantier: f['Adresse chantier'] || '',
+      artisanNom: artisan.Nom || '—',
+      artisanContact: artisan['Contact principal'] || '',
+      artisanEmail: artisan.Email || '',
+      artisanSpecialite: artisan['Spécialité'] || '',
+      numeroDevis: f['Numéro devis'] || '',
+      dateDevis: f['Date devis'] || null,
+      dateDemarrage: f['Date démarrage prévue'] || null,
+      montantHT: f['Montant HT'] || 0,
+      montantTTC: f['Montant TTC'] || 0,
+      descriptionTravaux: f['Description travaux'] || '',
+      notes: f['Notes'] || ''
+    });
+
+    // 5. Upload en attachment sur le record
+    const filename = `Fiche-mission-${(f['Numéro devis'] || recordId).replace(/[^A-Za-z0-9-_]/g, '_')}.pdf`;
+    try {
+      await atUploadAttachment(recordId, DA_FIELDS.ficheMission, pdfBuffer, filename);
+    } catch (e) {
+      console.warn(`[fiche-mission] upload attachment échoué: ${e.message}`);
+    }
+
+    // 6. Passage statut → "Fiche envoyée"
+    try { await atPatch(TABLES['devis-artisans'].id, recordId, { 'Statut': 'Fiche envoyée' }); } catch(e){}
+
+    // 7. Re-fetch pour récupérer l'URL attachment
+    const fresh = await fetch(daUrl, { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    const freshData = fresh.ok ? (await fresh.json()).fields : {};
+    const ficheUrl = (freshData['Fiche de mission PDF'] || [])[0]?.url || null;
+
+    // 8. Construire le mailto
+    const subject = `[Tanguy Design] Devis validé — ${projetRef} — Demande d'acompte`;
+    const bodyLines = [
+      `Bonjour ${(artisan['Contact principal'] || artisan.Nom || '').split(/[/\n]/)[0].trim()},`,
+      ``,
+      `Le devis client du chantier « ${projetRef} » vient d'être validé. Vous pouvez démarrer votre prestation et nous adresser votre demande d'acompte (30%).`,
+      ``,
+      `Détails :`,
+      `• Chantier : ${f['Adresse chantier'] || ''}`,
+      `• Client : ${clientNom}`,
+      `• Devis : ${f['Numéro devis'] || ''} — ${euros(f['Montant TTC'])} TTC`,
+      ``,
+      `La fiche de mission PDF complète est jointe à cet email (à télécharger depuis : ${ficheUrl || '(lien indisponible, voir pièce jointe Airtable)'}).`,
+      ``,
+      `Pour toute question, n'hésitez pas à nous revenir.`,
+      ``,
+      `Cordialement,`,
+      `L'équipe Tanguy Design`
+    ].join('\n');
+
+    const mailto = `mailto:${encodeURIComponent(artisan.Email || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyLines)}`;
+
+    res.json({
+      ok: true,
+      ficheUrl,
+      mailto,
+      artisanEmail: artisan.Email || null,
+      artisanNom: artisan.Nom || null
+    });
+  } catch (e) {
+    console.error('[artisan-devis/fiche-mission] error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Helper pour log ---
+function euros(n) {
+  if (n == null || isNaN(n)) return '—';
+  return Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+}
 
 // --- Static ---
 app.get('/', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));

@@ -1,6 +1,6 @@
 {
   "name": "tanguy-design",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Cockpit gestion chantiers cuisines Tanguy Design",
   "main": "server.js",
   "scripts": {
@@ -13,7 +13,8 @@
     "cookie-session": "^2.1.0",
     "express": "^4.19.2",
     "multer": "^1.4.5-lts.1",
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^2.7.0",
+    "pdfkit": "^0.15.0"
   },
   "engines": {
     "node": ">=18"
