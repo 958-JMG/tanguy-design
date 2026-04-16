@@ -645,6 +645,24 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
       console.warn(`[artisan-devis/import] upload PDF échoué (record créé quand même): ${e.message}`);
     }
 
+    // Auto-ajouter l'artisan à la liste Artisans du projet (si match + projet défini)
+    if (resolvedArtisanId && projetId) {
+      try {
+        const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`,
+          { headers: { Authorization: `Bearer ${AT_KEY}` } });
+        if (pr.ok) {
+          const projetData = await pr.json();
+          const current = Array.isArray(projetData.fields?.Artisans) ? projetData.fields.Artisans : [];
+          if (!current.includes(resolvedArtisanId)) {
+            await atPatch(TABLES.projets.id, projetId, { Artisans: [...current, resolvedArtisanId] });
+            console.log(`[artisan-devis/import] artisan ${resolvedArtisanId} ajouté au projet ${projetId}`);
+          }
+        }
+      } catch (e) {
+        console.warn(`[artisan-devis/import] ajout artisan au projet échoué: ${e.message}`);
+      }
+    }
+
     res.json({
       ok: true,
       recordId,
