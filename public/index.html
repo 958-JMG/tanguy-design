@@ -1498,7 +1498,7 @@ function renderProjetDetail(p){
           📎 Uploader un devis artisan
           <input type="file" accept="application/pdf" style="display:none" onchange="uploadArtisanDevis(event,'${p.id}')">
         </label>
-        ${devisArtisansLies.length ? `<button class="btn-primary" onclick="sendAllFichesMission('${p.id}')">✉️ Générer & envoyer les fiches de mission</button>` : ''}
+        ${(Array.isArray(p.Artisans)&&p.Artisans.length) ? `<button class="btn-primary" onclick="sendAllFichesMission('${p.id}')">✉️ Générer & envoyer les fiches de mission (${p.Artisans.length})</button>` : ''}
       </div>
       ${devisArtisansLies.length ? `<div class="proj-list">${devisArtisansLies.map(d => {
         const artId = Array.isArray(d.Artisan) ? d.Artisan[0] : null;
@@ -1695,24 +1695,32 @@ async function sendFicheMission(devisArtisanId){
 }
 
 async function sendAllFichesMission(projetId){
-  const list = (DATA['devis-artisans']||[]).filter(d => Array.isArray(d.Projet) && d.Projet.includes(projetId));
-  if (!list.length) return;
-  if (!confirm(`Générer ${list.length} fiche(s) de mission pour ce projet ?`)) return;
-  showLoader(`Génération de ${list.length} fiche(s)…`);
+  const p = DATA.projets.find(x=>x.id===projetId);
+  const artisanIds = Array.isArray(p?.Artisans) ? p.Artisans : [];
+  if (!artisanIds.length) {
+    toastError('Aucun artisan sélectionné pour ce projet. Utilisez "+ Ajouter" d\'abord.');
+    return;
+  }
+  if (!confirm(`Générer ${artisanIds.length} fiche(s) de mission — une pour chaque artisan sélectionné ?`)) return;
+  showLoader(`Génération de ${artisanIds.length} fiche(s)…`);
   const results = [];
-  for (const d of list) {
+  for (const artisanId of artisanIds) {
     try {
-      const r = await fetch(`/api/artisan-devis/${d.id}/fiche-mission`, { method: 'POST' });
+      const r = await fetch('/api/fiche-mission', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ projetId, artisanId })
+      });
       const data = await r.json();
       if (r.ok) results.push(data);
-      else results.push({ ok: false, error: data.error, artisanNom: '?' });
+      else results.push({ ok: false, error: data.error, artisanNom: (DATA.artisans.find(a=>a.id===artisanId)||{}).Nom || '?' });
     } catch(e) { results.push({ ok: false, error: e.message }); }
   }
   hideLoader();
   showBatchMailtoModal(results);
   await loadAll();
-  const p = DATA.projets.find(x=>x.id===projetId);
-  if (p) renderProjetDetail(p);
+  const fresh = DATA.projets.find(x=>x.id===projetId);
+  if (fresh) renderProjetDetail(fresh);
 }
 
 function showMailtoModal(data){

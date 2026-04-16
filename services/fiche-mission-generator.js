@@ -63,7 +63,7 @@ function generateFicheMission(opts) {
         .fillColor(DARK)
         .font('Helvetica-Bold').fontSize(22).text('TANGUY DESIGN', { continued: false })
         .fillColor(MUTED)
-        .font('Helvetica').fontSize(9).text('Agence cuisine sur-mesure · Vannes')
+        .font('Helvetica').fontSize(9).text('Agence cuisine sur-mesure · Auray')
         .moveDown(0.3)
         .fillColor(GOLD)
         .font('Helvetica-Bold').fontSize(16).text('FICHE DE MISSION')
@@ -74,7 +74,7 @@ function generateFicheMission(opts) {
         .fillColor(DARK).font('Helvetica').fontSize(10)
         .text('Bonjour,')
         .moveDown(0.3)
-        .text(`Le devis client du chantier ci-dessous vient d'être validé. Vous pouvez démarrer votre prestation et nous adresser votre demande d'acompte selon les modalités rappelées en fin de document.`)
+        .text(`Le chantier ci-dessous vous est confié. Vous trouverez ci-après les informations principales nécessaires à son exécution.`)
         .moveDown(1);
 
       // --- Bloc Chantier ---
@@ -94,33 +94,18 @@ function generateFicheMission(opts) {
       doc.moveDown(0.6);
 
       // --- Bloc Prestation ---
-      sectionTitle(doc, 'PRESTATION', GOLD);
-      keyValue(doc, 'Devis artisan', opts.numeroDevis || '—');
-      keyValue(doc, 'Daté du', formatDate(opts.dateDevis));
-      doc.moveDown(0.2);
-      doc.fillColor(MUTED).font('Helvetica-Bold').fontSize(9).text('Description des travaux');
-      doc.fillColor(DARK).font('Helvetica').fontSize(10)
-        .text(opts.descriptionTravaux || '—', { align: 'left', lineGap: 2 });
-      doc.moveDown(0.6);
-
-      // --- Bloc Montants ---
-      sectionTitle(doc, 'MONTANTS', GOLD);
-      keyValue(doc, 'Total HT', euros(opts.montantHT));
-      keyValue(doc, 'Total TTC', euros(opts.montantTTC));
-      const acompte = opts.montantTTC ? Math.round(opts.montantTTC * 0.3 * 100) / 100 : null;
-      if (acompte) keyValue(doc, 'Acompte 30%', euros(acompte));
-      doc.moveDown(0.8);
-
-      // --- Modalités ---
-      sectionTitle(doc, 'MODALITÉS', GOLD);
-      doc.fillColor(DARK).font('Helvetica').fontSize(10)
-        .list([
-          `Merci d'adresser votre facture d'acompte (30%) à Tanguy Design pour démarrer le chantier.`,
-          `Le solde sera réglé à la réception des travaux, après validation conjointe avec le client.`,
-          `Toute modification de planning ou de périmètre doit être validée par écrit avec Tanguy Design avant exécution.`,
-          `En cas de question, contactez votre référent Tanguy Design.`
-        ], { bulletRadius: 1.5, textIndent: 10, lineGap: 3 });
-      doc.moveDown(1);
+      if (opts.numeroDevis || opts.dateDevis || opts.descriptionTravaux) {
+        sectionTitle(doc, 'PRESTATION', GOLD);
+        if (opts.numeroDevis) keyValue(doc, 'Devis artisan', opts.numeroDevis);
+        if (opts.dateDevis) keyValue(doc, 'Daté du', formatDate(opts.dateDevis));
+        if (opts.descriptionTravaux) {
+          doc.moveDown(0.2);
+          doc.fillColor(MUTED).font('Helvetica-Bold').fontSize(9).text('Description des travaux');
+          doc.fillColor(DARK).font('Helvetica').fontSize(10)
+            .text(opts.descriptionTravaux, { align: 'left', lineGap: 2 });
+        }
+        doc.moveDown(0.6);
+      }
 
       if (opts.notes) {
         sectionTitle(doc, 'NOTES', GOLD);

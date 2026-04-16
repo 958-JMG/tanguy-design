@@ -681,106 +681,145 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
   }
 });
 
-// --- DEVIS ARTISAN : générer la Fiche de mission PDF + uploader sur le record + renvoyer mailto ---
+// --- Génération Fiche de mission : logique mutualisée ---
+// Prend projetId + artisanId, trouve un devis artisan lié (optionnel) pour enrichir,
+// génère le PDF, l'attache au projet (Fiches de mission) et au devis artisan s'il existe,
+// retourne { ficheUrl, mailto, artisanEmail, artisanNom }.
+async function generateAndAttachFicheMission(projetId, artisanId) {
+  if (!projetId) throw new Error('projetId requis');
+  if (!artisanId) throw new Error('artisanId requis');
+
+  // 1. Projet + client
+  const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`,
+    { headers: { Authorization: `Bearer ${AT_KEY}` } });
+  if (!pr.ok) throw new Error('Projet introuvable');
+  const projet = (await pr.json()).fields || {};
+  const projetRef = projet['Référence'] || '—';
+  let clientNom = '—';
+  const clientId = Array.isArray(projet['Client']) ? projet['Client'][0] : null;
+  if (clientId) {
+    const cr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.clients.id}/${clientId}`,
+      { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (cr.ok) clientNom = ((await cr.json()).fields || {}).Nom || '—';
+  }
+
+  // 2. Artisan
+  const ar = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.artisans.id}/${artisanId}`,
+    { headers: { Authorization: `Bearer ${AT_KEY}` } });
+  if (!ar.ok) throw new Error('Artisan introuvable');
+  const artisan = (await ar.json()).fields || {};
+
+  // 3. Devis artisan lié (si existe) — le plus récent
+  const allDA = await atFetchAll(TABLES['devis-artisans'].id);
+  const daRec = allDA.find(d =>
+    Array.isArray(d.fields?.Projet) && d.fields.Projet.includes(projetId) &&
+    Array.isArray(d.fields?.Artisan) && d.fields.Artisan.includes(artisanId)
+  );
+  const da = daRec?.fields || {};
+
+  // 4. Données pour la fiche (adresse chantier : fallback vers projet si devis absent)
+  const adresseChantier = da['Adresse chantier']
+    || projet['Adresse chantier']
+    || (projet['Description'] || '').split('\n').slice(0,2).join('\n')
+    || '—';
+
+  const pdfBuffer = await generateFicheMission({
+    projetRef,
+    clientNom,
+    adresseChantier,
+    artisanNom: artisan.Nom || '—',
+    artisanContact: artisan['Contact principal'] || '',
+    artisanEmail: artisan.Email || '',
+    artisanSpecialite: artisan['Spécialité'] || '',
+    numeroDevis: da['Numéro devis'] || '',
+    dateDevis: da['Date devis'] || null,
+    dateDemarrage: da['Date démarrage prévue'] || projet['Date pose prévue'] || null,
+    descriptionTravaux: da['Description travaux'] || '',
+    notes: da['Notes'] || ''
+  });
+
+  const safeName = (artisan.Nom || 'artisan').replace(/[^A-Za-z0-9-_]/g, '_');
+  const filename = `Fiche-mission-${projetRef.replace(/[^A-Za-z0-9-_]/g, '_')}-${safeName}.pdf`;
+
+  // 5. Upload sur Projet.Fiches de mission (accumule)
+  let ficheUrl = null;
+  try {
+    const up = await atUploadAttachment(projetId, 'fldOVKxE25bT4zDfa', pdfBuffer, filename);
+    // Airtable renvoie l'attachment — on re-fetch pour l'URL fraîche
+    const pf = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`,
+      { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    const pfdata = pf.ok ? (await pf.json()).fields : {};
+    const list = pfdata['Fiches de mission'] || [];
+    // Prendre le plus récent par filename
+    const match = list.find(a => a.filename === filename) || list[list.length - 1];
+    ficheUrl = match?.url || null;
+  } catch (e) {
+    console.warn(`[fiche-mission] upload projet.Fiches échoué: ${e.message}`);
+  }
+
+  // 6. Si devis artisan existe : y attacher aussi + passer statut "Fiche envoyée"
+  if (daRec) {
+    try { await atUploadAttachment(daRec.id, DA_FIELDS.ficheMission, pdfBuffer, filename); } catch(e) {}
+    try { await atPatch(TABLES['devis-artisans'].id, daRec.id, { 'Statut': 'Fiche envoyée' }); } catch(e) {}
+  }
+
+  // 7. Construire le mailto
+  const subject = `[Tanguy Design] Fiche de mission — ${projetRef}`;
+  const firstName = (artisan['Contact principal'] || artisan.Nom || '').split(/[/\n]/)[0].trim();
+  const bodyLines = [
+    `Bonjour ${firstName},`,
+    ``,
+    `Le chantier « ${projetRef} » vous est confié. Vous trouverez en pièce jointe la fiche de mission avec les informations principales (adresse, client, contact).`,
+    ``,
+    `Chantier : ${adresseChantier}`,
+    `Client : ${clientNom}`,
+    ``,
+    `${ficheUrl ? `Fiche de mission PDF : ${ficheUrl}` : '(voir pièce jointe)'}`,
+    ``,
+    `Pour toute question, n'hésitez pas à nous revenir.`,
+    ``,
+    `Cordialement,`,
+    `L'équipe Tanguy Design`
+  ].join('\n');
+  const mailto = `mailto:${encodeURIComponent(artisan.Email || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyLines)}`;
+
+  return {
+    ok: true,
+    ficheUrl,
+    mailto,
+    artisanEmail: artisan.Email || null,
+    artisanNom: artisan.Nom || null,
+    hasDevis: !!daRec
+  };
+}
+
+// --- Fiche de mission par (projet, artisan) — nouveau endpoint principal ---
+app.post('/api/fiche-mission', requireAuth, async (req, res) => {
+  const { projetId, artisanId } = req.body || {};
+  if (!projetId || !artisanId) return res.status(400).json({ error: 'projetId et artisanId requis' });
+  try {
+    const result = await generateAndAttachFicheMission(projetId, artisanId);
+    res.json(result);
+  } catch (e) {
+    console.error('[fiche-mission] error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- DEVIS ARTISAN : génère la Fiche (résout projet+artisan depuis le devis) ---
 app.post('/api/artisan-devis/:id/fiche-mission', requireAuth, async (req, res) => {
   const recordId = req.params.id;
   try {
-    // 1. Récup le devis artisan
     const daUrl = `https://api.airtable.com/v0/${BASE_ID}/${TABLES['devis-artisans'].id}/${recordId}`;
     const dar = await fetch(daUrl, { headers: { Authorization: `Bearer ${AT_KEY}` } });
     if (!dar.ok) throw new Error('Devis artisan introuvable');
-    const da = await dar.json();
-    const f = da.fields || {};
-
-    // 2. Résoudre l'artisan (infos email/tel/spécialité)
-    const artisanId = Array.isArray(f['Artisan']) ? f['Artisan'][0] : null;
-    if (!artisanId) return res.status(400).json({ error: 'Aucun artisan lié à ce devis' });
-    const aUrl = `https://api.airtable.com/v0/${BASE_ID}/${TABLES.artisans.id}/${artisanId}`;
-    const ar = await fetch(aUrl, { headers: { Authorization: `Bearer ${AT_KEY}` } });
-    if (!ar.ok) throw new Error('Artisan introuvable');
-    const artisan = (await ar.json()).fields || {};
-
-    // 3. Résoudre le projet (référence + client)
+    const f = (await dar.json()).fields || {};
     const projetId = Array.isArray(f['Projet']) ? f['Projet'][0] : null;
-    let projetRef = '—', clientNom = '—';
-    if (projetId) {
-      const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`,
-        { headers: { Authorization: `Bearer ${AT_KEY}` } });
-      if (pr.ok) {
-        const p = (await pr.json()).fields || {};
-        projetRef = p['Référence'] || '—';
-        const clientId = Array.isArray(p['Client']) ? p['Client'][0] : null;
-        if (clientId) {
-          const cr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.clients.id}/${clientId}`,
-            { headers: { Authorization: `Bearer ${AT_KEY}` } });
-          if (cr.ok) clientNom = ((await cr.json()).fields || {}).Nom || '—';
-        }
-      }
-    }
-
-    // 4. Générer le PDF
-    const pdfBuffer = await generateFicheMission({
-      projetRef,
-      clientNom,
-      adresseChantier: f['Adresse chantier'] || '',
-      artisanNom: artisan.Nom || '—',
-      artisanContact: artisan['Contact principal'] || '',
-      artisanEmail: artisan.Email || '',
-      artisanSpecialite: artisan['Spécialité'] || '',
-      numeroDevis: f['Numéro devis'] || '',
-      dateDevis: f['Date devis'] || null,
-      dateDemarrage: f['Date démarrage prévue'] || null,
-      montantHT: f['Montant HT'] || 0,
-      montantTTC: f['Montant TTC'] || 0,
-      descriptionTravaux: f['Description travaux'] || '',
-      notes: f['Notes'] || ''
-    });
-
-    // 5. Upload en attachment sur le record
-    const filename = `Fiche-mission-${(f['Numéro devis'] || recordId).replace(/[^A-Za-z0-9-_]/g, '_')}.pdf`;
-    try {
-      await atUploadAttachment(recordId, DA_FIELDS.ficheMission, pdfBuffer, filename);
-    } catch (e) {
-      console.warn(`[fiche-mission] upload attachment échoué: ${e.message}`);
-    }
-
-    // 6. Passage statut → "Fiche envoyée"
-    try { await atPatch(TABLES['devis-artisans'].id, recordId, { 'Statut': 'Fiche envoyée' }); } catch(e){}
-
-    // 7. Re-fetch pour récupérer l'URL attachment
-    const fresh = await fetch(daUrl, { headers: { Authorization: `Bearer ${AT_KEY}` } });
-    const freshData = fresh.ok ? (await fresh.json()).fields : {};
-    const ficheUrl = (freshData['Fiche de mission PDF'] || [])[0]?.url || null;
-
-    // 8. Construire le mailto
-    const subject = `[Tanguy Design] Devis validé — ${projetRef} — Demande d'acompte`;
-    const bodyLines = [
-      `Bonjour ${(artisan['Contact principal'] || artisan.Nom || '').split(/[/\n]/)[0].trim()},`,
-      ``,
-      `Le devis client du chantier « ${projetRef} » vient d'être validé. Vous pouvez démarrer votre prestation et nous adresser votre demande d'acompte (30%).`,
-      ``,
-      `Détails :`,
-      `• Chantier : ${f['Adresse chantier'] || ''}`,
-      `• Client : ${clientNom}`,
-      `• Devis : ${f['Numéro devis'] || ''} — ${euros(f['Montant TTC'])} TTC`,
-      ``,
-      `La fiche de mission PDF complète est jointe à cet email (à télécharger depuis : ${ficheUrl || '(lien indisponible, voir pièce jointe Airtable)'}).`,
-      ``,
-      `Pour toute question, n'hésitez pas à nous revenir.`,
-      ``,
-      `Cordialement,`,
-      `L'équipe Tanguy Design`
-    ].join('\n');
-
-    const mailto = `mailto:${encodeURIComponent(artisan.Email || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyLines)}`;
-
-    res.json({
-      ok: true,
-      ficheUrl,
-      mailto,
-      artisanEmail: artisan.Email || null,
-      artisanNom: artisan.Nom || null
-    });
+    const artisanId = Array.isArray(f['Artisan']) ? f['Artisan'][0] : null;
+    if (!projetId) return res.status(400).json({ error: 'Devis sans projet lié' });
+    if (!artisanId) return res.status(400).json({ error: 'Devis sans artisan lié' });
+    const result = await generateAndAttachFicheMission(projetId, artisanId);
+    res.json(result);
   } catch (e) {
     console.error('[artisan-devis/fiche-mission] error:', e);
     res.status(500).json({ error: e.message });
