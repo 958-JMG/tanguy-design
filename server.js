@@ -177,7 +177,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     ok: true,
     service: 'tanguy-design',
-    version: '0.2.0',
+    version: '0.3.0',
     airtable_configured: !!AT_KEY && !!BASE_ID,
     anthropic_configured: !!process.env.ANTHROPIC_API_KEY,
     users_count: Object.keys(USERS).length,
@@ -781,6 +781,6 @@ app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
 app.use('/img', express.static(path.join(__dirname, 'public', 'img')));
 
 app.listen(PORT, () => {
-  console.log(`✅ Tanguy Design — Cockpit v0.2.0 on port ${PORT}`);
+  console.log(`✅ Tanguy Design — Cockpit v0.3.0 on port ${PORT}`);
   console.log(`   Users: ${Object.keys(USERS).length} | Airtable: ${BASE_ID ? 'OK' : 'MISSING'} | Claude: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'MISSING'}`);
 });
