@@ -801,9 +801,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
   <div class="modal">
     <h3 id="modalTitle">Nouveau</h3>
     <div id="modalBody"></div>
-    <div class="modal-btns">
-      <button class="mbtn cancel" onclick="closeModal()">Annuler</button>
-      <button class="mbtn primary" onclick="submitModal()">Enregistrer</button>
+    <div class="modal-btns" style="justify-content:space-between">
+      <button id="modalDeleteBtn" onclick="deleteFromModal()" style="display:none;background:transparent;border:1px solid #c44;color:#c44;padding:8px 14px;border-radius:6px;font-family:inherit;font-size:12px;cursor:pointer">Supprimer</button>
+      <div style="display:flex;gap:8px;margin-left:auto">
+        <button class="mbtn cancel" onclick="closeModal()">Annuler</button>
+        <button class="mbtn primary" onclick="submitModal()">Enregistrer</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1278,7 +1281,7 @@ function clientCard(c){
 
 function artisanCard(a){
   const typeClass = a.Type === 'Contractuel' ? 'b-green' : 'b-gray';
-  return `<div class="card">
+  return `<div class="card" onclick="openModal('artisans','${a.id}')" style="cursor:pointer">
     <div class="card-top">
       <div class="card-nom">${esc(a.Nom||'—')} <span class="badge b-blue">${esc(a.Spécialité||'—')}</span> <span class="badge ${typeClass}">${esc(a.Type||'—')}</span></div>
       <div class="card-amt">${euros(a['CA cumulé'])}</div>
@@ -1292,7 +1295,7 @@ function artisanCard(a){
 }
 
 function fournisseurCard(f){
-  return `<div class="card">
+  return `<div class="card" onclick="openModal('fournisseurs','${f.id}')" style="cursor:pointer">
     <div class="card-top">
       <div class="card-nom">${esc(f.Nom||'—')} <span class="badge b-blue">${esc(f.Type||'—')}</span></div>
       <div class="card-amt">${esc(f.Plateforme||'')}</div>
@@ -2970,26 +2973,39 @@ const FORMS = {
   ]
 };
 
-function openModal(table){
+let currentModalRecordId = null;
+
+function openModal(table, recordId){
   currentModalTable = table;
+  currentModalRecordId = recordId || null;
   const form = FORMS[table];
-  $('#modalTitle').textContent = 'Nouveau · ' + table;
+  const record = recordId ? (DATA[table]||[]).find(r => r.id === recordId) : null;
+  $('#modalTitle').textContent = (record ? 'Éditer · ' : 'Nouveau · ') + table;
   $('#modalBody').innerHTML = form.map(f => {
     const id = 'f_'+f.k.replace(/\W/g,'_');
+    const rawVal = record ? record[f.k] : '';
+    const val = rawVal == null ? '' : String(rawVal);
+    const valEsc = esc(val);
     if (f.type === 'select') {
-      return `<label>${f.label}</label><select id="${id}"><option value="">—</option>${f.options.map(o=>`<option>${o}</option>`).join('')}</select>`;
+      return `<label>${f.label}</label><select id="${id}"><option value="">—</option>${f.options.map(o=>`<option ${o===val?'selected':''}>${o}</option>`).join('')}</select>`;
     }
     if (f.type === 'textarea') {
-      return `<label>${f.label}</label><textarea id="${id}"></textarea>`;
+      return `<label>${f.label}</label><textarea id="${id}">${valEsc}</textarea>`;
     }
-    return `<label>${f.label}</label><input id="${id}" type="${f.type||'text'}" ${f.step?`step="${f.step}"`:''}>`;
+    return `<label>${f.label}</label><input id="${id}" type="${f.type||'text'}" ${f.step?`step="${f.step}"`:''} value="${valEsc}">`;
   }).join('');
+  // Bouton supprimer visible uniquement en mode édition
+  const delBtn = document.getElementById('modalDeleteBtn');
+  if (delBtn) delBtn.style.display = record ? 'inline-block' : 'none';
   $('#modalBg').classList.add('on');
 }
 
 function closeModal(){
   $('#modalBg').classList.remove('on');
   currentModalTable = null;
+  currentModalRecordId = null;
+  const delBtn = document.getElementById('modalDeleteBtn');
+  if (delBtn) delBtn.style.display = 'none';
 }
 
 async function submitModal(){
@@ -3002,15 +3018,20 @@ async function submitModal(){
     const el = document.getElementById(id);
     if (!el) continue;
     let v = el.value.trim();
-    if (!v) continue;
-    if (f.type === 'number') v = Number(v);
+    // En édition, envoyer les champs vides pour permettre de les effacer
+    if (!v && !currentModalRecordId) continue;
+    if (f.type === 'number') v = v === '' ? null : Number(v);
     fields[f.k] = v;
   }
-  if (!fields[form[0].k]) { toastError('Champ obligatoire manquant'); return; }
+  if (!currentModalRecordId && !fields[form[0].k]) { toastError('Champ obligatoire manquant'); return; }
   setSync('loading','envoi');
   try {
-    const r = await fetch('/api/data/'+currentModalTable, {
-      method:'POST',
+    const url = currentModalRecordId
+      ? '/api/data/'+currentModalTable+'/'+currentModalRecordId
+      : '/api/data/'+currentModalTable;
+    const method = currentModalRecordId ? 'PATCH' : 'POST';
+    const r = await fetch(url, {
+      method,
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({fields})
     });
@@ -3022,6 +3043,20 @@ async function submitModal(){
     toastError('Erreur : '+e.message);
     setSync('error','erreur');
   }
+}
+
+async function deleteFromModal(){
+  if (!currentModalTable || !currentModalRecordId) return;
+  const record = (DATA[currentModalTable]||[]).find(r => r.id === currentModalRecordId);
+  const label = record ? (record.Nom || record.Référence || record.Numéro || record.Titre || currentModalRecordId) : currentModalRecordId;
+  if (!confirm(`Supprimer définitivement « ${label} » ?\n\nCette action est irréversible.`)) return;
+  setSync('loading','suppression');
+  try {
+    const r = await fetch('/api/data/'+currentModalTable+'/'+currentModalRecordId, { method: 'DELETE' });
+    if (!r.ok) { const d = await r.json().catch(()=>({})); throw new Error(d.error||'erreur'); }
+    closeModal();
+    await loadAll();
+  } catch(e) { toastError('Erreur : '+e.message); setSync('error','erreur'); }
 }
 
 // Fermer modal clic fond
