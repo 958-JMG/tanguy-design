@@ -60,14 +60,65 @@ if (process.env.USERS_HASHES_B64) {
 const USERS = parseUsers(USERS_RAW);
 
 // --- Middleware ---
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+// En prod, SESSION_SECRET est obligatoire (>= 32 chars) — sinon on refuse de démarrer.
+if (IS_PROD && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)) {
+  console.error('[FATAL] SESSION_SECRET manquant ou trop court (>=32 chars) en production — arrêt.');
+  process.exit(1);
+}
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.set('trust proxy', 1);
+
+// Healthcheck public (hors session) pour monitoring Scaleway / uptime.
+app.get('/health', (req, res) => res.json({ ok: true, uptime: process.uptime() }));
+
+// -----------------------------------------------------------------
+// Security headers — implémentation maison (zéro dépendance nouvelle)
+// -----------------------------------------------------------------
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self' https://api.airtable.com https://api.anthropic.com",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+  "upgrade-insecure-requests",
+].join('; ');
+
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', CSP);
+  res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), interest-cohort=()');
+  res.removeHeader('X-Powered-By');
+  next();
+});
+
+// HTTPS redirect en prod (derrière Railway/Scaleway qui termine le TLS)
+app.use((req, res, next) => {
+  if (!IS_PROD) return next();
+  const proto = req.headers['x-forwarded-proto'] || req.protocol;
+  if (proto !== 'https') {
+    return res.redirect(301, 'https://' + req.headers.host + req.url);
+  }
+  next();
+});
+
 app.use(session({
   name: 'tanguy.sid',
   keys: [process.env.SESSION_SECRET || 'dev-only-change-me'],
   httpOnly: true,
-  sameSite: 'lax',
+  sameSite: 'strict',  // Durci: lax → strict (pas de flow OAuth entrant)
+  secure: IS_PROD,      // Cookie TLS-only en prod
   maxAge: 1000 * 60 * 60 * 24 * 30
 }));
 
