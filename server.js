@@ -87,7 +87,19 @@ const ADMIN_LOGINS = new Set(
 );
 
 // --- Middleware ---
-app.set('trust proxy', 1); // Scaleway derrière proxy, indispensable pour rate-limit + secure cookies
+// Scaleway en front, Cloudflare en amont (Proxied).
+// trust proxy = 2 (Cloudflare + Scaleway LB) pour que req.ip/secure cookies fonctionnent.
+app.set('trust proxy', 2);
+
+// Récupère la vraie IP client : priorise CF-Connecting-IP (Cloudflare Proxied),
+// fallback X-Real-IP / req.ip (direct Scaleway).
+function clientIp(req) {
+  return req.headers['cf-connecting-ip']
+    || req.headers['x-real-ip']
+    || req.ip
+    || req.connection?.remoteAddress
+    || 'unknown';
+}
 
 // Helmet : headers de sécurité standards (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy…)
 // CSP permissive côté inline (le cockpit a tout son JS/CSS inline dans index.html)
@@ -129,12 +141,17 @@ function requireAuth(req, res, next) {
   return res.redirect('/login');
 }
 
-// Rate-limit global API (protection contre DoS basique) : 300 req/min par IP
+// keyGenerator commun aux rate-limiters : utilise la vraie IP client (CF-Connecting-IP prioritaire)
+// sinon tous les users seraient groupés derrière l'IP Cloudflare unique → rate-limit inutile.
+const ipKeyGen = (req) => clientIp(req);
+
+// Rate-limit global API (protection contre DoS basique) : 300 req/min par IP client
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: ipKeyGen,
   message: { error: 'Trop de requêtes, réessayez dans 1 minute' },
 });
 app.use('/api/', apiLimiter);
@@ -145,6 +162,7 @@ const loginLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: ipKeyGen,
   message: { error: 'Trop de tentatives de connexion. Réessayez dans 15 minutes.' },
   skipSuccessfulRequests: true, // ne compte pas les logins réussis
 });
@@ -255,7 +273,7 @@ app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'log
 
 app.post('/api/login', loginLimiter, async (req, res) => {
   const { login, password } = req.body || {};
-  const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+  const ip = clientIp(req);
   if (!login || !password) return res.status(400).json({ error: 'login + password requis' });
   const loginLc = String(login).toLowerCase();
   const hash = USERS[loginLc];
