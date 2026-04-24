@@ -1,6 +1,7 @@
 node_modules/
 .env
 .env.local
+.env.*.local
 *.log
 .DS_Store
 .vscode/
@@ -8,3 +9,22 @@ node_modules/
 dist/
 build/
 coverage/
+
+# Dossiers de travail locaux (docs, notes, brouillons — hors repo)
+TG-DOC/
+TGD/
+
+# Fichiers temporaires Office (lock files)
+~$*
+~*.xlsx
+~*.pptx
+~*.docx
+
+# OS / outils
+Thumbs.db
+.Spotlight-V100
+.Trashes
+
+# Output scripts d'import (si on génère des rapports locaux)
+scripts/output/
+import-report-*.json
