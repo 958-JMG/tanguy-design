@@ -4,12 +4,25 @@ const bcrypt = require('bcrypt');
 const path = require('path');
 const fetch = require('node-fetch');
 const multer = require('multer');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { parseDevisPdf, parsePlaudTranscript } = require('./services/devis-parser');
 const { parseArtisanDevisPdf } = require('./services/artisan-devis-parser');
 const { generateFicheMission } = require('./services/fiche-mission-generator');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+// --- Session secret : refus de démarrer en prod sans secret robuste ---
+const SESSION_SECRET_FALLBACK = 'dev-only-change-me';
+if (IS_PROD) {
+  const s = process.env.SESSION_SECRET || '';
+  if (!s || s === SESSION_SECRET_FALLBACK || s.length < 32) {
+    console.error('❌ SESSION_SECRET manquant ou trop court (min 32 chars). En prod, génère avec: openssl rand -hex 32');
+    process.exit(1);
+  }
+}
 
 // --- Airtable config ---
 const BASE_ID = process.env.AIRTABLE_BASE_ID || '';
@@ -74,14 +87,39 @@ const ADMIN_LOGINS = new Set(
 );
 
 // --- Middleware ---
+app.set('trust proxy', 1); // Scaleway derrière proxy, indispensable pour rate-limit + secure cookies
+
+// Helmet : headers de sécurité standards (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy…)
+// CSP permissive côté inline (le cockpit a tout son JS/CSS inline dans index.html)
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      'default-src': ["'self'"],
+      'script-src': ["'self'", "'unsafe-inline'"],
+      'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      'font-src': ["'self'", 'https://fonts.gstatic.com', 'data:'],
+      'img-src': ["'self'", 'data:', 'blob:', 'https:'],
+      'connect-src': ["'self'", 'https://api.airtable.com', 'https://content.airtable.com', 'https://dl.airtable.com', 'https://v5.airtableusercontent.com'],
+      'frame-ancestors': ["'none'"],
+      'form-action': ["'self'"],
+      'base-uri': ["'self'"],
+      'object-src': ["'none'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false, // pas d'embed cross-origin complexe
+  strictTransportSecurity: IS_PROD ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
+}));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
-app.set('trust proxy', 1);
+
 app.use(session({
   name: 'tanguy.sid',
-  keys: [process.env.SESSION_SECRET || 'dev-only-change-me'],
+  keys: [process.env.SESSION_SECRET || SESSION_SECRET_FALLBACK],
   httpOnly: true,
   sameSite: 'lax',
+  secure: IS_PROD, // HTTPS only en prod
   maxAge: 1000 * 60 * 60 * 24 * 30
 }));
 
@@ -90,6 +128,26 @@ function requireAuth(req, res, next) {
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'not authenticated' });
   return res.redirect('/login');
 }
+
+// Rate-limit global API (protection contre DoS basique) : 300 req/min par IP
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Trop de requêtes, réessayez dans 1 minute' },
+});
+app.use('/api/', apiLimiter);
+
+// Rate-limit strict sur login : 10 tentatives par IP par 15 min (bruteforce protection)
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Trop de tentatives de connexion. Réessayez dans 15 minutes.' },
+  skipSuccessfulRequests: true, // ne compte pas les logins réussis
+});
 
 // Multer pour upload PDF (stockage mémoire, 15MB max)
 const upload = multer({
@@ -187,29 +245,31 @@ async function atUploadAttachment(recordId, fieldId, buffer, filename, contentTy
 }
 
 // --- Health ---
+// Endpoint minimal : pas d'info sensible (users_count, table IDs) pour ne rien révéler aux scans externes.
 app.get('/api/health', (req, res) => {
-  res.json({
-    ok: true,
-    service: 'tanguy-design',
-    version: '0.3.0',
-    airtable_configured: !!AT_KEY && !!BASE_ID,
-    anthropic_configured: !!process.env.ANTHROPIC_API_KEY,
-    users_count: Object.keys(USERS).length,
-    tables: Object.keys(TABLES)
-  });
+  res.json({ ok: true, service: 'tanguy-design', ts: new Date().toISOString() });
 });
 
 // --- Auth ---
 app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
 
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', loginLimiter, async (req, res) => {
   const { login, password } = req.body || {};
+  const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!login || !password) return res.status(400).json({ error: 'login + password requis' });
-  const hash = USERS[login.toLowerCase()];
-  if (!hash) return res.status(401).json({ error: 'identifiants invalides' });
+  const loginLc = String(login).toLowerCase();
+  const hash = USERS[loginLc];
+  if (!hash) {
+    console.warn(`[auth] login FAIL (unknown user) login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
+    return res.status(401).json({ error: 'identifiants invalides' });
+  }
   const ok = await bcrypt.compare(password, hash);
-  if (!ok) return res.status(401).json({ error: 'identifiants invalides' });
-  req.session.user = login.toLowerCase();
+  if (!ok) {
+    console.warn(`[auth] login FAIL (bad password) login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
+    return res.status(401).json({ error: 'identifiants invalides' });
+  }
+  req.session.user = loginLc;
+  console.info(`[auth] login OK login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
   res.json({ ok: true, user: req.session.user });
 });
 
