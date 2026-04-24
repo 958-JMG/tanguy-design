@@ -1382,19 +1382,77 @@ function fournisseurCard(f){
   </div>`;
 }
 
+function commandeOrigin(c){
+  const notes = c.Notes || '';
+  const m = notes.match(/Importé depuis PDF\s*:\s*([^\n]+)/i);
+  if (m) {
+    const fourn = (notes.match(/Fournisseur détecté\s*:\s*([^\n]+)/i) || [])[1];
+    return { type:'import', pdf: m[1].trim(), fournisseur: (fourn||'').trim() };
+  }
+  if (/auto|signature devis|bc signé/i.test(notes)) return { type:'auto', label:'Auto via signature devis' };
+  return { type:'manual', label:'Saisie manuelle' };
+}
+
 function commandeCard(c){
   const statutClass = {'Créée':'b-gray','Envoyée':'b-amber','Confirmée':'b-blue','Livrée':'b-green','Posée':'b-ink'}[c.Statut]||'b-gray';
-  return `<div class="card">
+  const projetId = Array.isArray(c.Projet) ? c.Projet[0] : null;
+  const projet = projetId ? DATA.projets.find(p => p.id === projetId) : null;
+  const projetLabel = projet ? esc(projet.Référence || '—') : '<span style="color:var(--ink4)">Non lié</span>';
+  const orig = commandeOrigin(c);
+  let origBadge = '';
+  if (orig.type === 'import') origBadge = `<span class="badge b-blue" title="${esc(orig.pdf)}">📎 Importée PDF</span>`;
+  else if (orig.type === 'auto') origBadge = `<span class="badge b-amber">⚡ Auto devis</span>`;
+  else origBadge = `<span class="badge b-gray">✍ Manuelle</span>`;
+  const fournBadge = orig.fournisseur ? `<span class="badge b-gray">${esc(orig.fournisseur)}</span>` : '';
+
+  return `<div class="card" onclick="openCommandeDetail('${c.id}')" style="cursor:pointer">
     <div class="card-top">
-      <div class="card-nom">${esc(c.Numéro||'—')} <span class="badge ${statutClass}">${esc(c.Statut||'—')}</span> ${c['Facture reçue']?'<span class="badge b-green">Facture ✓</span>':''}</div>
+      <div class="card-nom">${esc(c.Numéro||'—')} <span class="badge ${statutClass}">${esc(c.Statut||'—')}</span> ${origBadge} ${fournBadge} ${c['Facture reçue']?'<span class="badge b-green">Facture ✓</span>':''}</div>
       <div class="card-amt">${euros(c['Montant HT'])}</div>
     </div>
     <div class="card-meta">
+      <span>📁 ${projet ? `<a href="#" onclick="event.preventDefault();event.stopPropagation();switchTab('projets');openProjetDetail('${projetId}')" style="color:var(--gold)">${projetLabel}</a>` : projetLabel}</span>
       <span>Créée ${esc(c['Date création']||'—')}</span>
       <span>Livraison ${esc(c['Date livraison prévue']||'—')}</span>
+      ${orig.type === 'import' && orig.pdf ? `<span style="color:var(--ink4);font-size:10px">Source : ${esc(orig.pdf)}</span>` : ''}
     </div>
   </div>`;
 }
+
+function openCommandeDetail(cmdId){
+  const c = DATA.commandes.find(x => x.id === cmdId); if (!c) return;
+  const orig = commandeOrigin(c);
+  const projetId = Array.isArray(c.Projet) ? c.Projet[0] : null;
+  const projet = projetId ? DATA.projets.find(p => p.id === projetId) : null;
+  const html = `
+    <div class="modal-bg on" id="cmd-detail-bg" onclick="if(event.target===this)closeCommandeDetail()">
+      <div class="modal-card" style="max-width:540px">
+        <div class="modal-head">
+          <div class="modal-title">Commande ${esc(c.Numéro||'—')}</div>
+          <button class="modal-close" onclick="closeCommandeDetail()">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-row"><label>Statut</label><strong>${esc(c.Statut||'—')}</strong></div>
+          <div class="form-row"><label>Projet</label>${projet ? `<a href="#" onclick="event.preventDefault();closeCommandeDetail();switchTab('projets');openProjetDetail('${projetId}')" style="color:var(--gold)">${esc(projet.Référence||'—')}</a>` : '<em>Non lié</em>'}</div>
+          <div class="form-row"><label>Montant HT</label><strong>${euros(c['Montant HT'])}</strong></div>
+          <div class="form-row"><label>Date création</label>${esc(c['Date création']||'—')}</div>
+          <div class="form-row"><label>Livraison prévue</label>${esc(c['Date livraison prévue']||'—')}</div>
+          <div class="form-row"><label>Origine</label>
+            ${orig.type==='import' ? `<div><strong>Importée depuis PDF</strong><br><span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${esc(orig.pdf)}</span>${orig.fournisseur?`<br><span style="font-size:11px">Fournisseur : ${esc(orig.fournisseur)}</span>`:''}</div>` :
+              orig.type==='auto' ? `<strong>Générée automatiquement</strong> à la signature d'un devis` :
+              `<strong>Saisie manuelle</strong>`}
+          </div>
+          ${c.Notes ? `<div class="form-row"><label>Notes</label><div style="font-size:12px;color:var(--ink2);white-space:pre-wrap;background:#faf8f4;padding:10px;border-radius:4px">${esc(c.Notes)}</div></div>` : ''}
+        </div>
+        <div class="modal-foot" style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--border)">
+          <button class="abtn" onclick="closeCommandeDetail()">Fermer</button>
+        </div>
+      </div>
+    </div>`;
+  const host = document.createElement('div'); host.id = 'cmd-detail-host'; host.innerHTML = html;
+  document.body.appendChild(host);
+}
+function closeCommandeDetail(){ document.getElementById('cmd-detail-host')?.remove(); }
 
 function taskCard(t){
   const prioClass = {'Haute':'b-red','Moyenne':'b-amber','Basse':'b-gray'}[t.Priorité]||'b-gray';
