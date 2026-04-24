@@ -292,6 +292,45 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 .proj-grid > div{display:flex;flex-direction:column;gap:4px}
 .proj-lbl{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink4)}
 .proj-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.attach-grid{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.attach-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 4px 4px 6px;background:#fff;border:1px solid var(--border);border-radius:14px;font-size:12px;color:var(--ink2);transition:border-color .12s;max-width:320px}
+.attach-chip:hover{border-color:var(--gold)}
+.attach-chip-link{display:inline-flex;align-items:center;gap:8px;color:inherit;text-decoration:none;flex:1;min-width:0;padding:2px 0}
+.attach-ext{display:inline-block;min-width:34px;padding:2px 6px;background:var(--ink);color:var(--paper);border-radius:3px;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.04em;text-align:center;font-weight:500;flex-shrink:0}
+.attach-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.attach-del{background:none;border:none;color:var(--ink4);cursor:pointer;font-size:16px;line-height:1;padding:0 6px;border-radius:50%;transition:color .12s,background .12s}
+.attach-del:hover{color:#c25656;background:rgba(194,86,86,.08)}
+.attach-add{display:inline-flex;align-items:center}
+
+/* Journal chantier */
+.journal-list{display:flex;flex-direction:column;gap:6px}
+.journal-entry{background:#fff;border:1px solid var(--border);border-left:3px solid var(--gold);border-radius:4px;padding:9px 12px}
+.journal-meta{font-family:'DM Mono',monospace;font-size:10px;color:var(--ink4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+.journal-text{font-size:13px;color:var(--ink2);white-space:pre-wrap}
+
+/* Fiche chantier récap */
+.fc-section{margin-bottom:22px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+.fc-section:last-child{border-bottom:none}
+.fc-title{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink3);margin-bottom:10px}
+.fc-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.fc-grid > div{padding:8px 0}
+.fc-lbl{display:block;font-family:'DM Mono',monospace;font-size:10px;color:var(--ink4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+.fc-table{width:100%;border-collapse:collapse;font-size:13px}
+.fc-table td{padding:6px 8px;border-bottom:1px solid var(--border)}
+.fc-table td.num{text-align:right;font-family:'DM Mono',monospace}
+.fc-table td.fc-neg{color:#c25656}
+
+/* Impression : n'imprimer que la fiche chantier */
+@media print {
+  body{background:#fff !important}
+  body > *:not(#fiche-ch-host){display:none !important}
+  #fiche-ch-host .modal-bg{position:static;background:#fff !important;backdrop-filter:none;inset:auto;display:block}
+  #fiche-ch-host .modal-card.fc-modal{box-shadow:none !important;max-width:100% !important;max-height:none !important;margin:0 !important;border:none !important;overflow:visible !important}
+  #fiche-ch-host .no-print{display:none !important}
+  .fc-body{padding:20px 0 !important}
+  .journal-entry{page-break-inside:avoid}
+  .fc-section{page-break-inside:avoid}
+}
 .proj-row{display:flex;justify-content:space-between;align-items:center;padding:11px 14px;background:#fff;border:1px solid var(--border);border-radius:5px;font-size:13px;cursor:pointer;transition:border-color .12s}
 .proj-row:hover{border-color:var(--gold)}
 /* Timeline */
@@ -696,6 +735,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
         <div class="kpi"><div class="kpi-l">Marge €</div><div class="kpi-v" id="mg-marge">—</div><div class="kpi-s">HT</div></div>
         <div class="kpi"><div class="kpi-l">Marge %</div><div class="kpi-v" id="mg-pct">—</div><div class="kpi-s">moyenne</div></div>
       </div>
+
+      <div class="sh" style="margin-top:18px"><div class="st">Conversion · projets & clients</div></div>
+      <div class="kpis">
+        <div class="kpi"><div class="kpi-l">Taux conversion</div><div class="kpi-v" id="cv-pct">—</div><div class="kpi-s">gagnés / (gagnés + perdus)</div></div>
+        <div class="kpi"><div class="kpi-l">Projets gagnés</div><div class="kpi-v" id="cv-won">—</div><div class="kpi-s">devis signé + chantier</div></div>
+        <div class="kpi"><div class="kpi-l">En cours</div><div class="kpi-v" id="cv-live">—</div><div class="kpi-s">prospects actifs</div></div>
+        <div class="kpi"><div class="kpi-l">Perdus</div><div class="kpi-v" id="cv-lost">—</div><div class="kpi-s">sans suite</div></div>
+      </div>
+
       <div class="sh"><div class="st">Marge par projet · cliquer pour ajuster les coûts</div></div>
       <div id="marges-table"></div>
     </div>
@@ -739,7 +787,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
   <section class="scr" id="scr-taches">
     <div class="sh">
       <div class="st">Tâches · Kanban</div>
-      <div style="display:flex;gap:8px;align-items:center">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="taches-filter-projet" onchange="renderTaches()" style="padding:7px 10px;border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:12px;background:#fff">
+          <option value="">Tous les projets</option>
+        </select>
         <select id="taches-filter" onchange="renderTaches()" style="padding:7px 10px;border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:12px;background:#fff">
           <option value="">Toute l'équipe</option>
           <option value="Virginie">Virginie</option>
@@ -904,7 +955,15 @@ document.addEventListener('keydown', e => {
 
 // ============ AUTH ============
 async function logout(){ await fetch('/api/logout',{method:'POST'}); location.href='/login'; }
-fetch('/api/me').then(r=>r.json()).then(d=>{ window.ME = d.user||''; $('#headerUser').textContent = d.user||''; if(typeof renderDashboard==='function') renderDashboard(); });
+fetch('/api/me').then(r=>r.json()).then(d=>{
+  window.ME = d.user||'';
+  window.ME_ADMIN = !!d.isAdmin;
+  $('#headerUser').textContent = d.user||'';
+  if (!window.ME_ADMIN) {
+    document.querySelectorAll('[data-tab="admin"]').forEach(b => b.style.display = 'none');
+  }
+  if(typeof renderDashboard==='function') renderDashboard();
+});
 
 // ============ FETCH ============
 async function loadAll(){
@@ -1264,10 +1323,26 @@ function projetCard(p){
   </div>`;
 }
 
+// Statut client dérivé du pipeline projet (pas de champ Airtable à créer)
+// Gagné = ≥1 projet Signé/Commandes/Pose/SAV/Terminé
+// En cours = ≥1 projet Découverte/Dessin/Devis
+// Perdu = a des projets mais aucun actif ni gagné
+// Nouveau = pas encore de projet
+const CLIENT_STATUT_WON  = new Set(['Signé','Commandes','Pose','SAV','Terminé']);
+const CLIENT_STATUT_LIVE = new Set(['Découverte','Dessin','Devis']);
+function clientStatus(c){
+  const ps = (DATA.projets||[]).filter(p => Array.isArray(p.Client) && p.Client.includes(c.id));
+  if (!ps.length) return { label:'Nouveau', cls:'b-gray' };
+  if (ps.some(p => CLIENT_STATUT_WON.has(p.Statut))) return { label:'Gagné', cls:'b-green' };
+  if (ps.some(p => CLIENT_STATUT_LIVE.has(p.Statut))) return { label:'En cours', cls:'b-amber' };
+  return { label:'Perdu', cls:'b-red' };
+}
+
 function clientCard(c){
+  const st = clientStatus(c);
   return `<div class="card" onclick="openClientDetail('${c.id}')" style="cursor:pointer">
     <div class="card-top">
-      <div class="card-nom">${esc(c.Nom||'—')} <span class="badge b-gray">${esc(c.Type||'—')}</span></div>
+      <div class="card-nom">${esc(c.Nom||'—')} <span class="badge b-gray">${esc(c.Type||'—')}</span> <span class="badge ${st.cls}">${st.label}</span></div>
       <div class="card-amt">${esc(c.Source||'')}</div>
     </div>
     <div class="card-meta">
@@ -1552,8 +1627,294 @@ function renderProjetDetail(p){
         </div>`;
       }).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucune tâche</div>'}
 
+      ${projetJournalSection(p)}
+
+      ${projetAttachmentsSection(p, 'Plans devis', 'Dossiers de présentation, visualisations, plans d’aménagement')}
+      ${projetAttachmentsSection(p, 'Plans techniques', 'Plans archi, plans techniques, vues autocad, prise de cotes')}
+      ${projetAttachmentsSection(p, 'Documents projet', 'BC, AR, cahier des charges, notices, comptes rendus…')}
+
     </div>`;
   document.getElementById('projet-detail-view').innerHTML = html;
+}
+
+// ============ JOURNAL DE CHANTIER ============
+function parseJournalEntries(raw) {
+  return (raw || '').split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+    const m = line.match(/^\[([^\]]+)\]\s*(.*)$/);
+    return m ? { meta: m[1], text: m[2] } : { meta: '', text: line };
+  });
+}
+function projetJournalSection(p) {
+  const entries = parseJournalEntries(p['Journal chantier']);
+  return `
+    <div class="zone-title" style="margin-top:24px;display:flex;align-items:center;justify-content:space-between">
+      <span>Journal de chantier (${entries.length})</span>
+      <button class="abtn" onclick="openFicheChantier('${p.id}')" title="Voir la fiche chantier imprimable">📋 Fiche chantier</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:10px">
+      <input id="journal-input" placeholder="Nouvelle remarque datée (RDV, appel, décision…)" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:13px" onkeydown="if(event.key==='Enter')addJournalEntry('${p.id}')">
+      <button class="abtn primary" onclick="addJournalEntry('${p.id}')">+ Remarque</button>
+    </div>
+    ${entries.length ? `<div class="journal-list">${entries.map(e => `
+      <div class="journal-entry">
+        ${e.meta ? `<div class="journal-meta">${esc(e.meta)}</div>` : ''}
+        <div class="journal-text">${esc(e.text)}</div>
+      </div>`).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucune remarque — la première structure ton historique chantier.</div>'}`;
+}
+async function addJournalEntry(projetId) {
+  const input = document.getElementById('journal-input');
+  const text = (input?.value || '').trim();
+  if (!text) { toastError('Écris une remarque'); return; }
+  showLoader('Ajout…');
+  try {
+    const r = await fetch('/api/projets/'+projetId+'/journal', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text })
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'erreur');
+    if (input) input.value = '';
+    toastSuccess('Remarque ajoutée');
+    await loadAll();
+    const p = DATA.projets.find(x=>x.id===projetId);
+    if (p) renderProjetDetail(p);
+  } catch(e) { toastError('Erreur : '+e.message); }
+  finally { hideLoader(); }
+}
+
+// ============ FICHE CHANTIER (récap imprimable + envoi) ============
+function openFicheChantier(projetId) {
+  const p = DATA.projets.find(x => x.id === projetId);
+  if (!p) return;
+  const client = Array.isArray(p.Client) ? DATA.clients.find(c => c.id === p.Client[0]) : null;
+  const devisLies = DATA.devis.filter(d => Array.isArray(d.Projet) && d.Projet.includes(p.id));
+  const commandesLiees = DATA.commandes.filter(c => Array.isArray(c.Projet) && c.Projet.includes(p.id));
+  const tachesLiees = DATA.taches.filter(t => Array.isArray(t.Projet) && t.Projet.includes(p.id));
+  const artisansProjet = (Array.isArray(p.Artisans) ? p.Artisans : []).map(id => DATA.artisans.find(a=>a.id===id)).filter(Boolean);
+  const devisArtisansLies = (DATA['devis-artisans']||[]).filter(d => Array.isArray(d.Projet) && d.Projet.includes(p.id));
+  const journalEntries = parseJournalEntries(p['Journal chantier']);
+
+  const totalDevisHT = devisLies.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
+  const totalCmdHT  = commandesLiees.reduce((s,c)=>s+(c['Montant HT']||0),0);
+  const totalArtisansHT = devisArtisansLies.reduce((s,d)=>s+(d['Montant HT']||0),0);
+  const marge = totalDevisHT - totalCmdHT - totalArtisansHT;
+
+  const html = `
+    <div class="modal-bg on" id="fiche-ch-bg" onclick="if(event.target===this)closeFicheChantier()">
+      <div class="modal-card fc-modal" style="max-width:860px;max-height:94vh;overflow-y:auto;padding:0">
+        <div class="modal-head no-print" style="padding:16px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:10">
+          <div class="modal-title" style="margin:0">📋 Fiche chantier · ${esc(p.Référence||'—')}</div>
+          <div style="display:flex;gap:8px">
+            <button class="abtn" onclick="window.print()">📄 Imprimer / PDF</button>
+            <button class="abtn primary" onclick="sendFicheChantier('${p.id}')">✉️ Envoyer</button>
+            <button class="modal-close" onclick="closeFicheChantier()">×</button>
+          </div>
+        </div>
+        <div class="fc-body" style="padding:28px 36px">
+          <h1 style="font-family:'DM Serif Display',serif;font-weight:400;font-size:28px;margin:0 0 4px">${esc(p.Référence||'Projet')}</h1>
+          <div style="color:var(--ink3);margin-bottom:22px;font-size:13px">Fiche chantier générée le ${new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'})}${window.ME?' · '+esc(window.ME.charAt(0).toUpperCase()+window.ME.slice(1)):''}</div>
+
+          <div class="fc-section">
+            <div class="fc-title">Informations projet</div>
+            <div class="fc-grid">
+              <div><span class="fc-lbl">Statut</span><strong>${esc(p.Statut||'—')}</strong></div>
+              <div><span class="fc-lbl">Budget HT</span><strong>${euros(p['Budget HT'])}</strong></div>
+              <div><span class="fc-lbl">Marge prévue</span><strong>${pct(p['Marge prévisionnelle'])}</strong></div>
+              <div><span class="fc-lbl">Date découverte</span><strong>${esc(p['Date découverte']||'—')}</strong></div>
+              <div><span class="fc-lbl">Date pose prévue</span><strong>${esc(p['Date pose prévue']||'—')}</strong></div>
+              <div><span class="fc-lbl">Artisans</span><strong>${artisansProjet.length}</strong></div>
+            </div>
+            ${p.Description ? `<div style="margin-top:12px;padding:12px 14px;background:#faf8f4;border-radius:6px;font-size:13px;white-space:pre-wrap">${esc(p.Description)}</div>` : ''}
+          </div>
+
+          ${client ? `
+          <div class="fc-section">
+            <div class="fc-title">Client</div>
+            <div><strong>${esc(client.Nom||'—')}</strong>${client.Contact?' · '+esc(client.Contact):''}</div>
+            <div style="color:var(--ink3);font-size:13px;margin-top:4px">${[client.Email,client.Téléphone].filter(Boolean).map(esc).join(' · ')}</div>
+            ${client.Adresse?`<div style="color:var(--ink3);font-size:13px;margin-top:4px;white-space:pre-wrap">${esc(client.Adresse)}</div>`:''}
+          </div>` : ''}
+
+          <div class="fc-section">
+            <div class="fc-title">Bilan financier</div>
+            <table class="fc-table"><tbody>
+              <tr><td>Devis Tanguy Design (HT)</td><td class="num">${euros(totalDevisHT)}</td></tr>
+              <tr><td>Commandes fournisseurs (HT)</td><td class="num">${euros(totalCmdHT)}</td></tr>
+              <tr><td>Devis artisans (HT)</td><td class="num">${euros(totalArtisansHT)}</td></tr>
+              <tr style="font-weight:700;border-top:2px solid var(--ink)"><td>Marge estimée</td><td class="num ${marge>=0?'':'fc-neg'}">${euros(marge)}</td></tr>
+            </tbody></table>
+          </div>
+
+          ${devisLies.length ? `
+          <div class="fc-section">
+            <div class="fc-title">Devis (${devisLies.length})</div>
+            <table class="fc-table"><tbody>
+              ${devisLies.map(d => `<tr>
+                <td>${esc(d['Numéro devis']||'—')}${d.Milieu?' · '+esc(d.Milieu):''}</td>
+                <td>${esc(d.Statut||'')}</td>
+                <td class="num">${euros(d['Total TTC'])}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>` : ''}
+
+          ${commandesLiees.length ? `
+          <div class="fc-section">
+            <div class="fc-title">Commandes fournisseurs (${commandesLiees.length})</div>
+            <table class="fc-table"><tbody>
+              ${commandesLiees.map(c => `<tr>
+                <td>${esc(c['Numéro']||'—')}</td>
+                <td>${esc(c.Statut||'')}</td>
+                <td>${esc(c['Date livraison prévue']||'—')}</td>
+                <td class="num">${euros(c['Montant HT'])}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>` : ''}
+
+          ${artisansProjet.length ? `
+          <div class="fc-section">
+            <div class="fc-title">Artisans (${artisansProjet.length})</div>
+            <table class="fc-table"><tbody>
+              ${artisansProjet.map(a => `<tr>
+                <td>${esc(a.Nom||'—')}</td>
+                <td>${esc(a['Spécialité']||'')}</td>
+                <td>${esc(a['Contact principal']||'')}</td>
+                <td>${esc(a.Téléphone||a.Email||'')}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>` : ''}
+
+          ${tachesLiees.length ? `
+          <div class="fc-section">
+            <div class="fc-title">Tâches (${tachesLiees.length})</div>
+            <table class="fc-table"><tbody>
+              ${tachesLiees.map(t => `<tr>
+                <td>${esc(t.Titre||'—')}</td>
+                <td>${esc(t.Statut||'')}</td>
+                <td>${esc(t['Assignée à']||'')}</td>
+                <td>${esc(t.Échéance||'—')}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>` : ''}
+
+          ${journalEntries.length ? `
+          <div class="fc-section">
+            <div class="fc-title">Journal chantier (${journalEntries.length})</div>
+            <div class="journal-list">
+              ${journalEntries.map(e => `<div class="journal-entry">
+                ${e.meta?`<div class="journal-meta">${esc(e.meta)}</div>`:''}
+                <div class="journal-text">${esc(e.text)}</div>
+              </div>`).join('')}
+            </div>
+          </div>` : ''}
+
+          <div class="fc-footer no-print" style="margin-top:32px;padding-top:16px;border-top:1px solid var(--border);font-size:11px;color:var(--ink4);text-align:center">
+            Cockpit Tanguy Design — document de travail interne
+          </div>
+        </div>
+      </div>
+    </div>`;
+  const host = document.createElement('div'); host.id = 'fiche-ch-host'; host.innerHTML = html;
+  document.body.appendChild(host);
+}
+function closeFicheChantier(){ document.getElementById('fiche-ch-host')?.remove(); }
+
+function sendFicheChantier(projetId) {
+  const p = DATA.projets.find(x => x.id === projetId); if (!p) return;
+  const client = Array.isArray(p.Client) ? DATA.clients.find(c => c.id === p.Client[0]) : null;
+  const journalEntries = parseJournalEntries(p['Journal chantier']);
+  const artisansProjet = (Array.isArray(p.Artisans) ? p.Artisans : []).map(id => DATA.artisans.find(a=>a.id===id)).filter(Boolean);
+
+  const subject = `[Tanguy Design] Fiche chantier — ${p.Référence||''}`;
+  const lines = [
+    `Fiche chantier · ${p.Référence||'—'}`,
+    `Date : ${new Date().toLocaleDateString('fr-FR')}`,
+    ``,
+    `STATUT : ${p.Statut||'—'}`,
+    `Budget HT : ${euros(p['Budget HT'])}`,
+    p['Date pose prévue'] ? `Pose prévue : ${p['Date pose prévue']}` : null,
+    ``,
+    client ? `CLIENT : ${client.Nom||'—'}${client.Contact?' · '+client.Contact:''}` : null,
+    client?.Email ? `Email : ${client.Email}` : null,
+    client?.Téléphone ? `Téléphone : ${client.Téléphone}` : null,
+    client?.Adresse ? `Adresse :\n${client.Adresse}` : null,
+    ``,
+    artisansProjet.length ? 'ARTISANS :' : null,
+    ...artisansProjet.map(a => `  · ${a.Nom||''} (${a['Spécialité']||''})${a['Contact principal']?' — '+a['Contact principal']:''}`),
+    artisansProjet.length ? '' : null,
+    journalEntries.length ? `JOURNAL CHANTIER (${journalEntries.length} entrées) :` : null,
+    ...journalEntries.slice(0, 20).map(e => `  ${e.meta?`[${e.meta}] `:''}${e.text}`),
+    journalEntries.length > 20 ? `  … (${journalEntries.length - 20} entrées plus anciennes)` : null,
+    ``,
+    `— Cockpit Tanguy Design`
+  ].filter(l => l !== null).join('\n');
+
+  const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines)}`;
+  window.location.href = mailto;
+}
+
+function projetAttachmentsSection(p, fieldName, hint) {
+  const list = Array.isArray(p[fieldName]) ? p[fieldName] : [];
+  const inputId = 'att-upl-' + fieldName.replace(/\s+/g, '-').toLowerCase();
+  const items = list.map(a => {
+    const ext = (a.filename||'').split('.').pop().toUpperCase().slice(0,4);
+    return `<div class="attach-chip">
+      <a href="${a.url}" target="_blank" rel="noopener" class="attach-chip-link" title="${esc(a.filename)} (${(a.size/1024|0)} KB)">
+        <span class="attach-ext">${esc(ext)}</span>
+        <span class="attach-name">${esc(a.filename)}</span>
+      </a>
+      <button class="attach-del" onclick="deleteProjetAttachment('${p.id}','${esc(fieldName)}','${a.id}',${JSON.stringify(a.filename)})" title="Supprimer">×</button>
+    </div>`;
+  }).join('');
+  const addBtn = `
+    <label class="btn-ghost attach-add" style="padding:4px 10px;font-size:12px;cursor:pointer">
+      + Ajouter
+      <input type="file" id="${inputId}" style="display:none" onchange="uploadProjetAttachment('${p.id}','${esc(fieldName)}',this.files[0],this)">
+    </label>`;
+  return `
+    <div class="zone-title" style="margin-top:24px;display:flex;align-items:center;justify-content:space-between">
+      <span>${esc(fieldName)} (${list.length})</span>
+      ${addBtn}
+    </div>
+    <div style="font-size:11px;color:var(--ink4);margin-bottom:8px">${esc(hint)}</div>
+    ${list.length ? `<div class="attach-grid">${items}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucun document</div>'}`;
+}
+
+async function uploadProjetAttachment(projetId, field, file, inputEl) {
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    toastError(`Fichier trop gros (${(file.size/1024/1024).toFixed(1)} MB, max 5 MB)`);
+    if (inputEl) inputEl.value = '';
+    return;
+  }
+  showLoader('Upload…');
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('field', field);
+    const r = await fetch('/api/projets/'+projetId+'/attachments', { method:'POST', body: fd });
+    if (!r.ok) throw new Error((await r.json()).error || 'erreur upload');
+    toastSuccess(`"${file.name}" ajouté à ${field}`);
+    await loadAll();
+    const p = DATA.projets.find(x=>x.id===projetId);
+    if (p) renderProjetDetail(p);
+  } catch(e) { toastError('Erreur : '+e.message); }
+  finally { hideLoader(); if (inputEl) inputEl.value = ''; }
+}
+
+async function deleteProjetAttachment(projetId, field, attachmentId, filename) {
+  if (!confirm(`Supprimer "${filename}" de ${field} ?`)) return;
+  showLoader('Suppression…');
+  try {
+    const r = await fetch('/api/projets/'+projetId+'/attachments', {
+      method:'DELETE',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ field, attachmentId })
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'erreur suppression');
+    toastSuccess(`"${filename}" supprimé`);
+    await loadAll();
+    const p = DATA.projets.find(x=>x.id===projetId);
+    if (p) renderProjetDetail(p);
+  } catch(e) { toastError('Erreur : '+e.message); }
+  finally { hideLoader(); }
 }
 
 async function saveProjet(projetId){
@@ -2090,11 +2451,23 @@ async function deleteClient(clientId){
 function renderArtisans(){ $('#list-artisans').innerHTML = DATA.artisans.length ? DATA.artisans.map(artisanCard).join('') : emptyState('Aucun artisan','Ajoutez vos partenaires artisans'); }
 function renderFournisseurs(){ $('#list-fournisseurs').innerHTML = DATA.fournisseurs.length ? DATA.fournisseurs.map(fournisseurCard).join('') : emptyState('Aucun fournisseur','Ajoutez vos fournisseurs'); }
 function renderCommandes(){ $('#list-commandes').innerHTML = DATA.commandes.length ? DATA.commandes.map(commandeCard).join('') : emptyState('Aucune commande','Les commandes fournisseurs apparaîtront ici'); }
+function syncTachesProjetFilter(){
+  const sel = document.getElementById('taches-filter-projet');
+  if (!sel) return;
+  const current = sel.value;
+  const opts = ['<option value="">Tous les projets</option>'];
+  const sorted = (DATA.projets||[]).slice().sort((a,b)=>(a.Référence||'').localeCompare(b.Référence||''));
+  sorted.forEach(p => opts.push(`<option value="${p.id}" ${current===p.id?'selected':''}>${esc(p.Référence||p.id)}</option>`));
+  sel.innerHTML = opts.join('');
+}
 function renderTaches(){
+  syncTachesProjetFilter();
   const filter = document.getElementById('taches-filter')?.value || '';
-  const persons = filter ? [filter] : ['Virginie','Solène','Sébastien','Marine'];
+  const filterProjet = document.getElementById('taches-filter-projet')?.value || '';
   const statuts = ['À faire','En cours','Terminée'];
-  const tasksFiltered = filter ? DATA.taches.filter(t => t['Assignée à'] === filter) : DATA.taches;
+  let tasksFiltered = DATA.taches;
+  if (filter) tasksFiltered = tasksFiltered.filter(t => t['Assignée à'] === filter);
+  if (filterProjet) tasksFiltered = tasksFiltered.filter(t => Array.isArray(t.Projet) && t.Projet.includes(filterProjet));
 
   const columnsHtml = statuts.map(st => {
     const col = tasksFiltered.filter(t => (t.Statut||'À faire') === st);
@@ -2107,16 +2480,24 @@ function renderTaches(){
 
   $('#taches-kanban').innerHTML = `<div class="kanban-grid">${columnsHtml}</div>`;
 }
+function kanbanAssigneeOptions(currentValue){
+  const persons = ['Virginie','Solène','Sébastien','Marine'];
+  const artisans = (DATA.artisans||[]).map(a=>a.Nom).filter(Boolean).sort();
+  const opt = (v, sel) => `<option value="${esc(v)}" ${sel?'selected':''}>${esc(v)}</option>`;
+  let html = '<option value="">—</option>';
+  html += `<optgroup label="Équipe">${persons.map(p=>opt(p, currentValue===p)).join('')}</optgroup>`;
+  if (artisans.length) html += `<optgroup label="Artisans">${artisans.map(a=>opt(a, currentValue===a)).join('')}</optgroup>`;
+  return html;
+}
 function kanbanCard(t){
   const prioClass = {'Haute':'b-red','Moyenne':'b-amber','Basse':'b-gray'}[t.Priorité]||'b-gray';
   const overdue = t.Échéance && t.Échéance < new Date().toISOString().slice(0,10) && t.Statut !== 'Terminée';
-  const persons = ['Virginie','Solène','Sébastien','Marine'];
   return `<div class="kanban-card" draggable="true" ondragstart="event.dataTransfer.setData('rid','${t.id}')" onclick="if(!event.target.closest('.kc-assign'))openTaskEdit('${t.id}')" style="cursor:pointer">
     <div class="kc-title">${esc(t.Titre||'—')}</div>
     <div class="kc-meta">
       <span class="badge ${prioClass}">${esc(t.Priorité||'—')}</span>
       <select class="kc-assign" onclick="event.stopPropagation()" onchange="reassignTask('${t.id}',this.value)">
-        ${persons.map(p=>`<option ${t['Assignée à']===p?'selected':''}>${p}</option>`).join('')}
+        ${kanbanAssigneeOptions(t['Assignée à']||'')}
       </select>
     </div>
     ${t.Échéance?`<div class="kc-date${overdue?' overdue':''}">📅 ${esc(t.Échéance)}</div>`:''}
@@ -2129,7 +2510,6 @@ function openTaskEdit(taskId){
   const isNew = !taskId;
   const t = isNew ? {id:null,Titre:'',Description:'',Priorité:'Moyenne','Assignée à':'',Statut:'À faire',Échéance:''}
                   : (DATA.taches.find(x=>x.id===taskId)||{});
-  const persons = ['','Virginie','Solène','Sébastien','Marine'];
   const prios = ['Basse','Moyenne','Haute'];
   const statuts = ['À faire','En cours','Terminée'];
   const html = `
@@ -2145,7 +2525,7 @@ function openTaskEdit(taskId){
           <div class="form-grid2">
             <div class="form-row"><label>Statut</label><select id="te-Statut">${statuts.map(s=>`<option ${t.Statut===s?'selected':''}>${s}</option>`).join('')}</select></div>
             <div class="form-row"><label>Priorité</label><select id="te-Priorite">${prios.map(p=>`<option ${t.Priorité===p?'selected':''}>${p}</option>`).join('')}</select></div>
-            <div class="form-row"><label>Assignée à</label><select id="te-Assignee">${persons.map(p=>`<option ${(t['Assignée à']||'')===p?'selected':''}>${p}</option>`).join('')}</select></div>
+            <div class="form-row"><label>Assignée à</label><select id="te-Assignee">${kanbanAssigneeOptions(t['Assignée à']||'')}</select></div>
             <div class="form-row"><label>Échéance</label><input id="te-Echeance" type="date" value="${esc(t.Échéance||'')}"></div>
           </div>
         </div>
@@ -2250,6 +2630,20 @@ function renderMarges(){
   $('#mg-couts').textContent = euros(totCouts);
   $('#mg-marge').textContent = euros(totMarge);
   $('#mg-pct').textContent = totCA>0 ? totPct.toFixed(1)+'%' : '—';
+
+  // Conversion
+  let won=0, live=0, lost=0;
+  for (const p of DATA.projets) {
+    if (CLIENT_STATUT_WON.has(p.Statut)) won++;
+    else if (CLIENT_STATUT_LIVE.has(p.Statut)) live++;
+    else lost++;
+  }
+  const closed = won + lost;
+  const cvPct = closed>0 ? (won/closed*100).toFixed(1)+'%' : '—';
+  const cvEl = $('#cv-pct'); if (cvEl) cvEl.textContent = cvPct;
+  const wEl  = $('#cv-won');  if (wEl)  wEl.textContent  = won;
+  const lvEl = $('#cv-live'); if (lvEl) lvEl.textContent = live;
+  const lEl  = $('#cv-lost'); if (lEl)  lEl.textContent  = lost;
   if (!rows.length) {
     $('#marges-table').innerHTML = emptyState('Aucun projet signé','Les marges apparaîtront dès qu\'un devis sera signé');
     return;
@@ -2717,13 +3111,75 @@ async function patchLigne(input){
   } catch(e) { toastError('Erreur : '+e.message); }
 }
 
-async function importDevisPdf(file){
+function importDevisPdf(file){
   if (!file) return;
-  if (file.size > 15*1024*1024) { toastError('PDF trop volumineux (max 15 MB)'); return; }
+  if (file.size > 15*1024*1024) { toastError('PDF trop volumineux (max 15 MB)'); document.getElementById('devis-pdf-input').value=''; return; }
+  openDevisTargetModal(file);
+}
+
+function openDevisTargetModal(file){
+  const sorted = (DATA.projets||[]).slice().sort((a,b)=>(a.Référence||'').localeCompare(b.Référence||''));
+  const options = sorted.map(p => `<option value="${p.id}">${esc(p.Référence||p.id)}${p.Statut?' · '+esc(p.Statut):''}</option>`).join('');
+  const html = `
+    <div class="modal-bg on" id="devis-tgt-bg" onclick="if(event.target===this)closeDevisTargetModal()">
+      <div class="modal-card" style="max-width:520px">
+        <div class="modal-head">
+          <div class="modal-title">Importer « ${esc(file.name)} »</div>
+          <button class="modal-close" onclick="closeDevisTargetModal()">×</button>
+        </div>
+        <div class="modal-body">
+          <div style="font-size:13px;color:var(--ink2);margin-bottom:14px">Rattacher le devis à :</div>
+          <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;cursor:pointer">
+            <input type="radio" name="devis-tgt" value="new" checked onchange="document.getElementById('devis-tgt-sel').disabled=true">
+            <div>
+              <div style="font-weight:500">Nouveau projet</div>
+              <div style="font-size:11px;color:var(--ink4)">Client + projet créés automatiquement à partir du PDF (comportement actuel)</div>
+            </div>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;cursor:pointer">
+            <input type="radio" name="devis-tgt" value="existing" onchange="document.getElementById('devis-tgt-sel').disabled=false;document.getElementById('devis-tgt-sel').focus()">
+            <div style="flex:1">
+              <div style="font-weight:500">Projet existant</div>
+              <select id="devis-tgt-sel" disabled style="width:100%;margin-top:6px;padding:7px 10px;border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:13px;background:#fff">
+                <option value="">— Choisir un projet —</option>
+                ${options}
+              </select>
+            </div>
+          </label>
+        </div>
+        <div class="modal-foot" style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--border)">
+          <button class="abtn" onclick="closeDevisTargetModal()">Annuler</button>
+          <button class="abtn primary" onclick="confirmDevisImport()">Importer</button>
+        </div>
+      </div>
+    </div>`;
+  const host = document.createElement('div'); host.id = 'devis-tgt-host'; host.innerHTML = html;
+  document.body.appendChild(host);
+  window._pendingDevisFile = file;
+}
+function closeDevisTargetModal(){
+  document.getElementById('devis-tgt-host')?.remove();
+  const inp = document.getElementById('devis-pdf-input'); if (inp) inp.value = '';
+  window._pendingDevisFile = null;
+}
+function confirmDevisImport(){
+  const file = window._pendingDevisFile;
+  if (!file) return closeDevisTargetModal();
+  const target = document.querySelector('input[name="devis-tgt"]:checked')?.value;
+  let projetId = null;
+  if (target === 'existing') {
+    projetId = document.getElementById('devis-tgt-sel').value;
+    if (!projetId) { toastError('Choisis un projet existant ou choisis « Nouveau projet »'); return; }
+  }
+  document.getElementById('devis-tgt-host')?.remove();
+  doImportDevisPdf(file, projetId);
+}
+async function doImportDevisPdf(file, projetId){
   showLoader('Analyse du PDF par Claude… (30-60s)');
   try {
     const fd = new FormData();
     fd.append('pdf', file);
+    if (projetId) fd.append('projetId', projetId);
     const r = await fetch('/api/devis/import', {method:'POST', body:fd});
     const d = await r.json();
     if (!r.ok) throw new Error(d.error||'Erreur parsing');
@@ -2736,6 +3192,7 @@ async function importDevisPdf(file){
     toastError('Erreur : '+e.message);
   }
   document.getElementById('devis-pdf-input').value='';
+  window._pendingDevisFile = null;
 }
 
 // ============ FICHE DÉCOUVERTE ============
@@ -2981,7 +3438,7 @@ function openModal(table, recordId){
   const form = FORMS[table];
   const record = recordId ? (DATA[table]||[]).find(r => r.id === recordId) : null;
   $('#modalTitle').textContent = (record ? 'Éditer · ' : 'Nouveau · ') + table;
-  $('#modalBody').innerHTML = form.map(f => {
+  let body = form.map(f => {
     const id = 'f_'+f.k.replace(/\W/g,'_');
     const rawVal = record ? record[f.k] : '';
     const val = rawVal == null ? '' : String(rawVal);
@@ -2994,6 +3451,28 @@ function openModal(table, recordId){
     }
     return `<label>${f.label}</label><input id="${id}" type="${f.type||'text'}" ${f.step?`step="${f.step}"`:''} value="${valEsc}">`;
   }).join('');
+
+  // Cas spécial projet (création uniquement) : bloc Plaud optionnel pour enrichir
+  if (table === 'projets' && !record) {
+    body += `
+      <div style="margin-top:18px;padding:12px;border:1px dashed var(--border);border-radius:6px;background:#faf8f4">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:0">
+          <input type="checkbox" id="projet-plaud-toggle" onchange="document.getElementById('projet-plaud-box').style.display=this.checked?'block':'none'">
+          <span style="font-weight:500">💬 Enrichir via transcription Plaud</span>
+        </label>
+        <div id="projet-plaud-box" style="display:none;margin-top:10px">
+          <label>Type réunion</label>
+          <select id="projet-plaud-type" style="margin-bottom:8px">
+            <option>Découverte</option><option>Présentation devis</option><option>Chantier</option><option>Autre</option>
+          </select>
+          <label>Transcription brute</label>
+          <textarea id="projet-plaud-transcript" style="min-height:120px" placeholder="Colle ici la transcription du Plaud…"></textarea>
+          <div style="font-size:11px;color:var(--ink4);margin-top:4px">Claude analysera la transcription et enrichira la Description du projet (synthèse, attentes, contexte). Un record Réunion Plaud lié sera aussi créé.</div>
+        </div>
+      </div>`;
+  }
+
+  $('#modalBody').innerHTML = body;
   // Bouton supprimer visible uniquement en mode édition
   const delBtn = document.getElementById('modalDeleteBtn');
   if (delBtn) delBtn.style.display = record ? 'inline-block' : 'none';
@@ -3037,6 +3516,50 @@ async function submitModal(){
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error||'erreur');
+
+    // Enrichissement Plaud (uniquement à la création d'un projet)
+    if (currentModalTable === 'projets' && !currentModalRecordId) {
+      const plaudToggle = document.getElementById('projet-plaud-toggle');
+      const transcript = document.getElementById('projet-plaud-transcript')?.value.trim();
+      if (plaudToggle?.checked && transcript) {
+        const typeReunion = document.getElementById('projet-plaud-type')?.value || 'Découverte';
+        const projetId = d.record?.id;
+        closeModal();
+        showLoader('Analyse Claude de la transcription… (30-60s)');
+        try {
+          const pr = await fetch('/api/plaud/parse', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ transcript, type_reunion: typeReunion, projetId })
+          });
+          const pd = await pr.json();
+          if (!pr.ok) throw new Error(pd.error || 'erreur parsing');
+          // Enrichir la Description du projet avec la synthèse
+          const descParts = [];
+          if (pd.parsed?.synthese) descParts.push('**Synthèse :** ' + pd.parsed.synthese);
+          if (pd.parsed?.contexte) descParts.push('**Contexte :** ' + pd.parsed.contexte);
+          if (pd.parsed?.attentes) descParts.push('**Attentes :** ' + pd.parsed.attentes);
+          if (pd.parsed?.points_douleur) descParts.push('**Points de douleur :** ' + pd.parsed.points_douleur);
+          if (descParts.length && projetId) {
+            const existingDesc = fields.Description || '';
+            const newDesc = (existingDesc ? existingDesc + '\n\n' : '') + descParts.join('\n\n');
+            await fetch('/api/data/projets/'+projetId, {
+              method:'PATCH',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ fields: { Description: newDesc }})
+            });
+          }
+          toastSuccess('Projet créé + enrichi via Plaud');
+        } catch(e) {
+          toastError('Projet créé mais enrichissement Plaud échoué : ' + e.message);
+        } finally {
+          hideLoader();
+          await loadAll();
+        }
+        return;
+      }
+    }
+
     closeModal();
     await loadAll();
   } catch(e) {

@@ -39,6 +39,13 @@ const DA_FIELDS = {
   ficheMission: 'fld78s6hfTTexIjUC'
 };
 
+// Field IDs des 3 zones attachments de Projets (créés 2026-04-24 via API Metadata)
+const PROJET_ATTACHMENT_FIELDS = {
+  'Plans devis':      'fldtX14UbA5j6UIwo',
+  'Plans techniques': 'fldatdZKmLEiVqfBY',
+  'Documents projet': 'fldT3Cg2oKTnNq0XT',
+};
+
 // --- Users ---
 function parseUsers(str) {
   const map = {};
@@ -58,6 +65,13 @@ if (process.env.USERS_HASHES_B64) {
   catch (e) { console.error('USERS_HASHES_B64 decode failed:', e.message); }
 }
 const USERS = parseUsers(USERS_RAW);
+
+// --- Rôles (admin = accès menu Admin / Marges / Stock) ---
+// Override via env ADMIN_LOGINS="virginie,sebastien" (CSV, lowercase)
+const ADMIN_LOGINS = new Set(
+  (process.env.ADMIN_LOGINS || 'virginie')
+    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+);
 
 // --- Middleware ---
 app.use(express.json({ limit: '10mb' }));
@@ -203,7 +217,7 @@ app.post('/api/logout', (req, res) => { req.session = null; res.json({ ok: true 
 
 app.get('/api/me', (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: 'not authenticated' });
-  res.json({ user: req.session.user });
+  res.json({ user: req.session.user, isAdmin: ADMIN_LOGINS.has(req.session.user) });
 });
 
 // --- Data API générique ---
@@ -822,6 +836,70 @@ app.post('/api/artisan-devis/:id/fiche-mission', requireAuth, async (req, res) =
     res.json(result);
   } catch (e) {
     console.error('[artisan-devis/fiche-mission] error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- PROJET ATTACHMENTS : upload + suppression dans les 3 zones ---
+const uploadAny = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 } // Airtable content API limit
+});
+
+app.post('/api/projets/:id/attachments', requireAuth, uploadAny.single('file'), async (req, res) => {
+  const projetId = req.params.id;
+  const field = req.body.field;
+  if (!req.file) return res.status(400).json({ error: 'file requis' });
+  const fieldId = PROJET_ATTACHMENT_FIELDS[field];
+  if (!fieldId) return res.status(400).json({ error: 'field invalide (attendu: Plans devis, Plans techniques, Documents projet)' });
+  try {
+    const ct = req.file.mimetype || 'application/octet-stream';
+    await atUploadAttachment(projetId, fieldId, req.file.buffer, req.file.originalname, ct);
+    res.json({ ok: true, filename: req.file.originalname });
+  } catch (e) {
+    console.error('[projets/upload] error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/projets/:id/journal', requireAuth, async (req, res) => {
+  const projetId = req.params.id;
+  const text = (req.body?.text || '').trim();
+  if (!text) return res.status(400).json({ error: 'text requis' });
+  try {
+    const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`,
+      { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!pr.ok) throw new Error('projet introuvable');
+    const current = ((await pr.json()).fields?.['Journal chantier']) || '';
+    const now = new Date();
+    const stamp = `${now.toISOString().slice(0,10)} ${now.toTimeString().slice(0,5)}`;
+    const author = req.session.user ? req.session.user.charAt(0).toUpperCase() + req.session.user.slice(1) : 'Équipe';
+    const entry = `[${stamp} — ${author}] ${text}`;
+    const next = entry + (current ? '\n' + current : ''); // plus récent en haut
+    await atPatch(TABLES.projets.id, projetId, { 'Journal chantier': next });
+    res.json({ ok: true, entry });
+  } catch (e) {
+    console.error('[projets/journal] error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/projets/:id/attachments', requireAuth, async (req, res) => {
+  const projetId = req.params.id;
+  const { field, attachmentId } = req.body || {};
+  if (!field || !attachmentId) return res.status(400).json({ error: 'field + attachmentId requis' });
+  if (!PROJET_ATTACHMENT_FIELDS[field]) return res.status(400).json({ error: 'field invalide' });
+  try {
+    const r = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`,
+      { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!r.ok) throw new Error('projet introuvable');
+    const current = ((await r.json()).fields?.[field]) || [];
+    const next = current.filter(a => a.id !== attachmentId);
+    if (next.length === current.length) return res.status(404).json({ error: 'attachment introuvable' });
+    await atPatch(TABLES.projets.id, projetId, { [field]: next });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[projets/delete-attachment] error:', e);
     res.status(500).json({ error: e.message });
   }
 });
