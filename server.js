@@ -109,6 +109,9 @@ app.use(helmet({
     directives: {
       'default-src': ["'self'"],
       'script-src': ["'self'", "'unsafe-inline'"],
+      // script-src-attr : autorise onclick/onsubmit inline (helmet défaut = 'none' ce qui bloquait
+      // tous les handlers inline → login + tout le cockpit cassés après hardening).
+      'script-src-attr': ["'unsafe-inline'"],
       'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       'font-src': ["'self'", 'https://fonts.gstatic.com', 'data:'],
       'img-src': ["'self'", 'data:', 'blob:', 'https:'],
