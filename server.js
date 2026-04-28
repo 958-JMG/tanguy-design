@@ -52,12 +52,40 @@ const DA_FIELDS = {
   ficheMission: 'fld78s6hfTTexIjUC'
 };
 
-// Field IDs des 3 zones attachments de Projets (créés 2026-04-24 via API Metadata)
+// Field IDs des zones attachments de Projets.
+// 2026-04-28 : rename "Plans devis"→"Plan 3D", "Plans techniques"→"Plan technique", + ajout "Images".
+// Les fieldIds restent stables au rename. "Images" est résolu dynamiquement (créé par setup-projet-fields-v2.js).
 const PROJET_ATTACHMENT_FIELDS = {
-  'Plans devis':      'fldtX14UbA5j6UIwo',
-  'Plans techniques': 'fldatdZKmLEiVqfBY',
-  'Documents projet': 'fldT3Cg2oKTnNq0XT',
+  'Plan 3D':           'fldtX14UbA5j6UIwo', // ex "Plans devis"
+  'Plan technique':    'fldatdZKmLEiVqfBY', // ex "Plans techniques"
+  'Images':            null,                // résolu via Airtable Meta API au premier upload
+  'Documents projet':  'fldT3Cg2oKTnNq0XT',
 };
+
+// Cache lazy des fieldIds résolus dynamiquement (pour les champs créés post-déploiement).
+const fieldIdCache = {};
+async function resolveProjetFieldId(name) {
+  const hardcoded = PROJET_ATTACHMENT_FIELDS[name];
+  if (hardcoded) return hardcoded;
+  if (fieldIdCache[name]) return fieldIdCache[name];
+  if (!(name in PROJET_ATTACHMENT_FIELDS)) {
+    throw new Error(`Champ "${name}" inconnu (attendus : ${Object.keys(PROJET_ATTACHMENT_FIELDS).join(', ')})`);
+  }
+  // Lookup via Meta API
+  const r = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE_ID}/tables`, {
+    headers: { Authorization: `Bearer ${AT_KEY}` }
+  });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(`Lookup field "${name}" failed: ${e.error?.message || r.status}`);
+  }
+  const data = await r.json();
+  const projetsTable = data.tables.find(t => t.id === TABLES.projets.id);
+  const field = projetsTable?.fields.find(f => f.name === name);
+  if (!field) throw new Error(`Champ "${name}" introuvable sur la table Projets — lance scripts/setup-projet-fields-v2.js`);
+  fieldIdCache[name] = field.id;
+  return field.id;
+}
 
 // --- Users ---
 function parseUsers(str) {
@@ -367,12 +395,18 @@ app.get('/api/devis/:id/detail', requireAuth, async (req, res) => {
 });
 
 // --- DEVIS : import PDF + parsing Claude + création complète ---
+// Param `type` (optionnel) : "Principal" (défaut) ou "Additif".
+// En mode Additif : projetId requis, pas de création auto client/projet.
 app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'PDF requis' });
   if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY non configurée' });
 
   const projetId = req.body.projetId || null;
   const clientId = req.body.clientId || null;
+  const typeDevis = req.body.type === 'Additif' ? 'Additif' : 'Principal';
+  if (typeDevis === 'Additif' && !projetId) {
+    return res.status(400).json({ error: 'Devis additif : projetId requis (le projet doit déjà exister)' });
+  }
 
   try {
     console.log(`[devis/import] parsing ${req.file.originalname} (${req.file.size} bytes)`);
@@ -382,6 +416,7 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
     // 1. Création du Devis (header)
     const devisFields = {
       'Numéro devis': parsed.metadata?.numero_devis || `AUTO-${Date.now()}`,
+      'Type devis': typeDevis,
       'Milieu': parsed.metadata?.milieu || null,
       'Date devis': parsed.metadata?.date_devis || null,
       "Valable jusqu'au": parsed.metadata?.valable_jusquau || null,
@@ -409,8 +444,19 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
       'Alertes parsing': parsed.alertes_parsing || ''
     };
     // --- Résolution Client (par nom normalisé) ---
+    // En mode Additif : on récupère le client du projet existant, pas de création auto.
     let resolvedClientId = clientId;
-    if (!resolvedClientId && parsed.client?.nom) {
+    if (typeDevis === 'Additif' && projetId && !resolvedClientId) {
+      try {
+        const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`,
+          { headers: { Authorization: `Bearer ${AT_KEY}` } });
+        if (pr.ok) {
+          const pd = (await pr.json()).fields || {};
+          if (Array.isArray(pd['Client']) && pd['Client'][0]) resolvedClientId = pd['Client'][0];
+        }
+      } catch (e) { /* non bloquant */ }
+    }
+    if (typeDevis !== 'Additif' && !resolvedClientId && parsed.client?.nom) {
       const nomNorm = String(parsed.client.nom).trim().toUpperCase().replace(/\s+/g,' ');
       const allClients = await atFetchAll(TABLES.clients.id);
       const match = allClients.find(c => (c.fields?.Nom||'').trim().toUpperCase().replace(/\s+/g,' ') === nomNorm);
@@ -645,17 +691,23 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
   }
 });
 
-// --- PLAUD : parsing d'une transcription ---
+// --- PLAUD : parsing d'une transcription (R1 = découverte / R2 = chantier) ---
 app.post('/api/plaud/parse', requireAuth, async (req, res) => {
-  const { transcript, projetId, clientId, type_reunion } = req.body || {};
+  const { transcript, projetId, clientId, type_reunion, niveau } = req.body || {};
   if (!transcript) return res.status(400).json({ error: 'transcript requis' });
   if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY non configurée' });
 
   try {
     const parsed = await parsePlaudTranscript(transcript);
+    // Si niveau non fourni : R1 si Type réunion = Découverte/Présentation devis, R2 sinon.
+    const typeR = type_reunion || 'Découverte';
+    const niveauResolu = (niveau === 'R1' || niveau === 'R2')
+      ? niveau
+      : (typeR === 'Découverte' || typeR === 'Présentation devis' ? 'R1' : 'R2');
     const fields = {
       'Titre': parsed.titre || 'Réunion Plaud',
-      'Type réunion': type_reunion || 'Découverte',
+      'Type réunion': typeR,
+      'Niveau': niveauResolu,
       'Date heure': parsed.date_heure || null,
       'Lieu': parsed.lieu || '',
       'Transcription brute': transcript,
@@ -672,7 +724,7 @@ app.post('/api/plaud/parse', requireAuth, async (req, res) => {
     Object.keys(fields).forEach(k => { if (fields[k] === null || fields[k] === '') delete fields[k]; });
 
     const rec = await atCreate(TABLES['reunions-plaud'].id, fields);
-    res.json({ ok: true, record: rec, parsed });
+    res.json({ ok: true, record: rec, parsed, niveau: niveauResolu });
   } catch (e) {
     console.error('[plaud/parse] error:', e);
     res.status(500).json({ error: e.message });
@@ -931,9 +983,11 @@ app.post('/api/projets/:id/attachments', requireAuth, uploadAny.single('file'), 
   const projetId = req.params.id;
   const field = req.body.field;
   if (!req.file) return res.status(400).json({ error: 'file requis' });
-  const fieldId = PROJET_ATTACHMENT_FIELDS[field];
-  if (!fieldId) return res.status(400).json({ error: 'field invalide (attendu: Plans devis, Plans techniques, Documents projet)' });
+  if (!(field in PROJET_ATTACHMENT_FIELDS)) {
+    return res.status(400).json({ error: `field invalide (attendu: ${Object.keys(PROJET_ATTACHMENT_FIELDS).join(', ')})` });
+  }
   try {
+    const fieldId = await resolveProjetFieldId(field);
     const ct = req.file.mimetype || 'application/octet-stream';
     await atUploadAttachment(projetId, fieldId, req.file.buffer, req.file.originalname, ct);
     res.json({ ok: true, filename: req.file.originalname });
@@ -969,8 +1023,12 @@ app.delete('/api/projets/:id/attachments', requireAuth, async (req, res) => {
   const projetId = req.params.id;
   const { field, attachmentId } = req.body || {};
   if (!field || !attachmentId) return res.status(400).json({ error: 'field + attachmentId requis' });
-  if (!PROJET_ATTACHMENT_FIELDS[field]) return res.status(400).json({ error: 'field invalide' });
+  if (!(field in PROJET_ATTACHMENT_FIELDS)) {
+    return res.status(400).json({ error: `field invalide (attendu: ${Object.keys(PROJET_ATTACHMENT_FIELDS).join(', ')})` });
+  }
   try {
+    // Vérifie que le champ existe côté Airtable (résout le fieldId au passage pour cache).
+    await resolveProjetFieldId(field);
     const r = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`,
       { headers: { Authorization: `Bearer ${AT_KEY}` } });
     if (!r.ok) throw new Error('projet introuvable');

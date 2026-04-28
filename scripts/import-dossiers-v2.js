@@ -44,10 +44,11 @@ const BASE_ID = process.env.AIRTABLE_BASE_ID;
 const AT_KEY  = process.env.AIRTABLE_KEY;
 const TABLES  = { clients: 'tbl2zmxpWWzbY1wT0', projets: 'tbl9y74Gakhfwt6i1' };
 
-// Field IDs créés par scripts/setup-attachment-fields.js
+// Field IDs (créés par setup-attachment-fields.js, renommés par setup-projet-fields-v2.js le 2026-04-28).
+// Les fieldIds restent stables au rename Airtable. Le champ "Images" est résolu dynamiquement (cf server.js).
 const PROJET_ATTACHMENT_FIELDS = {
-  'Plans devis':      'fldtX14UbA5j6UIwo',
-  'Plans techniques': 'fldatdZKmLEiVqfBY',
+  'Plan 3D':          'fldtX14UbA5j6UIwo', // ex "Plans devis"
+  'Plan technique':   'fldatdZKmLEiVqfBY', // ex "Plans techniques"
   'Documents projet': 'fldT3Cg2oKTnNq0XT',
 };
 
@@ -101,9 +102,9 @@ function collectFiles(dir) {
 
 function categorizeFile(filePath, rootPath) {
   const rel = path.relative(rootPath, filePath).toLowerCase();
-  if (/plans? techniques?|plan technique|prise de cotes/.test(rel)) return 'Plans techniques';
-  if (/plan architecte/.test(rel)) return 'Plans techniques';
-  if (/plans? et dessins de pr.sentation|plan et dessin de pr.sentation/.test(rel)) return 'Plans devis';
+  if (/plans? techniques?|plan technique|prise de cotes/.test(rel)) return 'Plan technique';
+  if (/plan architecte/.test(rel)) return 'Plan technique';
+  if (/plans? et dessins de pr.sentation|plan et dessin de pr.sentation/.test(rel)) return 'Plan 3D';
   return 'Documents projet';
 }
 
