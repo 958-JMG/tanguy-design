@@ -577,11 +577,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
   <button class="nb" data-tab="admin">Admin</button>
 </nav>
 
+<!-- Sub-nav 2026-04-28 : Plaud et Découverte retirés (intégrés dans la fiche projet via R1/R2) -->
 <nav class="subnav" id="subnav">
   <button class="snb" data-tab="projets">Projets</button>
   <button class="snb" data-tab="devis">Devis <span class="count" id="cn-devis"></span></button>
-  <button class="snb" data-tab="decouverte">Découverte <span class="count" id="cn-fiches-decouverte"></span></button>
-  <button class="snb" data-tab="plaud">Plaud <span class="count" id="cn-reunions-plaud"></span></button>
   <button class="snb" data-tab="commandes">Commandes <span class="count" id="cn-commandes"></span></button>
   <button class="snb" data-tab="artisans">Artisans <span class="count" id="cn-artisans"></span></button>
   <button class="snb" data-tab="fournisseurs">Fournisseurs <span class="count" id="cn-fournisseurs"></span></button>
@@ -1588,14 +1587,31 @@ function renderProjetDetail(p){
           ${events.map(e=>`<div class="tl-item tl-${e.type}"><div class="tl-date">${esc(e.date)}</div><div class="tl-label">${esc(e.label)}</div></div>`).join('')}
         </div>` : ''}
 
-      <div class="zone-title" style="margin-top:24px">Devis & bons de commande (${devisLies.length})</div>
-      ${devisLies.length ? `<div class="proj-list">${devisLies.map(d=>{
-        const sc = {'Brouillon':'b-gray','Envoyé':'b-amber','Signé':'b-green','Annulé':'b-red'}[d.Statut]||'b-gray';
-        return `<div class="proj-row" onclick="switchTab('devis');openDevisDetail('${d.id}')">
-          <div><strong>${esc(d['Numéro devis']||'—')}</strong> <span class="badge ${sc}">${esc(d.Statut||'')}</span> <span class="badge b-blue">${esc(d.Milieu||'')}</span></div>
-          <div style="font-family:'DM Mono',monospace">${euros(d['Total TTC'])}</div>
-        </div>`;
-      }).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucun devis</div>'}
+      ${(() => {
+        const principaux = devisLies.filter(d => (d['Type devis']||'Principal') === 'Principal');
+        const additifs = devisLies.filter(d => d['Type devis'] === 'Additif');
+        const totalPrincipal = principaux.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
+        const totalAdditifs = additifs.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
+        const totalCumule = totalPrincipal + totalAdditifs;
+        const renderRow = (d) => {
+          const sc = {'Brouillon':'b-gray','Envoyé':'b-amber','Signé':'b-green','Annulé':'b-red'}[d.Statut]||'b-gray';
+          const tc = d['Type devis'] === 'Additif' ? 'b-amber' : 'b-blue';
+          return `<div class="proj-row" onclick="switchTab('devis');openDevisDetail('${d.id}')">
+            <div><strong>${esc(d['Numéro devis']||'—')}</strong> <span class="badge ${tc}">${esc(d['Type devis']||'Principal')}</span> <span class="badge ${sc}">${esc(d.Statut||'')}</span>${d.Milieu?` <span class="badge b-blue">${esc(d.Milieu)}</span>`:''}</div>
+            <div style="font-family:'DM Mono',monospace">${euros(d['Total TTC'])}</div>
+          </div>`;
+        };
+        return `
+        <div class="zone-title" style="margin-top:24px;display:flex;align-items:center;justify-content:space-between">
+          <span>Devis Tanguy Design (${devisLies.length})</span>
+          <div style="display:flex;gap:6px;align-items:center">
+            ${additifs.length ? `<span style="font-size:11px;color:var(--ink3);font-weight:400">Cumul HT : <strong>${euros(totalCumule)}</strong></span>` : ''}
+            <button class="abtn" onclick="openDevisAdditifModal('${p.id}')" title="Ajouter un devis additif (augmentation de scope)">+ Devis additif</button>
+          </div>
+        </div>
+        ${principaux.length ? `<div class="proj-list">${principaux.map(renderRow).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucun devis principal</div>'}
+        ${additifs.length ? `<div style="margin-top:8px"><div style="font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Devis additifs · ${euros(totalAdditifs)} HT</div><div class="proj-list">${additifs.map(renderRow).join('')}</div></div>` : ''}`;
+      })()}
 
       <div class="zone-title" style="margin-top:24px">Commandes fournisseurs (${commandesLiees.length})</div>
       ${commandesLiees.length ? `<div class="proj-list">${commandesLiees.map(c=>{
@@ -1685,11 +1701,14 @@ function renderProjetDetail(p){
         </div>`;
       }).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucune tâche</div>'}
 
+      ${projetReunionsSection(p)}
+
       ${projetJournalSection(p)}
 
-      ${projetAttachmentsSection(p, 'Plans devis', 'Dossiers de présentation, visualisations, plans d’aménagement')}
-      ${projetAttachmentsSection(p, 'Plans techniques', 'Plans archi, plans techniques, vues autocad, prise de cotes')}
-      ${projetAttachmentsSection(p, 'Documents projet', 'BC, AR, cahier des charges, notices, comptes rendus…')}
+      ${projetAttachmentsSection(p, 'Plan 3D', 'Visualisations 3D Winner/Métron, plans d’aménagement, dossiers de présentation client')}
+      ${projetAttachmentsSection(p, 'Plan technique', 'Plans techniques avec cotes, plans archi, vues autocad, prise de cotes')}
+      ${projetAttachmentsSection(p, 'Images', 'Photos chantier, références ambiance, moodboards')}
+      ${projetAttachmentsSection(p, 'Documents projet', 'Factures, AR, attestations, cahier des charges, notices, comptes rendus…')}
 
     </div>`;
   document.getElementById('projet-detail-view').innerHTML = html;
@@ -1705,9 +1724,12 @@ function parseJournalEntries(raw) {
 function projetJournalSection(p) {
   const entries = parseJournalEntries(p['Journal chantier']);
   return `
-    <div class="zone-title" style="margin-top:24px;display:flex;align-items:center;justify-content:space-between">
+    <div class="zone-title" style="margin-top:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
       <span>Journal de chantier (${entries.length})</span>
-      <button class="abtn" onclick="openFicheChantier('${p.id}')" title="Voir la fiche chantier imprimable">📋 Fiche chantier</button>
+      <div style="display:flex;gap:6px">
+        <button class="abtn" onclick="openFicheChantier('${p.id}','tanguy')" title="Fiche complète avec budget et marge — usage interne Tanguy Design">📋 Fiche Tanguy</button>
+        <button class="abtn" onclick="openFicheChantier('${p.id}','artisan')" title="Fiche sans budget, focalisée sur le plan technique — à transmettre aux artisans">🛠️ Fiche Artisan</button>
+      </div>
     </div>
     <div style="display:flex;gap:6px;margin-bottom:10px">
       <input id="journal-input" placeholder="Nouvelle remarque datée (RDV, appel, décision…)" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:13px" onkeydown="if(event.key==='Enter')addJournalEntry('${p.id}')">
@@ -1738,10 +1760,137 @@ async function addJournalEntry(projetId) {
   finally { hideLoader(); }
 }
 
+// ============ RÉUNIONS PLAUD R1/R2 (intégrées dans la fiche projet) ============
+// R1 = découverte / avant chantier · R2 = chantier / après pose
+function projetReunionsSection(p) {
+  const reunions = (DATA['reunions-plaud']||[]).filter(r => Array.isArray(r.Projet) && r.Projet.includes(p.id));
+  const r1 = reunions.filter(r => (r.Niveau||'R1') === 'R1');
+  const r2 = reunions.filter(r => r.Niveau === 'R2');
+  const renderReunion = (r) => {
+    const synth = (r.Synthèse||'').slice(0, 200);
+    const date = r['Date heure'] ? new Date(r['Date heure']).toLocaleDateString('fr-FR') : '—';
+    return `<div class="proj-row" style="flex-direction:column;align-items:flex-start;cursor:pointer" onclick="openReunionDetail('${r.id}')">
+      <div style="display:flex;justify-content:space-between;width:100%">
+        <div><strong>${esc(r.Titre||'Réunion')}</strong> <span class="badge b-blue">${esc(r['Type réunion']||'')}</span></div>
+        <div style="font-size:11px;color:var(--ink3)">${esc(date)}</div>
+      </div>
+      ${synth ? `<div style="font-size:12px;color:var(--ink2);margin-top:4px">${esc(synth)}${(r.Synthèse||'').length>200?'…':''}</div>` : ''}
+    </div>`;
+  };
+  return `
+    <div class="zone-title" style="margin-top:24px;display:flex;align-items:center;justify-content:space-between">
+      <span>R1 · Découverte (${r1.length})</span>
+      <button class="abtn" onclick="openPlaudModalForProjet('${p.id}','R1')" title="Coller une transcription Plaud R1 (avant chantier)">+ Transcription R1</button>
+    </div>
+    ${r1.length ? `<div class="proj-list">${r1.map(renderReunion).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucune transcription R1. Colle une transcription Plaud du R1 (découverte/présentation devis) pour enrichir le projet.</div>'}
+
+    <div class="zone-title" style="margin-top:18px;display:flex;align-items:center;justify-content:space-between">
+      <span>R2 · Chantier (${r2.length})</span>
+      <button class="abtn" onclick="openPlaudModalForProjet('${p.id}','R2')" title="Coller une transcription Plaud R2 (chantier en cours / réception)">+ Transcription R2</button>
+    </div>
+    ${r2.length ? `<div class="proj-list">${r2.map(renderReunion).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucune transcription R2. Colle une transcription chantier (réunion de pose, point client, etc.).</div>'}
+  `;
+}
+
+function openReunionDetail(reunionId){
+  const r = (DATA['reunions-plaud']||[]).find(x => x.id === reunionId);
+  if (!r) return;
+  $('#modalTitle').textContent = `${r.Titre||'Réunion'} · ${r['Type réunion']||''}`;
+  $('#modalBody').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;font-size:12px;margin-bottom:14px">
+      <div><span style="color:var(--ink3)">Niveau</span><br><strong>${esc(r.Niveau||'R1')}</strong></div>
+      <div><span style="color:var(--ink3)">Date</span><br><strong>${esc(r['Date heure']||'—')}</strong></div>
+      <div><span style="color:var(--ink3)">Lieu</span><br><strong>${esc(r.Lieu||'—')}</strong></div>
+      <div><span style="color:var(--ink3)">Type</span><br><strong>${esc(r['Type réunion']||'—')}</strong></div>
+    </div>
+    ${r.Synthèse?`<div class="plaud-section"><span class="plaud-tag">Synthèse</span><div style="white-space:pre-wrap">${esc(r.Synthèse)}</div></div>`:''}
+    ${r.Contexte?`<div class="plaud-section"><span class="plaud-tag">Contexte</span><div style="white-space:pre-wrap">${esc(r.Contexte)}</div></div>`:''}
+    ${r.Attentes?`<div class="plaud-section"><span class="plaud-tag">Attentes</span><div style="white-space:pre-wrap">${esc(r.Attentes)}</div></div>`:''}
+    ${r['Points de douleur']?`<div class="plaud-section"><span class="plaud-tag">Points de douleur</span><div style="white-space:pre-wrap">${esc(r['Points de douleur'])}</div></div>`:''}
+    ${r['Tâches identifiées']?`<div class="plaud-section"><span class="plaud-tag">Tâches identifiées</span><div style="white-space:pre-wrap">${esc(r['Tâches identifiées'])}</div></div>`:''}
+    ${r['Autres informations']?`<div class="plaud-section"><span class="plaud-tag">Autres</span><div style="white-space:pre-wrap">${esc(r['Autres informations'])}</div></div>`:''}
+  `;
+  $('#modalFoot').innerHTML = '';
+  currentModalTable = null;
+  currentModalRecordId = null;
+  $('#modalBg').classList.add('on');
+}
+
+// Ouvre le modal Plaud pré-paramétré pour un projet et un niveau (R1/R2)
+function openPlaudModalForProjet(projetId, niveau){
+  const niv = niveau === 'R2' ? 'R2' : 'R1';
+  const defaultType = niv === 'R1' ? 'Découverte' : 'Chantier';
+  $('#modalTitle').textContent = `Nouvelle transcription Plaud · ${niv}`;
+  $('#modalBody').innerHTML = `
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:10px">Niveau <strong>${niv}</strong> · projet courant. La transcription sera analysée par Claude et liée au projet.</div>
+    <label>Type de réunion</label>
+    <select id="plaud-type">
+      ${(niv==='R1'?['Découverte','Présentation devis','Autre']:['Chantier','SAV','Autre']).map(t=>`<option ${t===defaultType?'selected':''}>${t}</option>`).join('')}
+    </select>
+    <label>Transcription brute (coller le texte du Plaud)</label>
+    <textarea id="plaud-transcript" style="min-height:180px" placeholder="Colle ici la transcription complète…"></textarea>
+    <input type="hidden" id="plaud-projet-id" value="${esc(projetId)}">
+    <input type="hidden" id="plaud-niveau" value="${niv}">
+  `;
+  $('#modalFoot').innerHTML = `<button class="btn-primary" onclick="submitPlaud()">Analyser & enregistrer</button>`;
+  currentModalTable = '__plaud__';
+  $('#modalBg').classList.add('on');
+}
+
+// Ouvre le modal d'import devis additif pour un projet existant
+function openDevisAdditifModal(projetId){
+  $('#modalTitle').textContent = 'Devis additif · upload PDF';
+  $('#modalBody').innerHTML = `
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:10px">Le devis sera ajouté comme <strong>Additif</strong> au projet courant (augmentation de scope). Aucun nouveau client/projet n'est créé.</div>
+    <label>PDF du devis additif</label>
+    <input type="file" id="devis-additif-file" accept="application/pdf">
+    <input type="hidden" id="devis-additif-projet-id" value="${esc(projetId)}">
+    <div style="font-size:11px;color:var(--ink4);margin-top:8px">Claude analysera le PDF (Winner/Métron). Le record Devis créé aura Type=Additif et sera lié au projet courant.</div>
+  `;
+  $('#modalFoot').innerHTML = `<button class="btn-primary" onclick="submitDevisAdditif()">Importer comme additif</button>`;
+  currentModalTable = '__devis_additif__';
+  $('#modalBg').classList.add('on');
+}
+
+async function submitDevisAdditif(){
+  const file = document.getElementById('devis-additif-file').files[0];
+  const projetId = document.getElementById('devis-additif-projet-id').value;
+  if (!file) { toastError('Sélectionne un PDF'); return; }
+  if (!projetId) { toastError('Projet manquant'); return; }
+  showLoader('Analyse du devis additif…');
+  try {
+    const fd = new FormData();
+    fd.append('pdf', file);
+    fd.append('projetId', projetId);
+    fd.append('type', 'Additif');
+    const r = await fetch('/api/devis/import', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'erreur');
+    toastSuccess(`Devis additif créé · ${d.parsed_summary?.lignes||0} lignes`);
+    closeModal();
+    await loadAll();
+    const p = DATA.projets.find(x => x.id === projetId);
+    if (p) renderProjetDetail(p);
+  } catch(e) { toastError('Erreur : '+e.message); }
+  finally { hideLoader(); }
+}
+
 // ============ FICHE CHANTIER (récap imprimable + envoi) ============
-function openFicheChantier(projetId) {
+// Mode = 'tanguy' (avec budget) ou 'artisan' (sans budget, focus plan technique).
+let CURRENT_FICHE_MODE = 'tanguy';
+function openFicheChantier(projetId, mode) {
+  CURRENT_FICHE_MODE = (mode === 'artisan') ? 'artisan' : 'tanguy';
+  return _renderFicheChantier(projetId);
+}
+function switchFicheMode(mode){
+  CURRENT_FICHE_MODE = mode === 'artisan' ? 'artisan' : 'tanguy';
+  const projetId = document.getElementById('fiche-ch-host')?.dataset.projetId;
+  if (projetId) { closeFicheChantier(); _renderFicheChantier(projetId); }
+}
+function _renderFicheChantier(projetId) {
   const p = DATA.projets.find(x => x.id === projetId);
   if (!p) return;
+  const isArtisan = CURRENT_FICHE_MODE === 'artisan';
   const client = Array.isArray(p.Client) ? DATA.clients.find(c => c.id === p.Client[0]) : null;
   const devisLies = DATA.devis.filter(d => Array.isArray(d.Projet) && d.Projet.includes(p.id));
   const commandesLiees = DATA.commandes.filter(c => Array.isArray(c.Projet) && c.Projet.includes(p.id));
@@ -1749,18 +1898,28 @@ function openFicheChantier(projetId) {
   const artisansProjet = (Array.isArray(p.Artisans) ? p.Artisans : []).map(id => DATA.artisans.find(a=>a.id===id)).filter(Boolean);
   const devisArtisansLies = (DATA['devis-artisans']||[]).filter(d => Array.isArray(d.Projet) && d.Projet.includes(p.id));
   const journalEntries = parseJournalEntries(p['Journal chantier']);
+  const planTech = Array.isArray(p['Plan technique']) ? p['Plan technique'] : [];
 
   const totalDevisHT = devisLies.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
   const totalCmdHT  = commandesLiees.reduce((s,c)=>s+(c['Montant HT']||0),0);
   const totalArtisansHT = devisArtisansLies.reduce((s,d)=>s+(d['Montant HT']||0),0);
   const marge = totalDevisHT - totalCmdHT - totalArtisansHT;
 
+  const titreFiche = isArtisan ? '🛠️ Fiche Artisan' : '📋 Fiche Tanguy';
+  const sousTitre = isArtisan
+    ? 'Document chantier sans informations financières — destiné aux artisans intervenant'
+    : 'Document interne complet — vue Tanguy Design avec budget et marge';
+
   const html = `
     <div class="modal-bg on" id="fiche-ch-bg" onclick="if(event.target===this)closeFicheChantier()">
       <div class="modal-card fc-modal" style="max-width:860px;max-height:94vh;overflow-y:auto;padding:0">
-        <div class="modal-head no-print" style="padding:16px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:10">
-          <div class="modal-title" style="margin:0">📋 Fiche chantier · ${esc(p.Référence||'—')}</div>
-          <div style="display:flex;gap:8px">
+        <div class="modal-head no-print" style="padding:16px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:10;flex-wrap:wrap;gap:8px">
+          <div class="modal-title" style="margin:0">${titreFiche} · ${esc(p.Référence||'—')}</div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <div style="display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+              <button class="abtn" style="border-radius:0;border:none;${!isArtisan?'background:var(--ink);color:#fff':''}" onclick="switchFicheMode('tanguy')">Tanguy</button>
+              <button class="abtn" style="border-radius:0;border:none;border-left:1px solid var(--border);${isArtisan?'background:var(--ink);color:#fff':''}" onclick="switchFicheMode('artisan')">Artisan</button>
+            </div>
             <button class="abtn" onclick="window.print()">📄 Imprimer / PDF</button>
             <button class="abtn primary" onclick="sendFicheChantier('${p.id}')">✉️ Envoyer</button>
             <button class="modal-close" onclick="closeFicheChantier()">×</button>
@@ -1768,14 +1927,15 @@ function openFicheChantier(projetId) {
         </div>
         <div class="fc-body" style="padding:28px 36px">
           <h1 style="font-family:'DM Serif Display',serif;font-weight:400;font-size:28px;margin:0 0 4px">${esc(p.Référence||'Projet')}</h1>
-          <div style="color:var(--ink3);margin-bottom:22px;font-size:13px">Fiche chantier générée le ${new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'})}${window.ME?' · '+esc(window.ME.charAt(0).toUpperCase()+window.ME.slice(1)):''}</div>
+          <div style="color:var(--ink3);margin-bottom:6px;font-size:13px">${titreFiche} générée le ${new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'})}${window.ME?' · '+esc(window.ME.charAt(0).toUpperCase()+window.ME.slice(1)):''}</div>
+          <div style="color:var(--ink4);margin-bottom:22px;font-size:11px;font-style:italic">${esc(sousTitre)}</div>
 
           <div class="fc-section">
             <div class="fc-title">Informations projet</div>
             <div class="fc-grid">
               <div><span class="fc-lbl">Statut</span><strong>${esc(p.Statut||'—')}</strong></div>
-              <div><span class="fc-lbl">Budget HT</span><strong>${euros(p['Budget HT'])}</strong></div>
-              <div><span class="fc-lbl">Marge prévue</span><strong>${pct(p['Marge prévisionnelle'])}</strong></div>
+              ${isArtisan ? '' : `<div><span class="fc-lbl">Budget HT</span><strong>${euros(p['Budget HT'])}</strong></div>`}
+              ${isArtisan ? '' : `<div><span class="fc-lbl">Marge prévue</span><strong>${pct(p['Marge prévisionnelle'])}</strong></div>`}
               <div><span class="fc-lbl">Date découverte</span><strong>${esc(p['Date découverte']||'—')}</strong></div>
               <div><span class="fc-lbl">Date pose prévue</span><strong>${esc(p['Date pose prévue']||'—')}</strong></div>
               <div><span class="fc-lbl">Artisans</span><strong>${artisansProjet.length}</strong></div>
@@ -1791,6 +1951,15 @@ function openFicheChantier(projetId) {
             ${client.Adresse?`<div style="color:var(--ink3);font-size:13px;margin-top:4px;white-space:pre-wrap">${esc(client.Adresse)}</div>`:''}
           </div>` : ''}
 
+          ${planTech.length ? `
+          <div class="fc-section">
+            <div class="fc-title">Plan technique (${planTech.length})</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">
+              ${planTech.map(a => `<a href="${a.url}" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:12px;text-decoration:none;color:var(--ink2)"><span style="font-family:'DM Mono',monospace;font-size:9px;background:var(--ink);color:#fff;padding:2px 5px;border-radius:2px">${esc((a.filename||'').split('.').pop().toUpperCase())}</span><span>${esc(a.filename||'plan')}</span></a>`).join('')}
+            </div>
+          </div>` : ''}
+
+          ${isArtisan ? '' : `
           <div class="fc-section">
             <div class="fc-title">Bilan financier</div>
             <table class="fc-table"><tbody>
@@ -1799,21 +1968,21 @@ function openFicheChantier(projetId) {
               <tr><td>Devis artisans (HT)</td><td class="num">${euros(totalArtisansHT)}</td></tr>
               <tr style="font-weight:700;border-top:2px solid var(--ink)"><td>Marge estimée</td><td class="num ${marge>=0?'':'fc-neg'}">${euros(marge)}</td></tr>
             </tbody></table>
-          </div>
+          </div>`}
 
-          ${devisLies.length ? `
+          ${(isArtisan || !devisLies.length) ? '' : `
           <div class="fc-section">
             <div class="fc-title">Devis (${devisLies.length})</div>
             <table class="fc-table"><tbody>
               ${devisLies.map(d => `<tr>
-                <td>${esc(d['Numéro devis']||'—')}${d.Milieu?' · '+esc(d.Milieu):''}</td>
+                <td>${esc(d['Numéro devis']||'—')}${d['Type devis']==='Additif'?' <span class="badge b-amber">Additif</span>':''}${d.Milieu?' · '+esc(d.Milieu):''}</td>
                 <td>${esc(d.Statut||'')}</td>
                 <td class="num">${euros(d['Total TTC'])}</td>
               </tr>`).join('')}
             </tbody></table>
-          </div>` : ''}
+          </div>`}
 
-          ${commandesLiees.length ? `
+          ${(isArtisan || !commandesLiees.length) ? '' : `
           <div class="fc-section">
             <div class="fc-title">Commandes fournisseurs (${commandesLiees.length})</div>
             <table class="fc-table"><tbody>
@@ -1824,7 +1993,7 @@ function openFicheChantier(projetId) {
                 <td class="num">${euros(c['Montant HT'])}</td>
               </tr>`).join('')}
             </tbody></table>
-          </div>` : ''}
+          </div>`}
 
           ${artisansProjet.length ? `
           <div class="fc-section">
@@ -1869,7 +2038,7 @@ function openFicheChantier(projetId) {
         </div>
       </div>
     </div>`;
-  const host = document.createElement('div'); host.id = 'fiche-ch-host'; host.innerHTML = html;
+  const host = document.createElement('div'); host.id = 'fiche-ch-host'; host.dataset.projetId = projetId; host.innerHTML = html;
   document.body.appendChild(host);
 }
 function closeFicheChantier(){ document.getElementById('fiche-ch-host')?.remove(); }
@@ -2892,10 +3061,12 @@ async function deleteStock(stockId){
 // ============ DEVIS ============
 function devisCard(d){
   const statutClass = {'Brouillon':'b-gray','Envoyé':'b-amber','Signé':'b-green','Annulé':'b-red'}[d.Statut]||'b-gray';
+  const typeDevis = d['Type devis'] || 'Principal';
+  const typeClass = typeDevis === 'Additif' ? 'b-amber' : 'b-blue';
   return `<div class="card" style="cursor:pointer;position:relative">
     <div onclick="openDevisDetail('${d.id}')">
       <div class="card-top">
-        <div class="card-nom">${esc(d['Numéro devis']||'—')} <span class="badge ${statutClass}">${esc(d.Statut||'—')}</span> <span class="badge b-blue">${esc(d.Milieu||'')}</span></div>
+        <div class="card-nom">${esc(d['Numéro devis']||'—')} <span class="badge ${typeClass}">${esc(typeDevis)}</span> <span class="badge ${statutClass}">${esc(d.Statut||'—')}</span>${d.Milieu?` <span class="badge b-blue">${esc(d.Milieu)}</span>`:''}</div>
         <div class="card-amt">${euros(d['Total TTC'])}</div>
       </div>
       <div class="card-meta">
@@ -3411,14 +3582,25 @@ function openPlaudModal(){
 async function submitPlaud(){
   const transcript = document.getElementById('plaud-transcript').value.trim();
   const type_reunion = document.getElementById('plaud-type').value;
+  const projetId = document.getElementById('plaud-projet-id')?.value || null;
+  const niveau = document.getElementById('plaud-niveau')?.value || null;
   if (!transcript) { toastError('Transcription requise'); return; }
   closeModal();
   showLoader('Analyse Claude en cours…');
   try {
-    const r = await fetch('/api/plaud/parse', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transcript, type_reunion})});
+    const payload = { transcript, type_reunion };
+    if (projetId) payload.projetId = projetId;
+    if (niveau) payload.niveau = niveau;
+    const r = await fetch('/api/plaud/parse', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d = await r.json();
     if (!r.ok) throw new Error(d.error||'Erreur');
+    toastSuccess(`Transcription ${d.niveau||''} analysée et liée au projet`);
     await loadAll();
+    // Si on était sur la fiche projet, refresh
+    if (projetId) {
+      const p = DATA.projets.find(x => x.id === projetId);
+      if (p) renderProjetDetail(p);
+    }
   } catch(e) { toastError('Erreur : '+e.message); }
   finally { hideLoader(); }
 }
