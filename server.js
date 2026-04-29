@@ -1049,6 +1049,55 @@ function euros(n) {
   return Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 }
 
+// --- SAV : proxy vers webhook n8n du cockpit central 9·58 ----------------
+// Le cockpit central ouvre les tickets dans Airtable TICKETS_TBL et alimente
+// la zone Pilotage. Auth via header X-958-Secret. Configurable par env vars.
+const SAV_WEBHOOK_URL    = process.env.SAV_WEBHOOK_URL    || 'https://jmg958.app.n8n.cloud/webhook/sav-receiver';
+const SAV_WEBHOOK_SECRET = process.env.SAV_WEBHOOK_SECRET || '';
+const SAV_CLIENT_SLUG    = process.env.SAV_CLIENT_SLUG    || 'tanguy';
+const SAV_COCKPIT_SOURCE = process.env.SAV_COCKPIT_SOURCE || 'Cockpit Tanguy Design';
+const SAV_ABONNEMENT     = process.env.SAV_ABONNEMENT     || 'Build';
+
+app.post('/api/sav/submit', requireAuth, async (req, res) => {
+  if (!SAV_WEBHOOK_SECRET) {
+    return res.status(500).json({ error: 'SAV_WEBHOOK_SECRET non configuré côté serveur' });
+  }
+  const { categorie, urgence, titre, description } = req.body || {};
+  if (!titre || !description) {
+    return res.status(400).json({ error: 'Titre et description requis' });
+  }
+  try {
+    const payload = {
+      client_slug: SAV_CLIENT_SLUG,
+      cockpit_source: SAV_COCKPIT_SOURCE,
+      abonnement: SAV_ABONNEMENT,
+      categorie: categorie || 'Autre',
+      urgence: urgence || 'P3',
+      titre: String(titre).slice(0, 200),
+      description: String(description).slice(0, 5000),
+      auteur_email: req.session?.user ? `${req.session.user}@tanguydesign.local` : '',
+    };
+    const r = await fetch(SAV_WEBHOOK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-958-Secret': SAV_WEBHOOK_SECRET,
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const txt = await r.text().catch(() => '');
+      console.error(`[sav/submit] n8n ${r.status}: ${txt.slice(0,200)}`);
+      return res.status(502).json({ error: `Webhook 9·58 indisponible (${r.status})` });
+    }
+    const data = await r.json().catch(() => ({}));
+    res.json({ ok: true, ticket_id: data.ticket_id, notification_id: data.notification_id });
+  } catch (e) {
+    console.error('[sav/submit] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // --- Static ---
 app.get('/', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
