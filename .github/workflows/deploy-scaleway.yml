@@ -2,6 +2,17 @@ name: Deploy tanguy to Scaleway
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'server.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'Dockerfile'
+      - 'public/**'
+      - 'services/**'
+      - 'scripts/**'
+      - '.github/workflows/deploy-scaleway.yml'
 
 env:
   APP_NAME: tanguy
