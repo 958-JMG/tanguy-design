@@ -42,6 +42,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 .logout-btn{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-family:'DM Mono',monospace;font-size:10px;color:var(--gold);background:none;border:0.5px solid rgba(184,149,106,.4);border-radius:3px;padding:4px 8px;cursor:pointer;font-family:'DM Mono',monospace}
 .logout-btn:hover{background:var(--gold);color:var(--ink);border-color:var(--gold)}
+.sav-btn{position:absolute;left:96px;top:50%;transform:translateY(-50%);font-family:'DM Mono',monospace;font-size:10px;font-weight:600;color:#B83232;background:rgba(184,50,50,.06);border:0.5px solid rgba(184,50,50,.4);border-radius:3px;padding:4px 10px;cursor:pointer;letter-spacing:.04em;transition:all .15s ease}
+.sav-btn:hover{background:#B83232;color:#fff;border-color:#B83232}
+@media(max-width:600px){.sav-btn{font-size:9px;padding:3px 7px;left:80px}}
 
 /* Nav */
 .nav{background:#fff;border-bottom:1px solid var(--border);padding:0 16px;display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
@@ -544,9 +547,52 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 <div class="header">
   <button class="logout-btn" onclick="logout()">◂ SORTIR</button>
   <div class="logo"><img src="/img/logo.jpg" alt="Tanguy Design" class="logo-img"></div>
+  <button class="sav-btn" onclick="openSavModal()" title="Ouvrir un ticket SAV vers 9·58">🆘 SAV</button>
   <div class="header-right">
     <div class="header-user" id="headerUser">—</div>
     <div class="header-sync"><span class="sync-dot" id="syncDot"></span><span id="syncTxt">init</span></div>
+  </div>
+</div>
+
+<!-- SAV modal — qualification + envoi vers webhook 9·58 -->
+<div class="modal-bg" id="sav-modal-bg" onclick="if(event.target===this)closeSavModal()">
+  <div class="modal-card" style="max-width:560px;padding:0">
+    <div class="modal-head" style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div class="modal-title" style="margin:0">🆘 Ouvrir un ticket SAV</div>
+        <div style="font-size:11px;color:var(--ink3);margin-top:2px">Envoyé directement à JMG · 9·58</div>
+      </div>
+      <button class="modal-close" onclick="closeSavModal()">×</button>
+    </div>
+    <div style="padding:18px 24px">
+      <label style="display:block;font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Catégorie</label>
+      <select id="sav-categorie" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:13px;margin-bottom:12px">
+        <option value="Bug">🐛 Bug — quelque chose ne fonctionne pas</option>
+        <option value="Amélioration">⚙️ Amélioration — un détail à ajuster</option>
+        <option value="Question">❓ Question — j'ai besoin d'une explication</option>
+        <option value="Demande feature">✨ Demande feature — nouvelle fonctionnalité</option>
+        <option value="Autre">📋 Autre</option>
+      </select>
+
+      <label style="display:block;font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Urgence</label>
+      <div style="display:flex;gap:6px;margin-bottom:12px">
+        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:12px"><input type="radio" name="sav-urg" value="P1" style="margin:0"> 🔴 P1 — bloquant</label>
+        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:12px"><input type="radio" name="sav-urg" value="P2" style="margin:0"> 🟠 P2 — gênant</label>
+        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:12px"><input type="radio" name="sav-urg" value="P3" checked style="margin:0"> ⚪ P3 — quand possible</label>
+      </div>
+
+      <label style="display:block;font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Titre court</label>
+      <input id="sav-titre" type="text" placeholder="Ex: La marge ne s'affiche plus sur les fiches projet" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:12px;font-family:inherit">
+
+      <label style="display:block;font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Description détaillée</label>
+      <textarea id="sav-description" rows="6" placeholder="Décris ce qui se passe (page concernée, ce que tu attendais, ce qui s'affiche à la place…)" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;margin-bottom:8px"></textarea>
+
+      <div style="font-size:11px;color:var(--ink4);font-style:italic">Le ticket est envoyé à JMG en direct, sans passer par mail ni Slack. Tu reçois une réponse dans le portail dès qu'il est traité.</div>
+    </div>
+    <div class="modal-foot" style="padding:14px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px">
+      <button class="abtn" onclick="closeSavModal()">Annuler</button>
+      <button class="abtn primary" id="sav-submit-btn" onclick="submitSav()">Envoyer le ticket</button>
+    </div>
   </div>
 </div>
 
@@ -954,6 +1000,49 @@ document.addEventListener('keydown', e => {
 
 // ============ AUTH ============
 async function logout(){ await fetch('/api/logout',{method:'POST'}); location.href='/login'; }
+
+// === SAV : modal qualifié + envoi vers webhook 9·58 (proxy /api/sav/submit) ===
+function openSavModal(){
+  document.getElementById('sav-modal-bg').classList.add('on');
+  setTimeout(() => document.getElementById('sav-titre').focus(), 100);
+}
+function closeSavModal(){
+  document.getElementById('sav-modal-bg').classList.remove('on');
+  document.getElementById('sav-titre').value = '';
+  document.getElementById('sav-description').value = '';
+  document.getElementById('sav-categorie').value = 'Bug';
+  document.querySelector('input[name="sav-urg"][value="P3"]').checked = true;
+}
+async function submitSav(){
+  const titre = document.getElementById('sav-titre').value.trim();
+  const description = document.getElementById('sav-description').value.trim();
+  const categorie = document.getElementById('sav-categorie').value;
+  const urgence = document.querySelector('input[name="sav-urg"]:checked')?.value || 'P3';
+  if (!titre || !description) {
+    if (typeof toastError === 'function') toastError('Titre et description requis');
+    else alert('Titre et description requis');
+    return;
+  }
+  const btn = document.getElementById('sav-submit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Envoi…'; }
+  try {
+    const r = await fetch('/api/sav/submit', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ categorie, urgence, titre, description }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Erreur webhook');
+    closeSavModal();
+    if (typeof toastSuccess === 'function') toastSuccess('✓ Ticket envoyé à 9·58 — réponse à venir');
+    else alert('✓ Ticket SAV envoyé à 9·58');
+  } catch(e) {
+    if (typeof toastError === 'function') toastError('Erreur : ' + e.message);
+    else alert('Erreur : ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Envoyer le ticket'; }
+  }
+}
 fetch('/api/me').then(r=>r.json()).then(d=>{
   window.ME = d.user||'';
   window.ME_ADMIN = !!d.isAdmin;
