@@ -4369,6 +4369,18 @@ function openModal(table, recordId){
     return `<label>${f.label}</label><input id="${id}" type="${f.type||'text'}" ${f.step?`step="${f.step}"`:''} value="${valEsc}">`;
   }).join('');
 
+  // Cas spécial projet (création uniquement) : raccourci pour import PDF Winner
+  // L'import PDF crée auto le client + le projet + les devis liés (zones/lignes/échéances).
+  // Bien plus rapide qu'une saisie manuelle dans 90% des cas.
+  if (table === 'projets' && !record) {
+    body = `<div style="margin-bottom:18px;padding:14px 16px;border:2px solid var(--gold);border-radius:6px;background:linear-gradient(135deg,var(--gold-bg) 0%,#fff 100%)">
+      <div style="font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--gold-dark);font-weight:700;margin-bottom:6px">⚡ Raccourci recommandé</div>
+      <div style="font-size:13px;color:var(--ink2);margin-bottom:10px;line-height:1.4">Si tu as un <strong>PDF Winner</strong> (bon de commande / devis), importe-le directement : Claude lit le PDF et crée automatiquement le client, le projet, le devis avec toutes ses zones/lignes/échéances en une seule étape.</div>
+      <button class="btn-primary" style="width:100%;padding:10px" onclick="closeModal();switchTab('devis');setTimeout(()=>document.getElementById('devis-pdf-input').click(),100)">📄 Importer un PDF Winner →</button>
+      <div style="font-size:11px;color:var(--ink4);text-align:center;margin-top:8px">— ou continue ci-dessous pour saisir le projet manuellement —</div>
+    </div>` + body;
+  }
+
   // Cas spécial projet (création uniquement) : bloc Plaud optionnel pour enrichir
   if (table === 'projets' && !record) {
     body += `
