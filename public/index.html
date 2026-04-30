@@ -8,7 +8,9 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --ink:#1A1916;--ink2:#4A4742;--ink3:#8A8680;--ink4:#C0BBB4;
+  /* --ink3 darken 2026-04-30 : passait à 3.04:1 sur paper (fail WCAG AA 4.5:1).
+     #6F6B65 atteint 4.6:1 → conforme. --ink4 reste léger : à n'utiliser que pour bordures, séparateurs, placeholders. */
+  --ink:#1A1916;--ink2:#4A4742;--ink3:#6F6B65;--ink4:#C0BBB4;
   --paper:#F7F4EF;--card:#FFF;--border:#E8E3DC;--border2:#C8C0B4;
   --red:#B83232;--red-bg:#FBF0EE;
   --amber:#9C6B0A;--amber-bg:#FBF5E6;
@@ -280,7 +282,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 .parcours-stepper{display:flex;gap:0;align-items:flex-start;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:8px 4px 14px;position:relative;scrollbar-width:thin}
 .parcours-stepper::-webkit-scrollbar{height:6px}
 .parcours-stepper::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
-.ps-step{display:flex;flex-direction:column;align-items:center;flex:1 0 auto;min-width:78px;max-width:130px;padding:0 4px;position:relative;cursor:pointer;text-decoration:none;color:inherit}
+.ps-step{display:flex;flex-direction:column;align-items:center;flex:1 0 auto;min-width:78px;max-width:130px;padding:0 4px;position:relative;cursor:pointer;text-decoration:none;color:inherit;background:none;border:none;font-family:inherit;font-size:inherit}
+.ps-step:focus-visible{outline:2px solid var(--gold);outline-offset:3px;border-radius:4px}
 .ps-step + .ps-step::before{content:"";position:absolute;top:18px;left:-50%;width:100%;height:2px;background:var(--border);z-index:0}
 .ps-step.done + .ps-step::before,.ps-step.cur + .ps-step::before{background:linear-gradient(90deg,var(--green) 0%,var(--gold) 100%)}
 .ps-step.done + .ps-step.done::before{background:var(--green)}
@@ -1954,20 +1957,23 @@ function parcoursStepperHTML(steps, p) {
   const total = steps.length;
   const done = steps.filter(s => s.state === 'done').length;
   const pct = total ? Math.round(done/total*100) : 0;
+  const stateLabel = {done:'terminée', cur:'en cours', partial:'partielle', pending:'à venir'};
   const stepHtml = steps.map(s => {
-    return `<a class="ps-step ${s.state}" onclick="parcoursStepInfo('${esc(s.key)}','${p.id}')" title="${esc(s.label)}">
-      <div class="ps-circle">${s.icon}</div>
-      <div class="ps-num">${String(s.n).padStart(2,'0')}</div>
-      <div class="ps-label">${esc(s.label)}</div>
-      ${s.meta ? `<div class="ps-meta">${esc(s.meta)}</div>` : ''}
-    </a>`;
+    const ariaLabel = `Étape ${s.n} sur ${total} : ${s.label}, ${stateLabel[s.state]||s.state}${s.meta?' — '+s.meta:''}`;
+    const ariaCurrent = s.state === 'cur' ? ' aria-current="step"' : '';
+    return `<button type="button" class="ps-step ${s.state}" onclick="parcoursStepInfo('${esc(s.key)}','${p.id}')" aria-label="${esc(ariaLabel)}"${ariaCurrent}>
+      <span class="ps-circle" aria-hidden="true">${s.icon}</span>
+      <span class="ps-num" aria-hidden="true">${String(s.n).padStart(2,'0')}</span>
+      <span class="ps-label">${esc(s.label)}</span>
+      ${s.meta ? `<span class="ps-meta">${esc(s.meta)}</span>` : ''}
+    </button>`;
   }).join('');
-  return `<div class="parcours-wrap">
+  return `<div class="parcours-wrap" role="region" aria-label="Parcours du chantier">
     <div class="parcours-head">
       <div class="ph-title">⛯ Parcours chantier</div>
-      <div class="ph-progress"><strong>${done}/${total}</strong> étapes · <strong>${pct}%</strong></div>
+      <div class="ph-progress"><strong>${done}/${total}</strong> étapes · <strong>${pct} %</strong></div>
     </div>
-    <div class="parcours-stepper">${stepHtml}</div>
+    <ol class="parcours-stepper" aria-label="Étapes du chantier" style="list-style:none;padding:0;margin:0;display:flex;gap:0;align-items:flex-start;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:8px 4px 14px;position:relative;scrollbar-width:thin">${stepHtml}</ol>
     ${parcoursActionsHTML(steps, p)}
   </div>`;
 }
