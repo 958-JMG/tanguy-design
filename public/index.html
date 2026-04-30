@@ -1088,6 +1088,86 @@ function toast(msg, type='success'){
 const toastSuccess = (m) => toast(m,'success');
 const toastError = (m) => toast(m,'error');
 
+// ============ A11Y MODAL HELPERS ============
+// Esc global pour fermer le dernier modal ouvert.
+// Focus auto sur le 1er élément focusable à l'ouverture (via observer DOM).
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  // Cherche un modal visible (le dernier a la priorité)
+  const candidates = [
+    document.getElementById('cmd-detail-bg'),
+    document.getElementById('task-edit-bg'),
+    document.getElementById('marge-edit-bg'),
+    document.getElementById('client-modal-host')?.querySelector('.modal-bg.on'),
+    document.getElementById('fiche-ch-host'),
+    document.getElementById('day-panel-bg'),
+    document.getElementById('cmdk-bg'),
+    document.getElementById('savModalBg')?.classList.contains('on') ? document.getElementById('savModalBg') : null,
+    document.getElementById('modalBg')?.classList.contains('on') ? document.getElementById('modalBg') : null,
+  ].filter(Boolean);
+  if (!candidates.length) return;
+  const top = candidates[candidates.length - 1];
+  // Routes de fermeture connues
+  if (top.id === 'cmd-detail-bg') closeCommandeDetail();
+  else if (top.id === 'task-edit-bg') closeTaskEdit();
+  else if (top.id === 'marge-edit-bg') closeMargeEdit();
+  else if (top.id === 'fiche-ch-host') closeFicheChantier();
+  else if (top.id === 'day-panel-bg') closeDayPanel();
+  else if (top.id === 'cmdk-bg') closeSearch();
+  else if (top.id === 'savModalBg') closeSavModal();
+  else if (top.id === 'modalBg') closeModal();
+  else if (top.classList?.contains('modal-bg')) top.classList.remove('on');
+});
+
+// Auto-focus du 1er élément focusable quand un modal s'ouvre + role/aria-modal.
+// Subtree pour catcher les modales injectées dans des hosts (cmd-detail-host, etc.).
+new MutationObserver(muts => {
+  for (const m of muts) {
+    for (const node of m.addedNodes) {
+      if (!(node instanceof HTMLElement)) continue;
+      const modals = [];
+      if (node.classList?.contains('modal-bg')) modals.push(node);
+      node.querySelectorAll?.('.modal-bg').forEach(el => modals.push(el));
+      for (const modal of modals) {
+        if (!modal.getAttribute('role')) modal.setAttribute('role','dialog');
+        if (!modal.getAttribute('aria-modal')) modal.setAttribute('aria-modal','true');
+        setTimeout(() => {
+          if (!modal.classList.contains('on') && !modal.id?.startsWith('cmd-')) return;
+          const f = modal.querySelector('input:not([type="hidden"]),textarea,select,button.btn-primary,button.abtn.primary,button.mbtn.primary,button:not(.modal-close):not(.btn-danger)');
+          if (f && document.contains(f)) f.focus();
+        }, 80);
+      }
+    }
+  }
+}).observe(document.body, { childList: true, subtree: true });
+
+// Cards keyboard a11y : .card avec onclick → focusable au Tab + Enter/Space déclenche le clic.
+// Délégation : on ne touche pas chaque renderXCard, on attribue les attrs après chaque render
+// + on écoute Enter/Space au niveau document.
+function makeCardsAccessible() {
+  document.querySelectorAll('.card').forEach(card => {
+    if (!card.hasAttribute('onclick')) return;
+    if (!card.hasAttribute('tabindex')) card.setAttribute('tabindex','0');
+    if (!card.hasAttribute('role')) card.setAttribute('role','button');
+  });
+  // Pareil pour les .proj-row cliquables
+  document.querySelectorAll('.proj-row[onclick]').forEach(row => {
+    if (!row.hasAttribute('tabindex')) row.setAttribute('tabindex','0');
+    if (!row.hasAttribute('role')) row.setAttribute('role','button');
+  });
+}
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const t = e.target;
+  if (!(t instanceof HTMLElement)) return;
+  // Évite de tirer dans un textarea/input
+  if (['INPUT','TEXTAREA','SELECT'].includes(t.tagName)) return;
+  if (t.matches('.card[role="button"], .proj-row[role="button"], [tabindex="0"][role="button"]')) {
+    e.preventDefault();
+    t.click();
+  }
+});
+
 // ============ CMD+K SEARCH ============
 let SEARCH_RESULTS = [], SEARCH_IDX = 0;
 function openSearch(){
@@ -1227,6 +1307,8 @@ function renderAll(){
   renderPlaud();
   renderMarges();
   renderStock();
+  // a11y : cards cliquables → focusables au clavier (tabindex + role + Enter/Space → click).
+  if (typeof makeCardsAccessible === 'function') makeCardsAccessible();
 }
 
 // ============ NEW MENU ============
@@ -2447,6 +2529,7 @@ function renderProjetDetail(p){
       </div>
     </div>`;
   document.getElementById('projet-detail-view').innerHTML = html;
+  if (typeof makeCardsAccessible === 'function') makeCardsAccessible();
 }
 
 // ============ JOURNAL DE CHANTIER ============
