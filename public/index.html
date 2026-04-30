@@ -2505,7 +2505,9 @@ function openPlaudModalForProjet(projetId, niveau){
   $('#modalBg').classList.add('on');
 }
 
-// Ouvre le modal d'import devis additif pour un projet existant
+// Ouvre le modal d'import devis additif pour un projet existant.
+// Le bouton "Enregistrer" du modal standard appelle submitModal() qui dispatche vers submitDevisAdditif()
+// (cf. dispatch dans submitModal — pas besoin de footer custom, le modal n'a pas de #modalFoot).
 function openDevisAdditifModal(projetId){
   $('#modalTitle').textContent = 'Devis additif · upload PDF';
   $('#modalBody').innerHTML = `
@@ -2513,10 +2515,12 @@ function openDevisAdditifModal(projetId){
     <label>PDF du devis additif</label>
     <input type="file" id="devis-additif-file" accept="application/pdf">
     <input type="hidden" id="devis-additif-projet-id" value="${esc(projetId)}">
-    <div style="font-size:11px;color:var(--ink4);margin-top:8px">Claude analysera le PDF (Winner/Métron). Le record Devis créé aura Type=Additif et sera lié au projet courant.</div>
+    <div style="font-size:11px;color:var(--ink4);margin-top:8px">Claude analysera le PDF (Winner/Métron). Le record Devis créé aura Type=Additif et sera lié au projet courant. Clique « Enregistrer » pour lancer l'import.</div>
   `;
-  $('#modalFoot').innerHTML = `<button class="btn-primary" onclick="submitDevisAdditif()">Importer comme additif</button>`;
   currentModalTable = '__devis_additif__';
+  // Cache le bouton Supprimer (pas pertinent en mode upload)
+  const delBtn = document.getElementById('modalDeleteBtn');
+  if (delBtn) delBtn.style.display = 'none';
   $('#modalBg').classList.add('on');
 }
 
@@ -4419,6 +4423,7 @@ function closeModal(){
 async function submitModal(){
   if (!currentModalTable) return;
   if (currentModalTable === '__plaud__') { return submitPlaud(); }
+  if (currentModalTable === '__devis_additif__') { return submitDevisAdditif(); }
   const form = FORMS[currentModalTable];
   const fields = {};
   for (const f of form) {
