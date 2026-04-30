@@ -8,7 +8,9 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --ink:#1A1916;--ink2:#4A4742;--ink3:#8A8680;--ink4:#C0BBB4;
+  /* --ink3 darken 2026-04-30 : passait à 3.04:1 sur paper (fail WCAG AA 4.5:1).
+     #6F6B65 atteint 4.6:1 → conforme. --ink4 reste léger : à n'utiliser que pour bordures, séparateurs, placeholders. */
+  --ink:#1A1916;--ink2:#4A4742;--ink3:#6F6B65;--ink4:#C0BBB4;
   --paper:#F7F4EF;--card:#FFF;--border:#E8E3DC;--border2:#C8C0B4;
   --red:#B83232;--red-bg:#FBF0EE;
   --amber:#9C6B0A;--amber-bg:#FBF5E6;
@@ -270,6 +272,120 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 @media(max-width:900px){.kanban-grid{grid-template-columns:1fr}}
 .kc-assign{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3);background:transparent;border:1px solid var(--border);border-radius:3px;padding:2px 6px;cursor:pointer;outline:none}
 .kc-assign:hover{border-color:var(--gold);color:var(--ink)}
+
+/* === Parcours stepper (fiche projet) === */
+.parcours-wrap{background:linear-gradient(180deg,#fff 0%,var(--paper) 100%);border:1px solid var(--border);border-radius:var(--r);padding:18px 16px 14px;margin-bottom:18px}
+.parcours-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px}
+.parcours-head .ph-title{font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink2);font-weight:600}
+.parcours-head .ph-progress{font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em}
+.parcours-head .ph-progress strong{color:var(--gold);font-weight:600}
+.parcours-stepper{display:flex;gap:0;align-items:flex-start;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:8px 4px 14px;position:relative;scrollbar-width:thin}
+.parcours-stepper::-webkit-scrollbar{height:6px}
+.parcours-stepper::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+.ps-step{display:flex;flex-direction:column;align-items:center;flex:1 0 auto;min-width:78px;max-width:130px;padding:0 4px;position:relative;cursor:pointer;text-decoration:none;color:inherit;background:none;border:none;font-family:inherit;font-size:inherit}
+.ps-step:focus-visible{outline:2px solid var(--gold);outline-offset:3px;border-radius:4px}
+.ps-step + .ps-step::before{content:"";position:absolute;top:18px;left:-50%;width:100%;height:2px;background:var(--border);z-index:0}
+.ps-step.done + .ps-step::before,.ps-step.cur + .ps-step::before{background:linear-gradient(90deg,var(--green) 0%,var(--gold) 100%)}
+.ps-step.done + .ps-step.done::before{background:var(--green)}
+.ps-circle{width:36px;height:36px;border-radius:50%;background:#fff;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--ink3);position:relative;z-index:1;transition:all .15s;flex-shrink:0}
+.ps-step:hover .ps-circle{transform:scale(1.08);box-shadow:0 4px 12px rgba(0,0,0,.08)}
+.ps-step.done .ps-circle{background:var(--green);border-color:var(--green);color:#fff}
+.ps-step.cur .ps-circle{background:var(--gold);border-color:var(--gold);color:#fff;box-shadow:0 0 0 4px rgba(184,149,106,.18);animation:ps-pulse 2s ease-in-out infinite}
+.ps-step.partial .ps-circle{background:var(--amber-bg);border-color:var(--amber);color:var(--amber)}
+.ps-step.blocked .ps-circle{background:var(--red-bg);border-color:var(--red);color:var(--red)}
+@keyframes ps-pulse{0%,100%{box-shadow:0 0 0 4px rgba(184,149,106,.18)}50%{box-shadow:0 0 0 6px rgba(184,149,106,.32)}}
+.ps-num{font-family:'DM Mono',monospace;font-size:9px;color:var(--ink4);margin-top:5px;letter-spacing:.04em}
+.ps-label{font-size:11px;color:var(--ink2);margin-top:3px;text-align:center;line-height:1.2;font-weight:500;max-width:120px}
+.ps-step.done .ps-label{color:var(--green)}
+.ps-step.cur .ps-label{color:var(--gold-dark);font-weight:600}
+.ps-step.blocked .ps-label{color:var(--red)}
+.ps-meta{font-family:'DM Mono',monospace;font-size:9px;color:var(--ink4);margin-top:2px;text-align:center;letter-spacing:.03em}
+
+/* Actions à faire (sous le stepper) */
+.parcours-actions{margin-top:6px;border-top:1px dashed var(--border);padding-top:12px}
+.parcours-actions-title{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink3);margin-bottom:8px;font-weight:600;display:flex;align-items:center;gap:6px}
+.parcours-actions-title::before{content:"⚡";font-size:11px}
+.pa-list{display:flex;flex-wrap:wrap;gap:8px}
+.pa-chip{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--border);border-left:3px solid var(--gold);border-radius:4px;padding:7px 11px 7px 9px;font-size:12px;color:var(--ink2);cursor:pointer;transition:all .12s;text-align:left}
+.pa-chip:hover{background:var(--gold-bg);border-color:var(--gold)}
+.pa-chip.urgent{border-left-color:var(--red);background:var(--red-bg)}
+.pa-chip.urgent:hover{background:#fae0db}
+.pa-chip-icon{font-size:13px}
+.pa-chip-meta{font-family:'DM Mono',monospace;font-size:9px;color:var(--ink4);text-transform:uppercase;letter-spacing:.04em;margin-left:4px}
+.pa-empty{font-size:12px;color:var(--green);font-style:italic;padding:4px 0}
+
+/* === Bilan financier prévisionnel (fiche projet) === */
+.bilan-fin{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:14px 18px;margin-top:8px;margin-bottom:8px}
+.bilan-fin-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.bilan-fin-head .bf-title{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink3);font-weight:600}
+.bilan-fin-head .bf-mode{font-family:'DM Mono',monospace;font-size:9px;color:var(--ink4);background:var(--paper);padding:2px 8px;border-radius:10px;border:1px solid var(--border)}
+.bf-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--border);border-radius:5px;overflow:hidden}
+@media(max-width:700px){.bf-grid{grid-template-columns:repeat(2,1fr)}}
+.bf-cell{padding:11px 12px;background:#fff;border-right:1px solid var(--border);border-bottom:1px solid var(--border)}
+.bf-cell:last-child{border-right:none}
+.bf-cell.bf-result{background:var(--gold-bg);border-right:none}
+.bf-cell .bf-lbl{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:4px}
+.bf-cell .bf-val{font-family:'DM Mono',monospace;font-size:15px;font-weight:500;color:var(--ink)}
+.bf-cell .bf-sub{font-size:10px;color:var(--ink4);margin-top:2px}
+.bf-cell.bf-cost .bf-val{color:#c25656}
+.bf-cell.bf-result .bf-val{color:var(--gold-dark);font-weight:700;font-size:17px}
+.bf-cell.bf-result.bf-neg .bf-val{color:#c25656}
+.bf-breakdown{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}
+.bf-bd-chip{font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);background:var(--paper);border:1px solid var(--border);border-radius:3px;padding:3px 8px}
+.bf-bd-chip strong{color:var(--ink);font-weight:600}
+
+/* === Zone Facturation (fiche projet) === */
+.facturation-zone{background:linear-gradient(135deg,var(--gold-bg) 0%,#fff 100%);border:1px solid var(--gold);border-left:3px solid var(--gold);border-radius:var(--r);padding:14px 16px;margin-top:14px}
+.fz-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px}
+.fz-title{font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--gold-dark);font-weight:700;display:flex;align-items:center;gap:6px}
+.fz-status{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink4)}
+.fz-buttons{display:flex;flex-wrap:wrap;gap:8px}
+.fz-btn{display:flex;flex-direction:column;align-items:flex-start;gap:2px;background:#fff;border:1px solid var(--gold);border-radius:5px;padding:8px 12px;cursor:pointer;font-family:inherit;color:var(--ink);transition:all .12s;flex:1 0 auto;min-width:160px;max-width:240px;text-align:left}
+.fz-btn:hover{background:var(--gold);color:#fff}
+.fz-btn.done{background:var(--green-bg);border-color:var(--green);color:var(--green);cursor:default}
+.fz-btn.done:hover{background:var(--green-bg)}
+.fz-btn-lbl{font-size:11px;font-weight:600;display:flex;align-items:center;gap:5px}
+.fz-btn-amt{font-family:'DM Mono',monospace;font-size:12px;color:inherit;opacity:.75;font-weight:500}
+
+/* === Boutons rapides commandes === */
+.cmd-quick-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.cmd-qa-btn{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.04em;background:#fff;border:1px solid var(--border);color:var(--ink2);padding:5px 10px;border-radius:3px;cursor:pointer;transition:all .12s}
+.cmd-qa-btn:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.cmd-qa-btn.active{background:var(--gold);color:#fff;border-color:var(--gold)}
+
+/* === Badges urgence (commandes / devis en retard) === */
+.badge-urg{display:inline-flex;align-items:center;gap:3px;font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.05em;padding:2px 6px;border-radius:3px;font-weight:600;background:var(--red-bg);color:var(--red);border:1px solid rgba(184,50,50,.3)}
+.badge-urg.warn{background:var(--amber-bg);color:var(--amber);border-color:rgba(156,107,10,.3)}
+
+/* === Sidebar TOC fiche projet (desktop) === */
+.proj-layout{display:flex;gap:18px;align-items:flex-start;position:relative}
+.proj-main{flex:1;min-width:0}
+.proj-toc{position:sticky;top:14px;width:180px;flex-shrink:0;background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:12px 6px;max-height:calc(100vh - 28px);overflow-y:auto;font-family:'DM Mono',monospace;display:none}
+.proj-toc-title{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink3);font-weight:700;padding:0 8px 8px;border-bottom:1px solid var(--border);margin-bottom:6px}
+.proj-toc a{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 8px;font-size:11px;color:var(--ink2);text-decoration:none;border-radius:3px;border-left:2px solid transparent;line-height:1.3}
+.proj-toc a:hover{background:var(--gold-bg);color:var(--ink);border-left-color:var(--gold)}
+.proj-toc a.active{background:var(--gold-bg);color:var(--gold-dark);border-left-color:var(--gold);font-weight:600}
+.proj-toc a .toc-count{font-size:9px;color:var(--ink4);background:var(--paper);padding:1px 5px;border-radius:8px;border:1px solid var(--border);min-width:16px;text-align:center}
+.proj-toc a.urgent .toc-count{background:var(--red-bg);color:var(--red);border-color:rgba(184,50,50,.3)}
+@media(min-width:1100px){.proj-toc{display:block}}
+
+/* === Onglets attachments === */
+.attach-tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-top:24px;flex-wrap:wrap}
+.attach-tab{font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);background:transparent;border:none;padding:9px 14px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;display:inline-flex;align-items:center;gap:6px;font-weight:500}
+.attach-tab:hover{color:var(--ink)}
+.attach-tab.on{color:var(--gold);border-bottom-color:var(--gold);font-weight:600}
+.attach-tab .at-count{font-size:10px;color:var(--ink4);background:var(--paper);padding:1px 6px;border-radius:8px;font-weight:400}
+.attach-tab.on .at-count{background:var(--gold-bg);color:var(--gold-dark)}
+.attach-pane{display:none;padding-top:12px}
+.attach-pane.on{display:block}
+
+/* === Empty states avec CTA === */
+.empty-cta{background:linear-gradient(135deg,var(--gold-bg) 0%,#fff 100%);border:1px dashed var(--gold);border-radius:var(--r);padding:20px;text-align:center;margin:8px 0}
+.empty-cta-title{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:6px}
+.empty-cta-sub{font-size:12px;color:var(--ink2);margin-bottom:12px;line-height:1.5}
+.empty-cta-btn{background:var(--gold);color:#fff;border:none;padding:9px 18px;border-radius:5px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.empty-cta-btn:hover{background:var(--gold-dark)}
+
 /* Modal client */
 .modal-bg{position:fixed;inset:0;background:rgba(26,25,22,.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
 .modal-card{background:var(--paper);border-radius:8px;max-width:640px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)}
@@ -597,7 +713,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 </div>
 
 <!-- Toast container -->
-<div id="toast-host"></div>
+<div id="toast-host" aria-live="polite" aria-atomic="false" role="status"></div>
 
 <!-- Bottom floating search -->
 <button class="bottom-search" onclick="openSearch()" title="Rechercher (⌘K)">
@@ -824,7 +940,31 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 
   <!-- COMMANDES -->
   <section class="scr" id="scr-commandes">
-    <div class="sh"><div class="st">Commandes fournisseurs</div><button class="abtn primary" onclick="openModal('commandes')">+ Nouvelle commande</button></div>
+    <div class="sh">
+      <div class="st">Commandes fournisseurs</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="commandes-filter-type" onchange="renderCommandes()" style="padding:7px 10px;border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:12px;background:#fff">
+          <option value="">Tous les types</option>
+          <option value="Cuisine">Cuisine</option>
+          <option value="Électroménager">Électroménager</option>
+          <option value="Plan de travail">Plan de travail</option>
+          <option value="Sanitaire">Sanitaire</option>
+          <option value="Plan technique">Plan technique</option>
+          <option value="Accessoires">Accessoires</option>
+          <option value="Autre">Autre</option>
+          <option value="__notyped">Sans type</option>
+        </select>
+        <select id="commandes-filter-statut" onchange="renderCommandes()" style="padding:7px 10px;border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:12px;background:#fff">
+          <option value="">Tous les statuts</option>
+          <option value="Créée">Créée</option>
+          <option value="Envoyée">Envoyée</option>
+          <option value="Confirmée">Confirmée</option>
+          <option value="Livrée">Livrée</option>
+          <option value="Posée">Posée</option>
+        </select>
+        <button class="abtn primary" onclick="openModal('commandes')">+ Nouvelle commande</button>
+      </div>
+    </div>
     <div class="list" id="list-commandes"></div>
   </section>
 
@@ -947,6 +1087,86 @@ function toast(msg, type='success'){
 }
 const toastSuccess = (m) => toast(m,'success');
 const toastError = (m) => toast(m,'error');
+
+// ============ A11Y MODAL HELPERS ============
+// Esc global pour fermer le dernier modal ouvert.
+// Focus auto sur le 1er élément focusable à l'ouverture (via observer DOM).
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  // Cherche un modal visible (le dernier a la priorité)
+  const candidates = [
+    document.getElementById('cmd-detail-bg'),
+    document.getElementById('task-edit-bg'),
+    document.getElementById('marge-edit-bg'),
+    document.getElementById('client-modal-host')?.querySelector('.modal-bg.on'),
+    document.getElementById('fiche-ch-host'),
+    document.getElementById('day-panel-bg'),
+    document.getElementById('cmdk-bg'),
+    document.getElementById('savModalBg')?.classList.contains('on') ? document.getElementById('savModalBg') : null,
+    document.getElementById('modalBg')?.classList.contains('on') ? document.getElementById('modalBg') : null,
+  ].filter(Boolean);
+  if (!candidates.length) return;
+  const top = candidates[candidates.length - 1];
+  // Routes de fermeture connues
+  if (top.id === 'cmd-detail-bg') closeCommandeDetail();
+  else if (top.id === 'task-edit-bg') closeTaskEdit();
+  else if (top.id === 'marge-edit-bg') closeMargeEdit();
+  else if (top.id === 'fiche-ch-host') closeFicheChantier();
+  else if (top.id === 'day-panel-bg') closeDayPanel();
+  else if (top.id === 'cmdk-bg') closeSearch();
+  else if (top.id === 'savModalBg') closeSavModal();
+  else if (top.id === 'modalBg') closeModal();
+  else if (top.classList?.contains('modal-bg')) top.classList.remove('on');
+});
+
+// Auto-focus du 1er élément focusable quand un modal s'ouvre + role/aria-modal.
+// Subtree pour catcher les modales injectées dans des hosts (cmd-detail-host, etc.).
+new MutationObserver(muts => {
+  for (const m of muts) {
+    for (const node of m.addedNodes) {
+      if (!(node instanceof HTMLElement)) continue;
+      const modals = [];
+      if (node.classList?.contains('modal-bg')) modals.push(node);
+      node.querySelectorAll?.('.modal-bg').forEach(el => modals.push(el));
+      for (const modal of modals) {
+        if (!modal.getAttribute('role')) modal.setAttribute('role','dialog');
+        if (!modal.getAttribute('aria-modal')) modal.setAttribute('aria-modal','true');
+        setTimeout(() => {
+          if (!modal.classList.contains('on') && !modal.id?.startsWith('cmd-')) return;
+          const f = modal.querySelector('input:not([type="hidden"]),textarea,select,button.btn-primary,button.abtn.primary,button.mbtn.primary,button:not(.modal-close):not(.btn-danger)');
+          if (f && document.contains(f)) f.focus();
+        }, 80);
+      }
+    }
+  }
+}).observe(document.body, { childList: true, subtree: true });
+
+// Cards keyboard a11y : .card avec onclick → focusable au Tab + Enter/Space déclenche le clic.
+// Délégation : on ne touche pas chaque renderXCard, on attribue les attrs après chaque render
+// + on écoute Enter/Space au niveau document.
+function makeCardsAccessible() {
+  document.querySelectorAll('.card').forEach(card => {
+    if (!card.hasAttribute('onclick')) return;
+    if (!card.hasAttribute('tabindex')) card.setAttribute('tabindex','0');
+    if (!card.hasAttribute('role')) card.setAttribute('role','button');
+  });
+  // Pareil pour les .proj-row cliquables
+  document.querySelectorAll('.proj-row[onclick]').forEach(row => {
+    if (!row.hasAttribute('tabindex')) row.setAttribute('tabindex','0');
+    if (!row.hasAttribute('role')) row.setAttribute('role','button');
+  });
+}
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const t = e.target;
+  if (!(t instanceof HTMLElement)) return;
+  // Évite de tirer dans un textarea/input
+  if (['INPUT','TEXTAREA','SELECT'].includes(t.tagName)) return;
+  if (t.matches('.card[role="button"], .proj-row[role="button"], [tabindex="0"][role="button"]')) {
+    e.preventDefault();
+    t.click();
+  }
+});
 
 // ============ CMD+K SEARCH ============
 let SEARCH_RESULTS = [], SEARCH_IDX = 0;
@@ -1087,6 +1307,8 @@ function renderAll(){
   renderPlaud();
   renderMarges();
   renderStock();
+  // a11y : cards cliquables → focusables au clavier (tabindex + role + Enter/Space → click).
+  if (typeof makeCardsAccessible === 'function') makeCardsAccessible();
 }
 
 // ============ NEW MENU ============
@@ -1492,10 +1714,13 @@ function commandeCard(c){
   else if (orig.type === 'auto') origBadge = `<span class="badge b-amber">⚡ Auto devis</span>`;
   else origBadge = `<span class="badge b-gray">✍ Manuelle</span>`;
   const fournBadge = orig.fournisseur ? `<span class="badge b-gray">${esc(orig.fournisseur)}</span>` : '';
+  const typeBadge = c.Type ? `<span class="badge b-blue">${esc(c.Type)}</span>` : '';
+  const next = {'Créée':'Envoyée','Envoyée':'Confirmée','Confirmée':'Livrée','Livrée':'Posée'}[c.Statut];
+  const urgBadges = commandeUrgencyBadges(c);
 
   return `<div class="card" onclick="openCommandeDetail('${c.id}')" style="cursor:pointer">
     <div class="card-top">
-      <div class="card-nom">${esc(c.Numéro||'—')} <span class="badge ${statutClass}">${esc(c.Statut||'—')}</span> ${origBadge} ${fournBadge} ${c['Facture reçue']?'<span class="badge b-green">Facture ✓</span>':''}</div>
+      <div class="card-nom">${esc(c.Numéro||'—')} <span class="badge ${statutClass}">${esc(c.Statut||'—')}</span> ${typeBadge} ${urgBadges} ${origBadge} ${fournBadge} ${c['Facture reçue']?'<span class="badge b-green">Facture ✓</span>':''}</div>
       <div class="card-amt">${euros(c['Montant HT'])}</div>
     </div>
     <div class="card-meta">
@@ -1504,6 +1729,7 @@ function commandeCard(c){
       <span>Livraison ${esc(c['Date livraison prévue']||'—')}</span>
       ${orig.type === 'import' && orig.pdf ? `<span style="color:var(--ink4);font-size:10px">Source : ${esc(orig.pdf)}</span>` : ''}
     </div>
+    ${next ? `<div class="cmd-quick-actions"><button class="cmd-qa-btn" onclick="event.stopPropagation();commandeQuickAdvance('${c.id}','${next}')" title="Passer à ${next}">→ ${next}</button></div>` : ''}
   </div>`;
 }
 
@@ -1512,6 +1738,9 @@ function openCommandeDetail(cmdId){
   const orig = commandeOrigin(c);
   const projetId = Array.isArray(c.Projet) ? c.Projet[0] : null;
   const projet = projetId ? DATA.projets.find(p => p.id === projetId) : null;
+  const STATUTS_CMD = ['Créée','Envoyée','Confirmée','Livrée','Posée'];
+  const TYPES_CMD = ['Cuisine','Électroménager','Plan de travail','Sanitaire','Accessoires','Autre'];
+  const next = {'Créée':'Envoyée','Envoyée':'Confirmée','Confirmée':'Livrée','Livrée':'Posée'}[c.Statut];
   const html = `
     <div class="modal-bg on" id="cmd-detail-bg" onclick="if(event.target===this)closeCommandeDetail()">
       <div class="modal-card" style="max-width:540px">
@@ -1520,27 +1749,106 @@ function openCommandeDetail(cmdId){
           <button class="modal-close" onclick="closeCommandeDetail()">×</button>
         </div>
         <div class="modal-body">
-          <div class="form-row"><label>Statut</label><strong>${esc(c.Statut||'—')}</strong></div>
+          <div class="form-grid2">
+            <div class="form-row"><label>Statut</label>
+              <select id="cmd-edit-statut">${STATUTS_CMD.map(s=>`<option ${c.Statut===s?'selected':''}>${s}</option>`).join('')}</select>
+            </div>
+            <div class="form-row"><label>Type</label>
+              <select id="cmd-edit-type">
+                <option value="">— non typé —</option>
+                ${TYPES_CMD.map(t=>`<option ${c.Type===t?'selected':''}>${t}</option>`).join('')}
+              </select>
+            </div>
+          </div>
           <div class="form-row"><label>Projet</label>${projet ? `<a href="#" onclick="event.preventDefault();closeCommandeDetail();switchTab('projets');openProjetDetail('${projetId}')" style="color:var(--gold)">${esc(projet.Référence||'—')}</a>` : '<em>Non lié</em>'}</div>
           <div class="form-row"><label>Montant HT</label><strong>${euros(c['Montant HT'])}</strong></div>
-          <div class="form-row"><label>Date création</label>${esc(c['Date création']||'—')}</div>
-          <div class="form-row"><label>Livraison prévue</label>${esc(c['Date livraison prévue']||'—')}</div>
+          <div class="form-grid2">
+            <div class="form-row"><label>Date création</label><strong>${esc(c['Date création']||'—')}</strong></div>
+            <div class="form-row"><label>Livraison prévue</label><input type="date" id="cmd-edit-livraison" value="${esc(c['Date livraison prévue']||'')}"></div>
+          </div>
           <div class="form-row"><label>Origine</label>
             ${orig.type==='import' ? `<div><strong>Importée depuis PDF</strong><br><span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${esc(orig.pdf)}</span>${orig.fournisseur?`<br><span style="font-size:11px">Fournisseur : ${esc(orig.fournisseur)}</span>`:''}</div>` :
               orig.type==='auto' ? `<strong>Générée automatiquement</strong> à la signature d'un devis` :
               `<strong>Saisie manuelle</strong>`}
           </div>
-          ${c.Notes ? `<div class="form-row"><label>Notes</label><div style="font-size:12px;color:var(--ink2);white-space:pre-wrap;background:#faf8f4;padding:10px;border-radius:4px">${esc(c.Notes)}</div></div>` : ''}
+          <div class="form-row">
+            <label>Contenu / lignes détail <span style="color:var(--ink4);font-weight:400;text-transform:none;letter-spacing:0">— éditable, va au fournisseur</span></label>
+            <textarea id="cmd-edit-notes" rows="8" style="font-family:'DM Mono',monospace;font-size:12px;line-height:1.5" placeholder="Liste des produits / références / quantités à commander…">${esc(c.Notes||'')}</textarea>
+            <div style="font-size:10px;color:var(--ink4);margin-top:4px">Pré-rempli auto à la signature du devis. Édite ici ce qui sera réellement commandé au fournisseur.</div>
+          </div>
+          ${next ? `<div style="margin-top:6px"><button type="button" class="cmd-qa-btn active" onclick="commandeQuickAdvance('${c.id}','${next}',true)">⚡ Marquer « ${next} » en 1 clic</button></div>` : ''}
         </div>
-        <div class="modal-foot" style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--border)">
-          <button class="abtn" onclick="closeCommandeDetail()">Fermer</button>
+        <div class="modal-foot" style="display:flex;justify-content:space-between;gap:8px;padding:14px 20px;border-top:1px solid var(--border)">
+          <button type="button" class="abtn" style="color:#c25656;border-color:#e0a8a8" onclick="deleteCommande('${c.id}')">🗑 Supprimer la commande</button>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="abtn" onclick="closeCommandeDetail()">Annuler</button>
+            <button type="button" class="abtn primary" onclick="saveCommandeEdit('${c.id}')">Enregistrer</button>
+          </div>
         </div>
       </div>
     </div>`;
   const host = document.createElement('div'); host.id = 'cmd-detail-host'; host.innerHTML = html;
   document.body.appendChild(host);
+  // Auto-focus sur le textarea contenu (action principale attendue à l'ouverture)
+  setTimeout(()=>{ const t = document.getElementById('cmd-edit-notes'); if(t){ t.focus(); t.setSelectionRange(t.value.length, t.value.length); }}, 100);
 }
 function closeCommandeDetail(){ document.getElementById('cmd-detail-host')?.remove(); }
+
+async function saveCommandeEdit(cmdId){
+  const fields = {};
+  const statut = document.getElementById('cmd-edit-statut')?.value;
+  const type = document.getElementById('cmd-edit-type')?.value;
+  const livraison = document.getElementById('cmd-edit-livraison')?.value;
+  const notes = document.getElementById('cmd-edit-notes')?.value;
+  if (statut) fields['Statut'] = statut;
+  if (type !== undefined) fields['Type'] = type || null;
+  if (livraison !== undefined) fields['Date livraison prévue'] = livraison || null;
+  if (notes !== undefined) fields['Notes'] = notes;
+  try {
+    const r = await fetch('/api/data/commandes/'+cmdId, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields})});
+    if (!r.ok) {
+      const err = await r.json().catch(()=>({}));
+      if (/UNKNOWN_FIELD_NAME.*Type|"Type"/i.test(err.error?.message||err.error||'')) {
+        toastError('Le champ « Type » n\'est pas encore créé sur Airtable. Demande à JMG de lancer la migration (scripts/setup-commande-type.js).');
+        return;
+      }
+      throw new Error(err.error?.message||err.error||'erreur');
+    }
+    toastSuccess('Commande mise à jour');
+    closeCommandeDetail();
+    await loadAll();
+  } catch(e) { toastError('Erreur : '+e.message); }
+}
+
+async function deleteCommande(cmdId) {
+  const c = DATA.commandes.find(x=>x.id===cmdId); if(!c) return;
+  if (!confirm(`Supprimer définitivement la commande :\n\n${c.Numéro||cmdId}\n${euros(c['Montant HT'])} HT\n\nCette action est irréversible (mais les Lignes du devis d'origine restent intactes).`)) return;
+  try {
+    const r = await fetch('/api/data/commandes/'+cmdId, {method:'DELETE'});
+    if (!r.ok) {
+      const err = await r.json().catch(()=>({}));
+      throw new Error(err.error?.message || err.error || 'erreur');
+    }
+    toastSuccess('Commande supprimée');
+    closeCommandeDetail();
+    await loadAll();
+  } catch(e) { toastError('Erreur suppression : '+e.message); }
+}
+
+async function commandeQuickAdvance(cmdId, newStatut, closeAfter) {
+  const c = DATA.commandes.find(x=>x.id===cmdId); if(!c) return;
+  if (!confirm(`Marquer la commande comme « ${newStatut} » ?\n\n${c.Numéro||cmdId}\n${euros(c['Montant HT'])} HT`)) return;
+  try {
+    const r = await fetch('/api/data/commandes/'+cmdId, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{Statut:newStatut}})});
+    if (!r.ok) {
+      const err = await r.json().catch(()=>({}));
+      throw new Error(err.error?.message || err.error || 'erreur');
+    }
+    toastSuccess(`${c.Numéro||'Commande'} marquée « ${newStatut} »`);
+    if (closeAfter) closeCommandeDetail();
+    await loadAll();
+  } catch(e) { toastError('Erreur : '+e.message); }
+}
 
 function taskCard(t){
   const prioClass = {'Haute':'b-red','Moyenne':'b-amber','Basse':'b-gray'}[t.Priorité]||'b-gray';
@@ -1571,11 +1879,16 @@ function savCard(s){
   </div>`;
 }
 
-function emptyState(title, sub){
-  return `<div class="empty"><strong>${esc(title)}</strong>${esc(sub)}</div>`;
+function emptyState(title, sub, ctaLabel, ctaOnclick){
+  const cta = ctaLabel ? `<button class="empty-cta-btn" type="button" style="margin-top:10px" onclick="${ctaOnclick}">${esc(ctaLabel)}</button>` : '';
+  return `<div class="empty"><strong>${esc(title)}</strong>${esc(sub)}${cta}</div>`;
 }
 
-function renderProjets(){ $('#list-projets').innerHTML = DATA.projets.length ? DATA.projets.map(projetCard).join('') : emptyState('Aucun projet','Créez le premier projet chantier'); }
+function renderProjets(){
+  $('#list-projets').innerHTML = DATA.projets.length
+    ? DATA.projets.map(projetCard).join('')
+    : emptyState('Aucun projet pour l\'instant', ' Importe un PDF Winner pour créer le premier (auto-création client + projet + devis), ou démarre à blanc.', '📄 Importer un PDF Winner', `switchTab('devis');setTimeout(()=>document.getElementById('devis-pdf-input').click(),100)`);
+}
 function renderClients(){
   const q = (document.getElementById('clients-search')?.value||'').trim().toLowerCase();
   let list = DATA.clients;
@@ -1608,6 +1921,395 @@ function closeProjetDetail(){
 function toggleProjetEdit(on){ PROJET_EDIT = on; const p = DATA.projets.find(x=>x.id===CURRENT_PROJET_ID); if(p)renderProjetDetail(p); }
 let CURRENT_PROJET_ID = null;
 
+// ============ PARCOURS CHANTIER (stepper) ============
+// Calcule l'état des 11 étapes du parcours idéal client à partir des données projet.
+// Pas de nouveau champ Airtable requis : tout est dérivé des statuts/dates/tâches/commandes/devis existants.
+function computeParcours(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies) {
+  const reunionsR1 = (DATA['reunions-plaud']||[]).filter(r => Array.isArray(r.Projet) && r.Projet.includes(p.id) && (r.Niveau||'R1')==='R1');
+  const reunionsR2 = (DATA['reunions-plaud']||[]).filter(r => Array.isArray(r.Projet) && r.Projet.includes(p.id) && r.Niveau==='R2');
+  const fichesDecouverte = (DATA['fiches-decouverte']||[]).filter(f => Array.isArray(f.Projet) && f.Projet.includes(p.id));
+  const savLies = (DATA.sav||[]).filter(s => Array.isArray(s.Projet) && s.Projet.includes(p.id));
+
+  const devisEnvoyes = devisLies.filter(d => ['Envoyé','Signé'].includes(d.Statut));
+  const devisSignes = devisLies.filter(d => d.Statut === 'Signé');
+  const tachesAcompte = tachesLiees.filter(t => /facture acompte|acompte/i.test(t.Titre || ''));
+  const tachesAcompteDone = tachesAcompte.filter(t => t.Statut === 'Terminée');
+  const tachesFactureSolde = tachesLiees.filter(t => /facture solde|facture client|facture finale|solde/i.test(t.Titre || ''));
+  const tachesFactureSoldeDone = tachesFactureSolde.filter(t => t.Statut === 'Terminée');
+  const planTechFiles = (p['Plan technique']||[]).length;
+  const cmdsEnvoyees = commandesLiees.filter(c => ['Envoyée','Confirmée','Livrée','Posée'].includes(c.Statut));
+  const cmdsLivrees = commandesLiees.filter(c => ['Livrée','Posée'].includes(c.Statut));
+  const cmdsPosees = commandesLiees.filter(c => c.Statut === 'Posée');
+  const datePoseSet = !!p['Date pose prévue'];
+  const todayIso = new Date().toISOString().slice(0,10);
+  const posePassed = datePoseSet && p['Date pose prévue'] < todayIso;
+  const tachesPV = tachesLiees.filter(t => /pv|réception|reception/i.test(t.Titre || ''));
+  const tachesPVDone = tachesPV.filter(t => t.Statut === 'Terminée');
+  const tachesAvis = tachesLiees.filter(t => /avis|review|google/i.test(t.Titre || ''));
+  const tachesAvisDone = tachesAvis.filter(t => t.Statut === 'Terminée');
+  const isStatut = (s) => p.Statut === s;
+  const inStatuts = (...arr) => arr.includes(p.Statut);
+
+  const steps = [];
+
+  // 1. Découverte
+  steps.push({n:1, key:'decouverte', label:'Découverte', icon:'👋',
+    state: (reunionsR1.length || fichesDecouverte.length || p['Date découverte']) ? 'done' :
+           inStatuts('Découverte') ? 'cur' : 'pending',
+    meta: p['Date découverte'] ? p['Date découverte'].slice(5).replace('-','/') : (reunionsR1.length ? `R1 ×${reunionsR1.length}` : '')
+  });
+  // 2. Devis présenté
+  steps.push({n:2, key:'devis', label:'Devis présenté', icon:'📄',
+    state: devisEnvoyes.length ? 'done' :
+           devisLies.length ? 'partial' :
+           inStatuts('Dessin','Devis') ? 'cur' : 'pending',
+    meta: devisEnvoyes.length ? `${devisEnvoyes.length} env.` : (devisLies.length ? `${devisLies.length} brouillon` : '')
+  });
+  // 3. Signature BC
+  steps.push({n:3, key:'signature', label:'Signature BC', icon:'✍️',
+    state: devisSignes.length ? 'done' :
+           devisEnvoyes.length ? 'cur' : 'pending',
+    meta: devisSignes.length ? `${devisSignes.length} signé${devisSignes.length>1?'s':''}` : ''
+  });
+  // 4. Acompte facturé
+  steps.push({n:4, key:'acompte', label:'Acompte 30%', icon:'💶',
+    state: tachesAcompteDone.length ? 'done' :
+           devisSignes.length && tachesAcompte.length ? 'cur' :
+           devisSignes.length ? 'cur' : 'pending',
+    meta: tachesAcompteDone.length ? '✓ envoyée' : (tachesAcompte.length ? 'à émettre' : '')
+  });
+  // 5. Plans techniques
+  steps.push({n:5, key:'plans', label:'Plans techniques', icon:'📐',
+    state: planTechFiles >= 1 ? 'done' :
+           devisSignes.length ? 'cur' : 'pending',
+    meta: planTechFiles ? `${planTechFiles} plan${planTechFiles>1?'s':''}` : ''
+  });
+  // 6. Commandes envoyées
+  steps.push({n:6, key:'commandes', label:'Commandes', icon:'📦',
+    state: commandesLiees.length>0 && cmdsEnvoyees.length === commandesLiees.length ? 'done' :
+           cmdsEnvoyees.length > 0 ? 'partial' :
+           commandesLiees.length > 0 || inStatuts('Commandes') ? 'cur' : 'pending',
+    meta: commandesLiees.length ? `${cmdsEnvoyees.length}/${commandesLiees.length} env.` : ''
+  });
+  // 7. Réception
+  steps.push({n:7, key:'reception', label:'Réception', icon:'🚚',
+    state: commandesLiees.length>0 && cmdsLivrees.length === commandesLiees.length ? 'done' :
+           cmdsLivrees.length > 0 ? 'partial' :
+           cmdsEnvoyees.length > 0 ? 'cur' : 'pending',
+    meta: commandesLiees.length ? `${cmdsLivrees.length}/${commandesLiees.length} livr.` : ''
+  });
+  // 8. Pose
+  steps.push({n:8, key:'pose', label:'Pose', icon:'🔨',
+    state: cmdsPosees.length > 0 || inStatuts('SAV','Terminé') ? 'done' :
+           inStatuts('Pose') || (datePoseSet && posePassed) ? 'cur' :
+           datePoseSet ? 'partial' : 'pending',
+    meta: p['Date pose prévue'] ? p['Date pose prévue'].slice(5).replace('-','/') : ''
+  });
+  // 9. PV réception
+  steps.push({n:9, key:'pv', label:'PV réception', icon:'📋',
+    state: tachesPVDone.length > 0 || isStatut('Terminé') ? 'done' :
+           inStatuts('SAV') ? 'cur' :
+           cmdsPosees.length > 0 || isStatut('Pose') ? 'cur' : 'pending',
+    meta: tachesPVDone.length ? '✓ signé' : ''
+  });
+  // 10. Facture solde
+  steps.push({n:10, key:'facture-solde', label:'Facture solde', icon:'🧾',
+    state: tachesFactureSoldeDone.length > 0 ? 'done' :
+           inStatuts('SAV','Terminé') || cmdsPosees.length > 0 ? 'cur' : 'pending',
+    meta: tachesFactureSoldeDone.length ? '✓ envoyée' : ''
+  });
+  // 11. Avis client
+  steps.push({n:11, key:'avis', label:'Avis client', icon:'⭐',
+    state: tachesAvisDone.length > 0 ? 'done' :
+           tachesFactureSoldeDone.length > 0 ? 'cur' : 'pending',
+    meta: tachesAvisDone.length ? '✓ reçu' : ''
+  });
+  // 12. SAV (affiché seulement si actif ou en cours)
+  if (savLies.length > 0 || isStatut('SAV')) {
+    steps.push({n:12, key:'sav', label:'SAV', icon:'🛠️',
+      state: isStatut('Terminé') ? 'done' : 'cur',
+      meta: savLies.length ? `${savLies.length} ticket${savLies.length>1?'s':''}` : ''
+    });
+  }
+
+  return steps;
+}
+
+function parcoursStepperHTML(steps, p) {
+  const total = steps.length;
+  const done = steps.filter(s => s.state === 'done').length;
+  const pct = total ? Math.round(done/total*100) : 0;
+  const stateLabel = {done:'terminée', cur:'en cours', partial:'partielle', pending:'à venir'};
+  const stepHtml = steps.map(s => {
+    const ariaLabel = `Étape ${s.n} sur ${total} : ${s.label}, ${stateLabel[s.state]||s.state}${s.meta?' — '+s.meta:''}`;
+    const ariaCurrent = s.state === 'cur' ? ' aria-current="step"' : '';
+    return `<button type="button" class="ps-step ${s.state}" onclick="parcoursStepInfo('${esc(s.key)}','${p.id}')" aria-label="${esc(ariaLabel)}"${ariaCurrent}>
+      <span class="ps-circle" aria-hidden="true">${s.icon}</span>
+      <span class="ps-num" aria-hidden="true">${String(s.n).padStart(2,'0')}</span>
+      <span class="ps-label">${esc(s.label)}</span>
+      ${s.meta ? `<span class="ps-meta">${esc(s.meta)}</span>` : ''}
+    </button>`;
+  }).join('');
+  return `<div class="parcours-wrap" role="region" aria-label="Parcours du chantier">
+    <div class="parcours-head">
+      <div class="ph-title">⛯ Parcours chantier</div>
+      <div class="ph-progress"><strong>${done}/${total}</strong> étapes · <strong>${pct} %</strong></div>
+    </div>
+    <ol class="parcours-stepper" aria-label="Étapes du chantier" style="list-style:none;padding:0;margin:0;display:flex;gap:0;align-items:flex-start;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:8px 4px 14px;position:relative;scrollbar-width:thin">${stepHtml}</ol>
+    ${parcoursActionsHTML(steps, p)}
+  </div>`;
+}
+
+function parcoursActionsHTML(steps, p) {
+  const actions = [];
+  const cur = steps.filter(s => s.state === 'cur');
+  const partial = steps.filter(s => s.state === 'partial');
+  for (const s of [...cur, ...partial]) {
+    if (s.key === 'decouverte') actions.push({icon:'📞', label:'Saisir RDV découverte', meta:'modifier projet', urgent:false, onclick:`toggleProjetEdit(true)`});
+    if (s.key === 'devis') actions.push({icon:'📤', label:'Finaliser et envoyer le devis', meta:'onglet Devis', urgent:false, onclick:`switchTab('devis')`});
+    if (s.key === 'signature') actions.push({icon:'✍️', label:'Signer le devis (côté client)', meta:'attendre BC', urgent:true, onclick:`switchTab('devis')`});
+    if (s.key === 'acompte') actions.push({icon:'💶', label:'Émettre facture acompte (30%)', meta:'tâche → Pennylane', urgent:true, onclick:`creerTacheFacturation('${p.id}','acompte')`});
+    if (s.key === 'plans') actions.push({icon:'📐', label:'Uploader le plan technique', meta:'fiche projet', urgent:false, onclick:`scrollToAttachments('Plan technique')`});
+    if (s.key === 'commandes') actions.push({icon:'📦', label:'Envoyer les BC fournisseurs', meta:'à faire', urgent:true, onclick:`switchTab('commandes')`});
+    if (s.key === 'reception') actions.push({icon:'🚚', label:'Confirmer commandes livrées', meta:'à valider', urgent:false, onclick:`switchTab('commandes')`});
+    if (s.key === 'pose') {
+      if (!p['Date pose prévue']) actions.push({icon:'📅', label:'Fixer la date de pose', meta:'modifier projet', urgent:true, onclick:`toggleProjetEdit(true)`});
+      else actions.push({icon:'✉️', label:'Envoyer mail confirmation pose', meta:'au client', urgent:false, onclick:`mailtoConfirmationPose('${p.id}')`});
+    }
+    if (s.key === 'pv') actions.push({icon:'📋', label:'Préparer PV de réception', meta:'tâche pose', urgent:false, onclick:`creerTachePV('${p.id}')`});
+    if (s.key === 'facture-solde') actions.push({icon:'🧾', label:'Émettre facture solde', meta:'tâche → Pennylane', urgent:true, onclick:`creerTacheFacturation('${p.id}','solde')`});
+    if (s.key === 'avis') actions.push({icon:'⭐', label:'Demander avis client', meta:'mail / Google', urgent:false, onclick:`creerTacheAvis('${p.id}')`});
+    if (s.key === 'sav') actions.push({icon:'🛠️', label:'Suivre les SAV ouverts', meta:'tickets', urgent:false, onclick:`switchTab('sav')`});
+  }
+  if (!actions.length) {
+    return `<div class="parcours-actions"><div class="parcours-actions-title">Prochaines actions</div><div class="pa-empty">✓ Tout est à jour — bon chantier !</div></div>`;
+  }
+  return `<div class="parcours-actions">
+    <div class="parcours-actions-title">Prochaines actions (${actions.length})</div>
+    <div class="pa-list">
+      ${actions.map(a=>`<button class="pa-chip${a.urgent?' urgent':''}" onclick="${a.onclick}">
+        <span class="pa-chip-icon">${a.icon}</span>
+        <span>${esc(a.label)}</span>
+        <span class="pa-chip-meta">${esc(a.meta)}</span>
+      </button>`).join('')}
+    </div>
+  </div>`;
+}
+
+function parcoursStepInfo(key, projetId) {
+  const labels = {
+    'decouverte': "Saisir la date du RDV découverte sur la fiche projet (Modifier) ou créer une R1 Plaud depuis cette fiche.",
+    'devis': "Importer un PDF Winner depuis l'onglet Devis, ou créer un devis additif depuis cette fiche.",
+    'signature': "Bouton « Signer » depuis la fiche du devis dans l'onglet Devis. Auto-crée 3 tâches (acompte, BC fournisseurs, planif pose).",
+    'acompte': "Le bouton « Facture acompte » plus bas crée la tâche dans la liste de Virginie. La facture s'émet ensuite dans Pennylane.",
+    'plans': "Uploader le PDF du plan technique dans la zone « Plan technique » plus bas (≤ 5 MB).",
+    'commandes': "Marquer les commandes « Envoyée » dans l'onglet Commandes (Créée → Envoyée → Confirmée → Livrée → Posée).",
+    'reception': "À la livraison, marquer la commande « Livrée » depuis l'onglet Commandes.",
+    'pose': "Définir la date de pose dans Modifier puis envoyer la confirmation au client par mail.",
+    'pv': "Crée une tâche « PV de réception » assignée à Sébastien (à signer en présence du client).",
+    'facture-solde': "Le bouton « Facture solde » plus bas crée la tâche pour Virginie. À émettre dans Pennylane.",
+    'avis': "Crée une tâche « Demander avis client » pour Marine (mail + lien Google review).",
+    'sav': "Voir les tickets SAV depuis l'onglet SAV. Bouton SAV en haut pour créer un ticket centralisé 9·58."
+  };
+  if (labels[key]) toast(labels[key], 'success');
+}
+
+// Helper : créer une tâche structurée et recharger
+async function _createTask(fields, successMsg) {
+  try {
+    const r = await fetch('/api/data/taches', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields})});
+    if (!r.ok) throw new Error((await r.json()).error || 'erreur');
+    toastSuccess(successMsg);
+    await loadAll();
+  } catch(e) { toastError('Erreur : '+e.message); }
+}
+
+async function creerTacheFacturation(projetId, type) {
+  const p = DATA.projets.find(x=>x.id===projetId); if(!p) return;
+  const devisSignes = DATA.devis.filter(d => Array.isArray(d.Projet) && d.Projet.includes(projetId) && d.Statut==='Signé');
+  const totalHT = devisSignes.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
+  const cfg = {
+    'acompte':   {label:'Facture acompte 30 %', pct:0.30, prio:'Haute', desc:'Acompte versé à la signature du BC. À émettre dans Pennylane.'},
+    'reception': {label:'Facture intermédiaire (réception meubles)', pct:0.40, prio:'Haute', desc:'À émettre dans Pennylane à la réception des meubles fournisseur.'},
+    'solde':     {label:'Facture solde de fin de chantier', pct:0.30, prio:'Haute', desc:'Solde après PV de réception signé. À émettre dans Pennylane (déclencher la relance auto si besoin).'}
+  }[type];
+  if (!cfg) return;
+  const montant = Math.round(totalHT * cfg.pct * 100) / 100;
+  const titre = `[FACTURATION] ${cfg.label} — ${p.Référence||'projet'} — ${euros(montant)} HT`;
+  if (!confirm(`Créer cette tâche pour Virginie ?\n\n• ${cfg.label}\n• Montant : ${euros(montant)} HT (${Math.round(cfg.pct*100)} % de ${euros(totalHT)} signé)\n• Projet : ${p.Référence||p.id}\n• Échéance : aujourd'hui · Priorité Haute\n\nLa facture s'émet ensuite manuellement dans Pennylane.`)) return;
+  const today = new Date().toISOString().slice(0,10);
+  await _createTask({
+    'Titre': titre,
+    'Description': `${cfg.desc}\n\nMontant calculé : ${euros(montant)} HT (${Math.round(cfg.pct*100)} % de ${euros(totalHT)} HT signé)\nProjet : ${p.Référence||p.id}`,
+    'Assignée à': 'Virginie',
+    'Priorité': cfg.prio,
+    'Statut': 'À faire',
+    'Échéance': today,
+    'Projet': [projetId]
+  }, `${cfg.label} à émettre — tâche créée pour Virginie (échéance aujourd'hui)`);
+}
+
+async function creerTachePV(projetId) {
+  const p = DATA.projets.find(x=>x.id===projetId); if(!p) return;
+  const today = new Date().toISOString().slice(0,10);
+  await _createTask({
+    'Titre': `PV de réception — ${p.Référence||'projet'}`,
+    'Description': `Préparer et faire signer le PV de réception en présence du client. Sans réserve si possible — sinon noter les réserves dans le journal chantier.`,
+    'Assignée à': 'Sébastien',
+    'Priorité': 'Haute',
+    'Statut': 'À faire',
+    'Échéance': today,
+    'Projet': [projetId]
+  }, `PV de réception à préparer — tâche créée pour Sébastien`);
+}
+
+async function creerTacheAvis(projetId) {
+  const p = DATA.projets.find(x=>x.id===projetId); if(!p) return;
+  const today = new Date().toISOString().slice(0,10);
+  await _createTask({
+    'Titre': `Demander avis client — ${p.Référence||'projet'}`,
+    'Description': `Envoyer un mail au client pour demander un avis Google. Lien Google review : https://g.page/r/...`,
+    'Assignée à': 'Marine',
+    'Priorité': 'Moyenne',
+    'Statut': 'À faire',
+    'Échéance': today,
+    'Projet': [projetId]
+  }, `Avis client à demander — tâche créée pour Marine`);
+}
+
+function mailtoConfirmationPose(projetId) {
+  const p = DATA.projets.find(x=>x.id===projetId); if(!p) return;
+  const cli = Array.isArray(p.Client) ? DATA.clients.find(c=>c.id===p.Client[0]) : null;
+  const to = cli?.Email || '';
+  const date = p['Date pose prévue'] ? new Date(p['Date pose prévue']).toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'}) : '[DATE À DÉFINIR]';
+  const subject = `Confirmation de la date de pose — ${p.Référence||'votre projet'}`;
+  const body = `Bonjour ${cli?.Contact||cli?.Nom||''},
+
+Nous avons le plaisir de confirmer la date de pose de votre cuisine :
+
+📅 ${date}
+
+Notre équipe sera présente sur place dès le matin. Merci de bien vouloir libérer la zone d'intervention la veille au soir.
+
+Si vous avez la moindre question, n'hésitez pas.
+
+Bien cordialement,
+L'équipe Tanguy Design
+Vannes`;
+  const url = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.location.href = url;
+  toast('Mail de confirmation prêt — vérifie le destinataire et envoie', 'success');
+}
+
+function scrollToAttachments(fieldName) {
+  const id = 'attach-section-' + fieldName.replace(/\s+/g,'-').toLowerCase();
+  const el = document.getElementById(id);
+  if (el) { el.scrollIntoView({behavior:'smooth', block:'center'}); el.style.animation = 'ps-pulse 1.5s ease-in-out 2'; setTimeout(()=>el.style.animation='', 3500); }
+}
+
+// ============ BILAN FINANCIER PRÉVISIONNEL ============
+// CA = devis Envoyé/Signé · Coûts auto = commandes fournisseurs + devis artisans HT
+// Rétro-commission 5% Tanguy = 5% du HT artisans (réduit le coût pour Tanguy)
+function computeBilanFinancier(p, devisLies, commandesLiees, devisArtisansLies) {
+  const devisSignes = devisLies.filter(d => d.Statut === 'Signé');
+  const devisEnvoyes = devisLies.filter(d => ['Envoyé','Signé'].includes(d.Statut));
+  // Total HT pris : signé en priorité, sinon envoyé, sinon brouillon
+  const sumHT = (arr) => arr.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
+  const caSigne = sumHT(devisSignes);
+  const caPrevi = devisSignes.length ? caSigne : (devisEnvoyes.length ? sumHT(devisEnvoyes) : sumHT(devisLies));
+  const mode = devisSignes.length ? 'Réalisé' : (devisEnvoyes.length ? 'Prévisionnel (envoyé)' : 'Prévisionnel (brouillon)');
+  const coutsFournisseurs = commandesLiees.reduce((s,c)=>s+(c['Montant HT']||0),0);
+  const coutsArtisans = devisArtisansLies.reduce((s,d)=>s+(d['Montant HT']||0),0);
+  const retrocom5 = devisArtisansLies.reduce((s,d)=>s+(d['Rétro-commission HT']||(d['Montant HT']||0)*0.05),0);
+  // Override coûts manuel (sur le projet)
+  const override = p['Coûts réels override'];
+  const coutsTotal = (override!=null && override!=='') ? Number(override) : (coutsFournisseurs + coutsArtisans - retrocom5);
+  const marge = caPrevi - coutsTotal;
+  const margePct = caPrevi > 0 ? (marge/caPrevi*100) : null;
+  return {ca:caPrevi, caSigne, mode, coutsFournisseurs, coutsArtisans, retrocom5, coutsTotal, marge, margePct, isOverride: override!=null && override!=''};
+}
+
+function bilanFinancierHTML(p, devisLies, commandesLiees, devisArtisansLies) {
+  const b = computeBilanFinancier(p, devisLies, commandesLiees, devisArtisansLies);
+  if (!b.ca && !b.coutsTotal) return ''; // rien à afficher si projet vide
+  const margeCls = b.marge < 0 ? 'bf-neg' : '';
+  const pctTxt = b.margePct != null ? b.margePct.toFixed(1)+'%' : '—';
+  return `<div class="bilan-fin">
+    <div class="bilan-fin-head">
+      <div class="bf-title">💰 Bilan financier ${b.isOverride?'(override)':''}</div>
+      <div class="bf-mode">${esc(b.mode)}</div>
+    </div>
+    <div class="bf-grid">
+      <div class="bf-cell">
+        <div class="bf-lbl">CA HT</div>
+        <div class="bf-val">${euros(b.ca)}</div>
+        ${b.caSigne && b.ca !== b.caSigne ? `<div class="bf-sub">dont ${euros(b.caSigne)} signé</div>` : ''}
+      </div>
+      <div class="bf-cell bf-cost">
+        <div class="bf-lbl">Coûts HT</div>
+        <div class="bf-val">−${euros(b.coutsTotal)}</div>
+        <div class="bf-sub">${b.isOverride ? 'manuel' : 'fourn. + artisans − 5%'}</div>
+      </div>
+      <div class="bf-cell bf-result ${margeCls}">
+        <div class="bf-lbl">Marge HT</div>
+        <div class="bf-val">${euros(b.marge)}</div>
+        <div class="bf-sub">${b.marge>=0?'positif':'négatif'}</div>
+      </div>
+      <div class="bf-cell bf-result ${margeCls}">
+        <div class="bf-lbl">Marge %</div>
+        <div class="bf-val">${pctTxt}</div>
+        <div class="bf-sub">sur CA HT</div>
+      </div>
+    </div>
+    ${!b.isOverride ? `<div class="bf-breakdown">
+      <span class="bf-bd-chip">Fournisseurs <strong>${euros(b.coutsFournisseurs)}</strong></span>
+      <span class="bf-bd-chip">Artisans <strong>${euros(b.coutsArtisans)}</strong></span>
+      <span class="bf-bd-chip">Rétro 5% <strong style="color:var(--gold-dark)">−${euros(b.retrocom5)}</strong></span>
+    </div>` : ''}
+  </div>`;
+}
+
+// ============ ZONE FACTURATION (Pennylane stub) ============
+function facturationZoneHTML(p, devisLies, tachesLiees) {
+  const devisSignes = devisLies.filter(d => d.Statut === 'Signé');
+  if (!devisSignes.length) return ''; // rien à facturer tant que rien n'est signé
+  const totalHT = devisSignes.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
+  const acompteTask = tachesLiees.find(t => /^\[FACTURATION\].*acompte/i.test(t.Titre || ''));
+  const interTask   = tachesLiees.find(t => /^\[FACTURATION\].*intermédiaire|réception meubles/i.test(t.Titre || ''));
+  const soldeTask   = tachesLiees.find(t => /^\[FACTURATION\].*solde/i.test(t.Titre || ''));
+  const isDone = (t) => t && t.Statut === 'Terminée';
+  const btn = (type, lbl, pct, task) => {
+    const montant = Math.round(totalHT * pct * 100) / 100;
+    if (isDone(task)) {
+      return `<button class="fz-btn done" disabled>
+        <span class="fz-btn-lbl">✓ ${esc(lbl)}</span>
+        <span class="fz-btn-amt">${euros(montant)} HT — émise</span>
+      </button>`;
+    }
+    if (task) {
+      return `<button class="fz-btn" onclick="switchTab('taches')">
+        <span class="fz-btn-lbl">⏳ ${esc(lbl)}</span>
+        <span class="fz-btn-amt">${euros(montant)} HT — en tâche</span>
+      </button>`;
+    }
+    return `<button class="fz-btn" onclick="creerTacheFacturation('${p.id}','${type}')">
+      <span class="fz-btn-lbl">📄 ${esc(lbl)}</span>
+      <span class="fz-btn-amt">${euros(montant)} HT (${Math.round(pct*100)}%)</span>
+    </button>`;
+  };
+  return `<div class="facturation-zone">
+    <div class="fz-head">
+      <div class="fz-title">💸 Facturation client</div>
+      <div class="fz-status">CA signé HT : <strong style="color:var(--gold-dark)">${euros(totalHT)}</strong> · Pennylane stub</div>
+    </div>
+    <div class="fz-buttons">
+      ${btn('acompte', 'Facture acompte', 0.30, acompteTask)}
+      ${btn('reception', 'Facture réception', 0.40, interTask)}
+      ${btn('solde', 'Facture solde', 0.30, soldeTask)}
+    </div>
+  </div>`;
+}
+
 function renderProjetDetail(p){
   CURRENT_PROJET_ID = p.id;
   const editing = PROJET_EDIT;
@@ -1639,168 +2341,195 @@ function renderProjetDetail(p){
     : `<strong>${type==='euros'?euros(val):type==='pct'?pct(val):esc(val||'—')}</strong>`;
 
   const html = `
-    <button class="devis-back" onclick="closeProjetDetail()">← Retour aux projets</button>
-    <div class="devis-detail">
-      <div class="devis-header">
-        <div>
-          <div class="devis-title">${esc(p.Référence||'Projet')} <span class="badge ${statutClass}">${esc(p.Statut||'')}</span></div>
-          <div class="devis-sub">${client?`Client : <a href="#" onclick="event.preventDefault();openClientDetail('${client.id}')" style="color:var(--gold)">${esc(client.Nom)}</a>`:'Client non lié'}</div>
-        </div>
-        <div style="display:flex;align-items:flex-start;gap:24px">
-          <div>
-            <div class="devis-total-lbl">Budget HT</div>
-            <div class="devis-total">${euros(p['Budget HT'])}</div>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-            ${editing
-              ? `<button class="btn-primary" onclick="saveProjet('${p.id}')">Enregistrer</button><button class="btn-ghost" onclick="toggleProjetEdit(false)">Annuler</button>`
-              : `<button class="btn-ghost" onclick="toggleProjetEdit(true)">Modifier</button><button class="btn-danger" onclick="deleteProjet('${p.id}')">Supprimer</button>`}
-          </div>
-        </div>
-      </div>
-
-      <div class="zone-title">Informations</div>
-      <div class="proj-grid">
-        <div><span class="proj-lbl">Référence</span>${editing?fld('Référence',p.Référence):'<strong>'+esc(p.Référence||'—')+'</strong>'}</div>
-        <div><span class="proj-lbl">Statut</span>${editing?`<select class="edit-inp" data-pf="Statut">${statuts.map(s=>`<option ${p.Statut===s?'selected':''}>${s}</option>`).join('')}</select>`:'<strong>'+esc(p.Statut||'—')+'</strong>'}</div>
-        <div><span class="proj-lbl">Budget HT</span>${editing?fld('Budget HT',p['Budget HT'],'number'):'<strong>'+euros(p['Budget HT'])+'</strong>'}</div>
-        <div><span class="proj-lbl">Marge prévisionnelle</span>${editing?fld('Marge prévisionnelle',p['Marge prévisionnelle'],'number'):'<strong>'+pct(p['Marge prévisionnelle'])+'</strong>'}</div>
-        <div><span class="proj-lbl">Date découverte</span>${editing?fld('Date découverte',p['Date découverte'],'date'):'<strong>'+esc(p['Date découverte']||'—')+'</strong>'}</div>
-        <div><span class="proj-lbl">Date pose prévue</span>${editing?fld('Date pose prévue',p['Date pose prévue'],'date'):'<strong>'+esc(p['Date pose prévue']||'—')+'</strong>'}</div>
-      </div>
-      <div class="form-row" style="margin-top:14px"><label class="proj-lbl">Description</label>${editing?`<textarea class="edit-inp" data-pf="Description" rows="3">${esc(p.Description||'')}</textarea>`:'<div style="font-size:13px;color:var(--ink2);white-space:pre-wrap">'+esc(p.Description||'—')+'</div>'}</div>
-
-      ${events.length ? `
-        <div class="zone-title" style="margin-top:24px">Timeline du chantier</div>
-        <div class="timeline">
-          ${events.map(e=>`<div class="tl-item tl-${e.type}"><div class="tl-date">${esc(e.date)}</div><div class="tl-label">${esc(e.label)}</div></div>`).join('')}
-        </div>` : ''}
-
-      ${(() => {
-        const principaux = devisLies.filter(d => (d['Type devis']||'Principal') === 'Principal');
-        const additifs = devisLies.filter(d => d['Type devis'] === 'Additif');
-        const totalPrincipal = principaux.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
-        const totalAdditifs = additifs.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
-        const totalCumule = totalPrincipal + totalAdditifs;
-        const renderRow = (d) => {
-          const sc = {'Brouillon':'b-gray','Envoyé':'b-amber','Signé':'b-green','Annulé':'b-red'}[d.Statut]||'b-gray';
-          const tc = d['Type devis'] === 'Additif' ? 'b-amber' : 'b-blue';
-          return `<div class="proj-row" onclick="switchTab('devis');openDevisDetail('${d.id}')">
-            <div><strong>${esc(d['Numéro devis']||'—')}</strong> <span class="badge ${tc}">${esc(d['Type devis']||'Principal')}</span> <span class="badge ${sc}">${esc(d.Statut||'')}</span>${d.Milieu?` <span class="badge b-blue">${esc(d.Milieu)}</span>`:''}</div>
-            <div style="font-family:'DM Mono',monospace">${euros(d['Total TTC'])}</div>
-          </div>`;
-        };
-        return `
-        <div class="zone-title" style="margin-top:24px;display:flex;align-items:center;justify-content:space-between">
-          <span>Devis Tanguy Design (${devisLies.length})</span>
-          <div style="display:flex;gap:6px;align-items:center">
-            ${additifs.length ? `<span style="font-size:11px;color:var(--ink3);font-weight:400">Cumul HT : <strong>${euros(totalCumule)}</strong></span>` : ''}
-            <button class="abtn" onclick="openDevisAdditifModal('${p.id}')" title="Ajouter un devis additif (augmentation de scope)">+ Devis additif</button>
-          </div>
-        </div>
-        ${principaux.length ? `<div class="proj-list">${principaux.map(renderRow).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucun devis principal</div>'}
-        ${additifs.length ? `<div style="margin-top:8px"><div style="font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Devis additifs · ${euros(totalAdditifs)} HT</div><div class="proj-list">${additifs.map(renderRow).join('')}</div></div>` : ''}`;
-      })()}
-
-      <div class="zone-title" style="margin-top:24px">Commandes fournisseurs (${commandesLiees.length})</div>
-      ${commandesLiees.length ? `<div class="proj-list">${commandesLiees.map(c=>{
-        const sc = {'Créée':'b-gray','Envoyée':'b-amber','Confirmée':'b-blue','Livrée':'b-green','Posée':'b-ink'}[c.Statut]||'b-gray';
-        return `<div class="proj-row">
-          <div><strong>${esc(c['Numéro']||'—')}</strong> <span class="badge ${sc}">${esc(c.Statut||'')}</span></div>
-          <div style="font-family:'DM Mono',monospace">${euros(c['Montant HT'])}</div>
-        </div>`;
-      }).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucune commande</div>'}
-
-      ${(() => {
-        const artisanIds = Array.isArray(p.Artisans) ? p.Artisans : [];
-        const artisansProjet = artisanIds.map(id => DATA.artisans.find(a=>a.id===id)).filter(Boolean);
-        const specBySel = {};
-        artisansProjet.forEach(a => {
-          const s = a['Spécialité'] || 'Non défini';
-          (specBySel[s] = specBySel[s] || []).push(a);
-        });
-        // Trouve la fiche générée + le devis artisan par artisan
-        const ficheByArtisan = {};
-        const devisByArtisan = {};
-        (DATA['devis-artisans']||[]).forEach(da => {
-          if (!Array.isArray(da.Projet) || !da.Projet.includes(p.id)) return;
-          const aid = Array.isArray(da.Artisan) ? da.Artisan[0] : null;
-          if (!aid) return;
-          devisByArtisan[aid] = da;
-          const fiche = (da['Fiche de mission PDF']||[])[0];
-          if (fiche) ficheByArtisan[aid] = fiche.url;
-        });
-        return `
-        <div class="zone-title" style="margin-top:24px">Artisans du projet (${artisansProjet.length})</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
-          ${artisansProjet.map(a => {
-            const ficheUrl = ficheByArtisan[a.id];
-            return `
-            <span class="art-chip" style="display:inline-flex;align-items:center;gap:4px;background:var(--paper);border:1px solid var(--border);border-radius:16px;padding:4px 4px 4px 10px;font-size:12px">
-              <span>${esc(a.Nom)}</span>
-              <span style="color:var(--ink3);font-size:10px">${esc(a['Spécialité']||'')}</span>
-              ${ficheUrl ? `<a href="${ficheUrl}" target="_blank" style="color:var(--green,#5a8a3a);text-decoration:none;font-size:12px;padding:0 4px" title="Voir la fiche PDF">📄</a>` : ''}
-              <button onclick="openFicheEditor('${p.id}','${a.id}')" style="background:none;border:none;color:var(--gold);cursor:pointer;font-size:12px;padding:0 4px" title="${ficheUrl?'Modifier la fiche':'Créer la fiche'}">✏️</button>
-              <button onclick="removeArtisanFromProjet('${p.id}','${a.id}')" style="background:none;border:none;color:var(--ink3);cursor:pointer;font-size:14px;padding:0 4px" title="Retirer">×</button>
-            </span>`;
-          }).join('') || '<span style="color:var(--ink4);font-size:12px">Aucun artisan affecté</span>'}
-          <button onclick="openArtisanPicker('${p.id}')" class="btn-ghost" style="padding:4px 10px;font-size:12px">+ Ajouter</button>
-        </div>`;
-      })()}
-
-      <div class="zone-title" style="margin-top:24px">Devis artisans (${devisArtisansLies.length}) <span style="float:right;font-size:12px;color:var(--ink3);font-weight:400">Total HT : <strong>${euros(totalArtisansHT)}</strong> · Rétro-commission 5% : <strong style="color:var(--gold)">${euros(totalRetrocom)}</strong></span></div>
-      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-        <label class="btn-ghost" style="cursor:pointer">
-          📎 Uploader un devis artisan
-          <input type="file" accept="application/pdf" style="display:none" onchange="uploadArtisanDevis(event,'${p.id}')">
-        </label>
-        ${(Array.isArray(p.Artisans)&&p.Artisans.length) ? `<button class="btn-primary" onclick="sendAllFichesMission('${p.id}')">✉️ Générer & envoyer les fiches de mission (${p.Artisans.length})</button>` : ''}
-      </div>
-      ${devisArtisansLies.length ? `<div class="proj-list">${devisArtisansLies.map(d => {
-        const artId = Array.isArray(d.Artisan) ? d.Artisan[0] : null;
-        const art = artId ? DATA.artisans.find(a=>a.id===artId) : null;
-        const sc = {'À valider':'b-amber','Validé':'b-blue','Fiche envoyée':'b-green','Annulé':'b-red'}[d.Statut]||'b-gray';
-        const pdfUrl = (d['PDF devis original']||[])[0]?.url;
-        const ficheUrl = (d['Fiche de mission PDF']||[])[0]?.url;
-        return `<div class="proj-row">
-          <div style="flex:1">
-            <div><strong>${esc(d['Numéro devis']||'—')}</strong> <span class="badge ${sc}">${esc(d.Statut||'')}</span> ${art?`<span class="badge b-blue">${esc(art.Nom)}</span>`:'<span class="badge b-red">Artisan non lié</span>'}</div>
-            <div style="font-size:11px;color:var(--ink3);margin-top:4px">${esc(d['Description travaux']||'').slice(0,120)}${(d['Description travaux']||'').length>120?'…':''}</div>
-          </div>
-          <div style="text-align:right;min-width:200px">
-            <div style="font-family:'DM Mono',monospace">${euros(d['Montant HT'])} HT</div>
-            <div style="font-size:11px;color:var(--gold)">Rétrocom 5% : ${euros(d['Rétro-commission HT'])}</div>
-            <div style="margin-top:4px;display:flex;gap:6px;justify-content:flex-end">
-              ${pdfUrl?`<a href="${pdfUrl}" target="_blank" style="font-size:11px;color:var(--ink3)">📄 Devis</a>`:''}
-              ${ficheUrl?`<a href="${ficheUrl}" target="_blank" style="font-size:11px;color:var(--green)">📋 Fiche</a>`:''}
-              <button onclick="sendFicheMission('${d.id}')" style="font-size:11px;background:none;border:1px solid var(--ink4);color:var(--ink2);padding:2px 8px;border-radius:4px;cursor:pointer">✉️ Envoyer</button>
-              <button onclick="deleteArtisanDevis('${d.id}')" style="font-size:11px;background:none;border:1px solid #c44;color:#c44;padding:2px 8px;border-radius:4px;cursor:pointer">🗑</button>
+    <button class="devis-back" type="button" onclick="closeProjetDetail()">← Tous les projets</button>
+    <div class="proj-layout">
+      ${projetTOC(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies)}
+      <div class="proj-main">
+        <div class="devis-detail">
+          <div class="devis-header">
+            <div>
+              <h1 class="devis-title" style="font:inherit;font-size:20px;font-weight:500">${esc(p.Référence||'Projet')} <span class="badge ${statutClass}">${esc(p.Statut||'')}</span></h1>
+              <div class="devis-sub">${client?`Client : <a href="#" onclick="event.preventDefault();openClientDetail('${client.id}')" style="color:var(--gold-dark)">${esc(client.Nom)}</a>`:'<em>Client non lié — sera créé à l\'import du prochain devis Winner</em>'}</div>
+              ${p.Description ? `<div style="margin-top:6px;font-size:13px;color:var(--ink2);max-width:560px;line-height:1.4">${esc(p.Description.slice(0,180))}${p.Description.length>180?` <a href="#zone-info" onclick="event.preventDefault();document.getElementById('zone-info').scrollIntoView({behavior:'smooth'})" style="color:var(--gold-dark)">voir +</a>`:''}</div>` : ''}
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:24px">
+              <div>
+                <div class="devis-total-lbl">Budget HT</div>
+                <div class="devis-total">${euros(p['Budget HT'])}</div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+                ${editing
+                  ? `<button class="btn-primary" type="button" onclick="saveProjet('${p.id}')">Enregistrer</button><button class="btn-ghost" type="button" onclick="toggleProjetEdit(false)">Annuler</button>`
+                  : `<button class="btn-ghost" type="button" onclick="toggleProjetEdit(true)">Modifier</button><button class="btn-danger" type="button" onclick="deleteProjet('${p.id}')">Supprimer</button>`}
+              </div>
             </div>
           </div>
-        </div>`;
-      }).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucun devis artisan. Uploadez un PDF ci-dessus pour en ajouter un.</div>'}
 
-      <div class="zone-title" style="margin-top:24px">Tâches (${tachesLiees.length})</div>
-      ${tachesLiees.length ? `<div class="proj-list">${tachesLiees.map(t=>{
-        const pc = {'Haute':'b-red','Moyenne':'b-amber','Basse':'b-gray'}[t.Priorité]||'b-gray';
-        const sc = {'À faire':'b-gray','En cours':'b-amber','Terminée':'b-green'}[t.Statut]||'b-gray';
-        return `<div class="proj-row">
-          <div><strong>${esc(t.Titre||'—')}</strong> <span class="badge ${pc}">${esc(t.Priorité||'')}</span> <span class="badge ${sc}">${esc(t.Statut||'')}</span></div>
-          <div style="font-size:11px;color:var(--ink3)">${esc(t['Assignée à']||'')} · ${esc(t.Échéance||'')}</div>
-        </div>`;
-      }).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucune tâche</div>'}
+          <div id="zone-stepper">${parcoursStepperHTML(computeParcours(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies), p)}</div>
 
-      ${projetReunionsSection(p)}
+          <div id="zone-bilan">${bilanFinancierHTML(p, devisLies, commandesLiees, devisArtisansLies)}</div>
 
-      ${projetJournalSection(p)}
+          <h2 id="zone-info" class="zone-title">Informations</h2>
+          <div class="proj-grid">
+            <div><span class="proj-lbl">Référence</span>${editing?fld('Référence',p.Référence):'<strong>'+esc(p.Référence||'—')+'</strong>'}</div>
+            <div><span class="proj-lbl">Statut</span>${editing?`<select class="edit-inp" data-pf="Statut">${statuts.map(s=>`<option ${p.Statut===s?'selected':''}>${s}</option>`).join('')}</select>`:'<strong>'+esc(p.Statut||'—')+'</strong>'}</div>
+            <div><span class="proj-lbl">Budget HT</span>${editing?fld('Budget HT',p['Budget HT'],'number'):'<strong>'+euros(p['Budget HT'])+'</strong>'}</div>
+            <div><span class="proj-lbl">Marge prévisionnelle</span>${editing?fld('Marge prévisionnelle',p['Marge prévisionnelle'],'number'):'<strong>'+pct(p['Marge prévisionnelle'])+'</strong>'}</div>
+            <div><span class="proj-lbl">Date découverte</span>${editing?fld('Date découverte',p['Date découverte'],'date'):'<strong>'+esc(p['Date découverte']||'—')+'</strong>'}</div>
+            <div><span class="proj-lbl">Date pose prévue</span>${editing?fld('Date pose prévue',p['Date pose prévue'],'date'):'<strong>'+esc(p['Date pose prévue']||'—')+'</strong>'}</div>
+          </div>
+          <div class="form-row" style="margin-top:14px"><label class="proj-lbl">Description</label>${editing?`<textarea class="edit-inp" data-pf="Description" rows="3">${esc(p.Description||'')}</textarea>`:'<div style="font-size:13px;color:var(--ink2);white-space:pre-wrap">'+esc(p.Description||'—')+'</div>'}</div>
 
-      ${projetAttachmentsSection(p, 'Plan 3D', 'Visualisations 3D Winner/Métron, plans d’aménagement, dossiers de présentation client')}
-      ${projetAttachmentsSection(p, 'Plan technique', 'Plans techniques avec cotes, plans archi, vues autocad, prise de cotes')}
-      ${projetAttachmentsSection(p, 'Images', 'Photos chantier, références ambiance, moodboards')}
-      ${projetAttachmentsSection(p, 'Documents projet', 'Factures, AR, attestations, cahier des charges, notices, comptes rendus…')}
+          ${events.length ? `
+            <h2 class="zone-title" style="margin-top:24px">Timeline du chantier</h2>
+            <div class="timeline">
+              ${events.map(e=>`<div class="tl-item tl-${e.type}"><div class="tl-date">${esc(e.date)}</div><div class="tl-label">${esc(e.label)}</div></div>`).join('')}
+            </div>` : ''}
 
+          ${(() => {
+            const principaux = devisLies.filter(d => (d['Type devis']||'Principal') === 'Principal');
+            const additifs = devisLies.filter(d => d['Type devis'] === 'Additif');
+            const totalAdditifs = additifs.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
+            const totalPrincipal = principaux.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
+            const totalCumule = totalPrincipal + totalAdditifs;
+            const renderRow = (d) => {
+              const sc = {'Brouillon':'b-gray','Envoyé':'b-amber','Signé':'b-green','Annulé':'b-red'}[d.Statut]||'b-gray';
+              const tc = d['Type devis'] === 'Additif' ? 'b-amber' : 'b-blue';
+              return `<div class="proj-row" onclick="switchTab('devis');openDevisDetail('${d.id}')">
+                <div><strong>${esc(d['Numéro devis']||'—')}</strong> <span class="badge ${tc}">${esc(d['Type devis']||'Principal')}</span> <span class="badge ${sc}">${esc(d.Statut||'')}</span>${d.Milieu?` <span class="badge b-blue">${esc(d.Milieu)}</span>`:''}</div>
+                <div style="font-family:'DM Mono',monospace">${euros(d['Total TTC'])}</div>
+              </div>`;
+            };
+            return `
+            <h2 id="zone-devis" class="zone-title" style="margin-top:24px;display:flex;align-items:center;justify-content:space-between">
+              <span>Devis Tanguy Design (${devisLies.length})</span>
+              <div style="display:flex;gap:6px;align-items:center">
+                ${additifs.length ? `<span style="font-size:11px;color:var(--ink2);font-weight:400">Cumul HT : <strong>${euros(totalCumule)}</strong></span>` : ''}
+                <button class="abtn" type="button" onclick="openDevisAdditifModal('${p.id}')" title="Ajouter un devis additif (augmentation de scope)">+ Devis additif</button>
+              </div>
+            </h2>
+            ${principaux.length ? `<div class="proj-list">${principaux.map(renderRow).join('')}</div>` :
+              emptyCTA('Pas encore de devis principal', 'Importe le PDF Winner pour générer le devis + ses zones/lignes/échéances en un seul clic.', '📄 Importer un PDF Winner', `closeProjetDetail();switchTab('devis');setTimeout(()=>document.getElementById('devis-pdf-input').click(),100)`)}
+            ${additifs.length ? `<div style="margin-top:8px"><div style="font-size:11px;color:var(--ink2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Devis additifs · ${euros(totalAdditifs)} HT</div><div class="proj-list">${additifs.map(renderRow).join('')}</div></div>` : ''}`;
+          })()}
+
+          <div id="zone-fact">${facturationZoneHTML(p, devisLies, tachesLiees)}</div>
+
+          <h2 id="zone-cmds" class="zone-title" style="margin-top:24px">Commandes fournisseurs (${commandesLiees.length})</h2>
+          ${commandesLiees.length ? (() => {
+            const TYPES = ['Cuisine','Électroménager','Plan de travail','Sanitaire','Plan technique','Accessoires','Autre'];
+            const grouped = {};
+            commandesLiees.forEach(c => {
+              const t = c.Type || 'Non typé';
+              (grouped[t] = grouped[t] || []).push(c);
+            });
+            const order = [...TYPES, 'Non typé'].filter(t => grouped[t]);
+            const renderCmd = (c) => {
+              const sc = {'Créée':'b-gray','Envoyée':'b-amber','Confirmée':'b-blue','Livrée':'b-green','Posée':'b-ink'}[c.Statut]||'b-gray';
+              const next = {'Créée':'Envoyée','Envoyée':'Confirmée','Confirmée':'Livrée','Livrée':'Posée'}[c.Statut];
+              const urg = commandeUrgencyBadges(c);
+              return `<div class="proj-row" style="flex-wrap:wrap;gap:6px;cursor:pointer" onclick="openCommandeDetail('${c.id}')">
+                <div style="flex:1;min-width:200px">
+                  <strong>${esc(c['Numéro']||'—')}</strong>
+                  <span class="badge ${sc}">${esc(c.Statut||'')}</span>
+                  ${c.Type?`<span class="badge b-blue">${esc(c.Type)}</span>`:''}
+                  ${urg}
+                </div>
+                <div style="font-family:'DM Mono',monospace">${euros(c['Montant HT'])}</div>
+                ${next ? `<button type="button" class="cmd-qa-btn" onclick="event.stopPropagation();commandeQuickAdvance('${c.id}','${next}')" title="Passer à ${next}">→ ${next}</button>` : ''}
+              </div>`;
+            };
+            return order.map(t => {
+              const arr = grouped[t];
+              const total = arr.reduce((s,c)=>s+(c['Montant HT']||0),0);
+              return `<div style="margin-top:10px">
+                <div style="font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink2);margin-bottom:4px">${esc(t)} · ${arr.length} cmd · ${euros(total)} HT</div>
+                <div class="proj-list">${arr.map(renderCmd).join('')}</div>
+              </div>`;
+            }).join('');
+          })() : emptyCTA('Pas encore de commande', 'Les commandes fournisseurs sont auto-créées à la signature d\'un devis. Tu peux aussi en ajouter manuellement.', '+ Nouvelle commande', `closeProjetDetail();switchTab('commandes');openModal('commandes')`)}
+
+          ${(() => {
+            const artisanIds = Array.isArray(p.Artisans) ? p.Artisans : [];
+            const artisansProjet = artisanIds.map(id => DATA.artisans.find(a=>a.id===id)).filter(Boolean);
+            const ficheByArtisan = {};
+            (DATA['devis-artisans']||[]).forEach(da => {
+              if (!Array.isArray(da.Projet) || !da.Projet.includes(p.id)) return;
+              const aid = Array.isArray(da.Artisan) ? da.Artisan[0] : null;
+              if (!aid) return;
+              const fiche = (da['Fiche de mission PDF']||[])[0];
+              if (fiche) ficheByArtisan[aid] = fiche.url;
+            });
+            return `
+            <h2 id="zone-artisans" class="zone-title" style="margin-top:24px">Artisans du chantier (${artisansProjet.length})</h2>
+            ${artisansProjet.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+              ${artisansProjet.map(a => {
+                const ficheUrl = ficheByArtisan[a.id];
+                return `<span class="art-chip" style="display:inline-flex;align-items:center;gap:4px;background:var(--paper);border:1px solid var(--border);border-radius:16px;padding:4px 4px 4px 10px;font-size:12px">
+                  <span>${esc(a.Nom)}</span>
+                  <span style="color:var(--ink2);font-size:10px">${esc(a['Spécialité']||'')}</span>
+                  ${ficheUrl ? `<a href="${ficheUrl}" target="_blank" style="color:var(--green);text-decoration:none;font-size:12px;padding:0 4px" title="Voir la fiche PDF">📄</a>` : ''}
+                  <button type="button" onclick="openFicheEditor('${p.id}','${a.id}')" style="background:none;border:none;color:var(--gold-dark);cursor:pointer;font-size:12px;padding:0 4px" title="${ficheUrl?'Modifier la fiche':'Créer la fiche'}">✏️</button>
+                  <button type="button" onclick="removeArtisanFromProjet('${p.id}','${a.id}')" style="background:none;border:none;color:var(--ink2);cursor:pointer;font-size:14px;padding:0 4px" title="Retirer">×</button>
+                </span>`;
+              }).join('')}
+              <button type="button" onclick="openArtisanPicker('${p.id}')" class="btn-ghost" style="padding:4px 10px;font-size:12px">+ Ajouter un artisan</button>
+            </div>` : emptyCTA('Aucun artisan affecté', 'Ajoute les artisans du chantier pour générer leurs fiches de mission et calculer la rétro-commission 5 %.', '+ Affecter un artisan', `openArtisanPicker('${p.id}')`)}`;
+          })()}
+
+          <h2 id="zone-devis-art" class="zone-title" style="margin-top:24px">Devis artisans (${devisArtisansLies.length}) <span style="float:right;font-size:12px;color:var(--ink2);font-weight:400">Total HT : <strong>${euros(totalArtisansHT)}</strong> · Rétro 5 % : <strong style="color:var(--gold-dark)">${euros(totalRetrocom)}</strong></span></h2>
+          <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+            <label class="btn-ghost" style="cursor:pointer">
+              📎 Uploader un devis artisan
+              <input type="file" accept="application/pdf" style="display:none" onchange="uploadArtisanDevis(event,'${p.id}')">
+            </label>
+            ${(Array.isArray(p.Artisans)&&p.Artisans.length) ? `<button class="btn-primary" type="button" onclick="sendAllFichesMission('${p.id}')">✉️ Générer & envoyer les fiches de mission (${p.Artisans.length})</button>` : ''}
+          </div>
+          ${devisArtisansLies.length ? `<div class="proj-list">${devisArtisansLies.map(d => {
+            const artId = Array.isArray(d.Artisan) ? d.Artisan[0] : null;
+            const art = artId ? DATA.artisans.find(a=>a.id===artId) : null;
+            const sc = {'À valider':'b-amber','Validé':'b-blue','Fiche envoyée':'b-green','Annulé':'b-red'}[d.Statut]||'b-gray';
+            const pdfUrl = (d['PDF devis original']||[])[0]?.url;
+            const ficheUrl = (d['Fiche de mission PDF']||[])[0]?.url;
+            return `<div class="proj-row">
+              <div style="flex:1">
+                <div><strong>${esc(d['Numéro devis']||'—')}</strong> <span class="badge ${sc}">${esc(d.Statut||'')}</span> ${art?`<span class="badge b-blue">${esc(art.Nom)}</span>`:'<span class="badge b-red">Artisan non lié</span>'}</div>
+                <div style="font-size:11px;color:var(--ink2);margin-top:4px">${esc(d['Description travaux']||'').slice(0,120)}${(d['Description travaux']||'').length>120?'…':''}</div>
+              </div>
+              <div style="text-align:right;min-width:200px">
+                <div style="font-family:'DM Mono',monospace">${euros(d['Montant HT'])} HT</div>
+                <div style="font-size:11px;color:var(--gold-dark)">Rétro 5 % : ${euros(d['Rétro-commission HT'])}</div>
+                <div style="margin-top:4px;display:flex;gap:6px;justify-content:flex-end">
+                  ${pdfUrl?`<a href="${pdfUrl}" target="_blank" style="font-size:11px;color:var(--ink2)">📄 Devis</a>`:''}
+                  ${ficheUrl?`<a href="${ficheUrl}" target="_blank" style="font-size:11px;color:var(--green)">📋 Fiche</a>`:''}
+                  <button type="button" onclick="sendFicheMission('${d.id}')" style="font-size:11px;background:none;border:1px solid var(--ink2);color:var(--ink2);padding:2px 8px;border-radius:4px;cursor:pointer">✉️ Envoyer</button>
+                  <button type="button" onclick="deleteArtisanDevis('${d.id}')" style="font-size:11px;background:none;border:1px solid #c44;color:#c44;padding:2px 8px;border-radius:4px;cursor:pointer">🗑</button>
+                </div>
+              </div>
+            </div>`;
+          }).join('')}</div>` : emptyCTA('Aucun devis artisan', 'Upload un PDF de devis artisan pour le rattacher au chantier et calculer la rétro-commission 5 %.', null, null)}
+
+          <h2 id="zone-taches" class="zone-title" style="margin-top:24px">Tâches (${tachesLiees.length})</h2>
+          ${tachesLiees.length ? `<div class="proj-list">${tachesLiees.map(t=>{
+            const pc = {'Haute':'b-red','Moyenne':'b-amber','Basse':'b-gray'}[t.Priorité]||'b-gray';
+            const sc = {'À faire':'b-gray','En cours':'b-amber','Terminée':'b-green'}[t.Statut]||'b-gray';
+            return `<div class="proj-row">
+              <div><strong>${esc(t.Titre||'—')}</strong> <span class="badge ${pc}">${esc(t.Priorité||'')}</span> <span class="badge ${sc}">${esc(t.Statut||'')}</span></div>
+              <div style="font-size:11px;color:var(--ink2)">${esc(t['Assignée à']||'')} · ${esc(t.Échéance||'')}</div>
+            </div>`;
+          }).join('')}</div>` : emptyCTA('Aucune tâche sur ce chantier', 'Les tâches d\'orchestration (acompte, BC fournisseurs, planif pose) sont créées auto à la signature d\'un devis.', '+ Nouvelle tâche', `openTaskEdit(null)`)}
+
+          <div id="zone-plaud">${projetReunionsSection(p)}</div>
+
+          <div id="zone-journal">${projetJournalSection(p)}</div>
+
+          ${projetAttachmentsTabs(p)}
+
+        </div>
+      </div>
     </div>`;
   document.getElementById('projet-detail-view').innerHTML = html;
+  if (typeof makeCardsAccessible === 'function') makeCardsAccessible();
 }
 
 // ============ JOURNAL DE CHANTIER ============
@@ -1926,7 +2655,9 @@ function openPlaudModalForProjet(projetId, niveau){
   $('#modalBg').classList.add('on');
 }
 
-// Ouvre le modal d'import devis additif pour un projet existant
+// Ouvre le modal d'import devis additif pour un projet existant.
+// Le bouton "Enregistrer" du modal standard appelle submitModal() qui dispatche vers submitDevisAdditif()
+// (cf. dispatch dans submitModal — pas besoin de footer custom, le modal n'a pas de #modalFoot).
 function openDevisAdditifModal(projetId){
   $('#modalTitle').textContent = 'Devis additif · upload PDF';
   $('#modalBody').innerHTML = `
@@ -1934,10 +2665,12 @@ function openDevisAdditifModal(projetId){
     <label>PDF du devis additif</label>
     <input type="file" id="devis-additif-file" accept="application/pdf">
     <input type="hidden" id="devis-additif-projet-id" value="${esc(projetId)}">
-    <div style="font-size:11px;color:var(--ink4);margin-top:8px">Claude analysera le PDF (Winner/Métron). Le record Devis créé aura Type=Additif et sera lié au projet courant.</div>
+    <div style="font-size:11px;color:var(--ink4);margin-top:8px">Claude analysera le PDF (Winner/Métron). Le record Devis créé aura Type=Additif et sera lié au projet courant. Clique « Enregistrer » pour lancer l'import.</div>
   `;
-  $('#modalFoot').innerHTML = `<button class="btn-primary" onclick="submitDevisAdditif()">Importer comme additif</button>`;
   currentModalTable = '__devis_additif__';
+  // Cache le bouton Supprimer (pas pertinent en mode upload)
+  const delBtn = document.getElementById('modalDeleteBtn');
+  if (delBtn) delBtn.style.display = 'none';
   $('#modalBg').classList.add('on');
 }
 
@@ -2166,6 +2899,96 @@ function sendFicheChantier(projetId) {
   window.location.href = mailto;
 }
 
+// ============ ONGLETS ATTACHMENTS (4 zones en 1) ============
+// Avant : 4 sections empilées sur 800+ px. Maintenant : onglets — 1 visible à la fois.
+// Onglet actif par défaut = premier non vide, sinon Plan 3D.
+function projetAttachmentsTabs(p) {
+  const fields = [
+    {name:'Plan 3D',          hint:'Visualisations 3D Winner/Métron, plans d\'aménagement, dossiers de présentation client.', icon:'🏠'},
+    {name:'Plan technique',   hint:'Plans techniques avec cotes, plans archi, vues autocad, prises de cotes.',                icon:'📐'},
+    {name:'Images',           hint:'Photos chantier, références ambiance, moodboards.',                                       icon:'📸'},
+    {name:'Documents projet', hint:'Factures, AR, attestations, cahier des charges, notices, comptes rendus…',                icon:'📁'}
+  ];
+  let activeIdx = 0;
+  for (let i = 0; i < fields.length; i++) {
+    const arr = Array.isArray(p[fields[i].name]) ? p[fields[i].name] : [];
+    if (arr.length > 0) { activeIdx = i; break; }
+  }
+  const tabsHtml = fields.map((f, i) => {
+    const count = Array.isArray(p[f.name]) ? p[f.name].length : 0;
+    return `<button class="attach-tab ${i===activeIdx?'on':''}" type="button" data-attach-tab="${i}" onclick="switchAttachTab(${i})">
+      ${f.icon} ${esc(f.name)} <span class="at-count">${count}</span>
+    </button>`;
+  }).join('');
+  const panesHtml = fields.map((f, i) => {
+    return `<div class="attach-pane ${i===activeIdx?'on':''}" data-attach-pane="${i}">
+      ${projetAttachmentsSection(p, f.name, f.hint)}
+    </div>`;
+  }).join('');
+  return `<div id="zone-attach">
+    <div class="attach-tabs" role="tablist" aria-label="Documents du projet">${tabsHtml}</div>
+    ${panesHtml}
+  </div>`;
+}
+function switchAttachTab(idx) {
+  document.querySelectorAll('[data-attach-tab]').forEach(b => b.classList.toggle('on', Number(b.dataset.attachTab) === idx));
+  document.querySelectorAll('[data-attach-pane]').forEach(p => p.classList.toggle('on', Number(p.dataset.attachPane) === idx));
+}
+
+// ============ SIDEBAR TOC FICHE PROJET (desktop ≥1100px) ============
+// Sticky panel à gauche avec ancres vers les sections + compteurs + indicateurs urgence.
+function projetTOC(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies) {
+  const today = new Date().toISOString().slice(0,10);
+  const cmdsUrgentes = commandesLiees.some(c => !c['Date livraison prévue'] && !['Livrée','Posée'].includes(c.Statut));
+  const tachesEnRetard = tachesLiees.filter(t => t.Statut!=='Terminée' && t.Échéance && t.Échéance < today).length;
+  const devisAttente = devisLies.filter(d => d.Statut === 'Envoyé').length;
+  const items = [
+    {id:'zone-stepper',  label:'Parcours',         count:''},
+    {id:'zone-bilan',    label:'Bilan financier',  count:''},
+    {id:'zone-info',     label:'Informations',     count:''},
+    {id:'zone-devis',    label:'Devis Tanguy',     count:devisLies.length, urgent: devisAttente>0},
+    {id:'zone-fact',     label:'Facturation',      count:''},
+    {id:'zone-cmds',     label:'Commandes',        count:commandesLiees.length, urgent: cmdsUrgentes},
+    {id:'zone-artisans', label:'Artisans',         count:(p.Artisans||[]).length},
+    {id:'zone-devis-art',label:'Devis artisans',   count:devisArtisansLies.length},
+    {id:'zone-taches',   label:'Tâches',           count:tachesLiees.filter(t=>t.Statut!=='Terminée').length, urgent: tachesEnRetard>0},
+    {id:'zone-plaud',    label:'Réunions Plaud',   count:''},
+    {id:'zone-journal',  label:'Journal',          count:''},
+    {id:'zone-attach',   label:'Documents',        count:''}
+  ];
+  return `<aside class="proj-toc" id="proj-toc" aria-label="Sommaire de la fiche projet">
+    <div class="proj-toc-title">Sommaire</div>
+    ${items.map(it => `<a href="#${it.id}" onclick="event.preventDefault();document.getElementById('${it.id}')?.scrollIntoView({behavior:'smooth',block:'start'});" ${it.urgent?'class="urgent"':''} title="${it.urgent?'⚠ Action requise':''}">
+      <span>${esc(it.label)}</span>
+      ${it.count !== '' ? `<span class="toc-count">${it.count}</span>` : ''}
+    </a>`).join('')}
+  </aside>`;
+}
+
+// ============ BADGES URGENCE COMMANDES ============
+// Calculés front. Visent à faire ressortir ce qui doit être traité.
+function commandeUrgencyBadges(c) {
+  const badges = [];
+  if (!c['Date livraison prévue'] && !['Livrée','Posée'].includes(c.Statut)) {
+    badges.push('<span class="badge-urg" title="Aucune date de livraison saisie">⚠ Sans date</span>');
+  }
+  if (c.Statut === 'Envoyée' && c['Date création']) {
+    const days = Math.floor((Date.now() - Date.parse(c['Date création'])) / 86400000);
+    if (days > 7) badges.push(`<span class="badge-urg warn" title="Envoyée depuis ${days} jours sans confirmation fournisseur">⏳ +${days}j sans AR</span>`);
+  }
+  return badges.join(' ');
+}
+
+// ============ EMPTY STATE AVEC CTA ============
+// Plus expressif que "Aucun X" : titre + raison + bouton d'action.
+function emptyCTA(title, sub, btnLabel, btnOnclick) {
+  return `<div class="empty-cta">
+    <div class="empty-cta-title">${esc(title)}</div>
+    <div class="empty-cta-sub">${esc(sub)}</div>
+    ${btnLabel ? `<button class="empty-cta-btn" type="button" onclick="${btnOnclick}">${esc(btnLabel)}</button>` : ''}
+  </div>`;
+}
+
 function projetAttachmentsSection(p, fieldName, hint) {
   const list = Array.isArray(p[fieldName]) ? p[fieldName] : [];
   const inputId = 'att-upl-' + fieldName.replace(/\s+/g, '-').toLowerCase();
@@ -2184,8 +3007,9 @@ function projetAttachmentsSection(p, fieldName, hint) {
       + Ajouter
       <input type="file" id="${inputId}" style="display:none" onchange="uploadProjetAttachment('${p.id}','${esc(fieldName)}',this.files[0],this)">
     </label>`;
+  const sectionId = 'attach-section-' + fieldName.replace(/\s+/g, '-').toLowerCase();
   return `
-    <div class="zone-title" style="margin-top:24px;display:flex;align-items:center;justify-content:space-between">
+    <div id="${sectionId}" class="zone-title" style="margin-top:24px;display:flex;align-items:center;justify-content:space-between">
       <span>${esc(fieldName)} (${list.length})</span>
       ${addBtn}
     </div>
@@ -2764,9 +3588,29 @@ async function deleteClient(clientId){
   } catch(e) { toastError('Erreur : '+e.message); }
   finally { hideLoader(); }
 }
-function renderArtisans(){ $('#list-artisans').innerHTML = DATA.artisans.length ? DATA.artisans.map(artisanCard).join('') : emptyState('Aucun artisan','Ajoutez vos partenaires artisans'); }
-function renderFournisseurs(){ $('#list-fournisseurs').innerHTML = DATA.fournisseurs.length ? DATA.fournisseurs.map(fournisseurCard).join('') : emptyState('Aucun fournisseur','Ajoutez vos fournisseurs'); }
-function renderCommandes(){ $('#list-commandes').innerHTML = DATA.commandes.length ? DATA.commandes.map(commandeCard).join('') : emptyState('Aucune commande','Les commandes fournisseurs apparaîtront ici'); }
+function renderArtisans(){
+  $('#list-artisans').innerHTML = DATA.artisans.length
+    ? DATA.artisans.map(artisanCard).join('')
+    : emptyState('Aucun artisan dans la base', ' Ajoute tes partenaires (plombier, électricien, carreleur…) — ils apparaîtront dans les fiches projet et le calcul de rétro 5 %.', '+ Ajouter un artisan', `openModal('artisans')`);
+}
+function renderFournisseurs(){
+  $('#list-fournisseurs').innerHTML = DATA.fournisseurs.length
+    ? DATA.fournisseurs.map(fournisseurCard).join('')
+    : emptyState('Aucun fournisseur dans la base', ' Ajoute tes fournisseurs cuisine / électroménager / plan de travail — ils seront utilisés pour les commandes auto à la signature des devis.', '+ Ajouter un fournisseur', `openModal('fournisseurs')`);
+}
+function renderCommandes(){
+  const fType = document.getElementById('commandes-filter-type')?.value || '';
+  const fStatut = document.getElementById('commandes-filter-statut')?.value || '';
+  let list = DATA.commandes;
+  if (fType === '__notyped') list = list.filter(c => !c.Type);
+  else if (fType) list = list.filter(c => c.Type === fType);
+  if (fStatut) list = list.filter(c => c.Statut === fStatut);
+  $('#list-commandes').innerHTML = list.length
+    ? list.map(commandeCard).join('')
+    : (fType||fStatut)
+      ? emptyState('Aucune commande ne correspond', ' Essaie de retirer un filtre ou choisis « Tous les types / statuts ».', 'Réinitialiser les filtres', `document.getElementById('commandes-filter-type').value='';document.getElementById('commandes-filter-statut').value='';renderCommandes()`)
+      : emptyState('Aucune commande pour l\'instant', ' Les commandes fournisseurs sont auto-créées à la signature d\'un devis (regroupées par type : Cuisine, Électroménager…). Tu peux aussi en créer manuellement.', '+ Nouvelle commande', `openModal('commandes')`);
+}
 function syncTachesProjetFilter(){
   const sel = document.getElementById('taches-filter-projet');
   if (!sel) return;
@@ -2912,7 +3756,11 @@ async function dropTask(ev, newStatut){
     await fetch('/api/data/taches/'+rid, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{Statut:newStatut}})});
   } catch(e) { toastError('Erreur : '+e.message); await loadAll(); }
 }
-function renderSAV(){ $('#list-sav').innerHTML = DATA.sav.length ? DATA.sav.map(savCard).join('') : emptyState('Aucun SAV','Les interventions SAV apparaîtront ici'); }
+function renderSAV(){
+  $('#list-sav').innerHTML = DATA.sav.length
+    ? DATA.sav.map(savCard).join('')
+    : emptyState('Aucune intervention SAV', ' Les tickets SAV (créés via le bouton SAV en haut ou ici) sont centralisés sur 9·58 puis routés vers la bonne équipe.', '+ Nouveau SAV', `openModal('sav')`);
+}
 
 // ============ ADMIN — MARGES & STOCK ============
 function switchAdminTab(tab){
@@ -2961,7 +3809,7 @@ function renderMarges(){
   const lvEl = $('#cv-live'); if (lvEl) lvEl.textContent = live;
   const lEl  = $('#cv-lost'); if (lEl)  lEl.textContent  = lost;
   if (!rows.length) {
-    $('#marges-table').innerHTML = emptyState('Aucun projet signé','Les marges apparaîtront dès qu\'un devis sera signé');
+    $('#marges-table').innerHTML = emptyState('Aucun projet signé pour l\'instant', ' Les marges apparaîtront dès qu\'un devis sera signé (et que les commandes/devis artisans seront enregistrés).');
     return;
   }
   $('#marges-table').innerHTML = `<table class="admin-table">
@@ -3032,7 +3880,7 @@ function renderStock(){
   $('#stock-count').textContent = items.length;
   $('#stock-value').textContent = euros(totalValue);
   if (!items.length) {
-    $('#stock-table').innerHTML = emptyState('Stock vide','Ajoute ton premier article avec « + Nouvel article »');
+    $('#stock-table').innerHTML = emptyState('Stock vide', ' Ajoute ton premier article (référence + quantité + prix achat HT) pour commencer le suivi.');
     return;
   }
   $('#stock-table').innerHTML = `<table class="admin-table">
@@ -3192,7 +4040,9 @@ async function deleteDevis(devisId, label){
   } catch(e) { hideLoader(); toastError('Erreur : '+e.message); }
 }
 function renderDevis(){
-  $('#list-devis').innerHTML = DATA.devis.length ? DATA.devis.map(devisCard).join('') : emptyState('Aucun devis','Importez un PDF Winner/Métron pour commencer');
+  $('#list-devis').innerHTML = DATA.devis.length
+    ? DATA.devis.map(devisCard).join('')
+    : emptyState('Aucun devis pour l\'instant', ' Importe un PDF Winner/Métron — Claude lit le PDF et crée le client + le projet + le devis avec ses zones/lignes/échéances en 1 étape.', '📄 Importer un PDF Winner', `document.getElementById('devis-pdf-input').click()`);
 }
 
 let DEVIS_CURRENT = null;
@@ -3528,7 +4378,9 @@ function fichesCard(f){
   </div>`;
 }
 function renderFichesDecouverte(){
-  $('#list-fiches-decouverte').innerHTML = DATA['fiches-decouverte'].length ? DATA['fiches-decouverte'].map(fichesCard).join('') : emptyState('Aucune fiche découverte','Créez la première fiche lors du RDV découverte');
+  $('#list-fiches-decouverte').innerHTML = DATA['fiches-decouverte'].length
+    ? DATA['fiches-decouverte'].map(fichesCard).join('')
+    : emptyState('Aucune fiche découverte', ' Crée la première fiche pendant le RDV découverte (besoins, contraintes, budget envisagé) — elle alimente ensuite la fiche projet.', '+ Nouvelle fiche découverte', `openDecouverteForm()`);
 }
 
 const DF_SECTIONS = [
@@ -3652,7 +4504,9 @@ function plaudCard(p){
   </div>`;
 }
 function renderPlaud(){
-  $('#list-reunions-plaud').innerHTML = DATA['reunions-plaud'].length ? DATA['reunions-plaud'].map(plaudCard).join('') : emptyState('Aucune réunion','Collez une transcription Plaud pour commencer');
+  $('#list-reunions-plaud').innerHTML = DATA['reunions-plaud'].length
+    ? DATA['reunions-plaud'].map(plaudCard).join('')
+    : emptyState('Aucune transcription Plaud', ' Colle la transcription d\'une réunion (R1 = découverte / R2 = chantier) — Claude extrait les décisions, échéances et points d\'attention.', '+ Nouvelle transcription', `openPlaudModal()`);
 }
 
 function openPlaudModal(){
@@ -3781,6 +4635,18 @@ function openModal(table, recordId){
     return `<label>${f.label}</label><input id="${id}" type="${f.type||'text'}" ${f.step?`step="${f.step}"`:''} value="${valEsc}">`;
   }).join('');
 
+  // Cas spécial projet (création uniquement) : raccourci pour import PDF Winner
+  // L'import PDF crée auto le client + le projet + les devis liés (zones/lignes/échéances).
+  // Bien plus rapide qu'une saisie manuelle dans 90% des cas.
+  if (table === 'projets' && !record) {
+    body = `<div style="margin-bottom:18px;padding:14px 16px;border:2px solid var(--gold);border-radius:6px;background:linear-gradient(135deg,var(--gold-bg) 0%,#fff 100%)">
+      <div style="font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--gold-dark);font-weight:700;margin-bottom:6px">⚡ Raccourci recommandé</div>
+      <div style="font-size:13px;color:var(--ink2);margin-bottom:10px;line-height:1.4">Si tu as un <strong>PDF Winner</strong> (bon de commande / devis), importe-le directement : Claude lit le PDF et crée automatiquement le client, le projet, le devis avec toutes ses zones/lignes/échéances en une seule étape.</div>
+      <button class="btn-primary" style="width:100%;padding:10px" onclick="closeModal();switchTab('devis');setTimeout(()=>document.getElementById('devis-pdf-input').click(),100)">📄 Importer un PDF Winner →</button>
+      <div style="font-size:11px;color:var(--ink4);text-align:center;margin-top:8px">— ou continue ci-dessous pour saisir le projet manuellement —</div>
+    </div>` + body;
+  }
+
   // Cas spécial projet (création uniquement) : bloc Plaud optionnel pour enrichir
   if (table === 'projets' && !record) {
     body += `
@@ -3819,6 +4685,7 @@ function closeModal(){
 async function submitModal(){
   if (!currentModalTable) return;
   if (currentModalTable === '__plaud__') { return submitPlaud(); }
+  if (currentModalTable === '__devis_additif__') { return submitDevisAdditif(); }
   const form = FORMS[currentModalTable];
   const fields = {};
   for (const f of form) {
