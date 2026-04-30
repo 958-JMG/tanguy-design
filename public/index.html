@@ -710,7 +710,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 </div>
 
 <!-- Toast container -->
-<div id="toast-host"></div>
+<div id="toast-host" aria-live="polite" aria-atomic="false" role="status"></div>
 
 <!-- Bottom floating search -->
 <button class="bottom-search" onclick="openSearch()" title="Rechercher (⌘K)">
@@ -1752,14 +1752,14 @@ async function deleteCommande(cmdId) {
 
 async function commandeQuickAdvance(cmdId, newStatut, closeAfter) {
   const c = DATA.commandes.find(x=>x.id===cmdId); if(!c) return;
-  if (!confirm(`Passer la commande ${c.Numéro||cmdId} → "${newStatut}" ?`)) return;
+  if (!confirm(`Marquer la commande comme « ${newStatut} » ?\n\n${c.Numéro||cmdId}\n${euros(c['Montant HT'])} HT`)) return;
   try {
     const r = await fetch('/api/data/commandes/'+cmdId, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{Statut:newStatut}})});
     if (!r.ok) {
       const err = await r.json().catch(()=>({}));
       throw new Error(err.error?.message || err.error || 'erreur');
     }
-    toastSuccess(`Commande → ${newStatut}`);
+    toastSuccess(`${c.Numéro||'Commande'} marquée « ${newStatut} »`);
     if (closeAfter) closeCommandeDetail();
     await loadAll();
   } catch(e) { toastError('Erreur : '+e.message); }
@@ -1794,11 +1794,16 @@ function savCard(s){
   </div>`;
 }
 
-function emptyState(title, sub){
-  return `<div class="empty"><strong>${esc(title)}</strong>${esc(sub)}</div>`;
+function emptyState(title, sub, ctaLabel, ctaOnclick){
+  const cta = ctaLabel ? `<button class="empty-cta-btn" type="button" style="margin-top:10px" onclick="${ctaOnclick}">${esc(ctaLabel)}</button>` : '';
+  return `<div class="empty"><strong>${esc(title)}</strong>${esc(sub)}${cta}</div>`;
 }
 
-function renderProjets(){ $('#list-projets').innerHTML = DATA.projets.length ? DATA.projets.map(projetCard).join('') : emptyState('Aucun projet','Créez le premier projet chantier'); }
+function renderProjets(){
+  $('#list-projets').innerHTML = DATA.projets.length
+    ? DATA.projets.map(projetCard).join('')
+    : emptyState('Aucun projet pour l\'instant', ' Importe un PDF Winner pour créer le premier (auto-création client + projet + devis), ou démarre à blanc.', '📄 Importer un PDF Winner', `switchTab('devis');setTimeout(()=>document.getElementById('devis-pdf-input').click(),100)`);
+}
 function renderClients(){
   const q = (document.getElementById('clients-search')?.value||'').trim().toLowerCase();
   let list = DATA.clients;
@@ -2036,24 +2041,24 @@ async function creerTacheFacturation(projetId, type) {
   const devisSignes = DATA.devis.filter(d => Array.isArray(d.Projet) && d.Projet.includes(projetId) && d.Statut==='Signé');
   const totalHT = devisSignes.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
   const cfg = {
-    'acompte':   {label:'Facture acompte 30%', pct:0.30, prio:'Haute', desc:'Acompte versé à la signature du BC. Émettre via Pennylane.'},
-    'reception': {label:'Facture intermédiaire (réception meubles)', pct:0.40, prio:'Haute', desc:'À émettre à la réception des meubles fournisseur.'},
-    'solde':     {label:'Facture solde de fin de chantier', pct:0.30, prio:'Haute', desc:'Solde après PV de réception signé. Émettre via Pennylane et déclencher la relance auto.'}
+    'acompte':   {label:'Facture acompte 30 %', pct:0.30, prio:'Haute', desc:'Acompte versé à la signature du BC. À émettre dans Pennylane.'},
+    'reception': {label:'Facture intermédiaire (réception meubles)', pct:0.40, prio:'Haute', desc:'À émettre dans Pennylane à la réception des meubles fournisseur.'},
+    'solde':     {label:'Facture solde de fin de chantier', pct:0.30, prio:'Haute', desc:'Solde après PV de réception signé. À émettre dans Pennylane (déclencher la relance auto si besoin).'}
   }[type];
   if (!cfg) return;
   const montant = Math.round(totalHT * cfg.pct * 100) / 100;
   const titre = `[FACTURATION] ${cfg.label} — ${p.Référence||'projet'} — ${euros(montant)} HT`;
-  if (!confirm(`Créer la tâche :\n\n${titre}\n\nAssignée à Virginie · Priorité ${cfg.prio}\n\n(La facture sera ensuite émise dans Pennylane)`)) return;
+  if (!confirm(`Créer cette tâche pour Virginie ?\n\n• ${cfg.label}\n• Montant : ${euros(montant)} HT (${Math.round(cfg.pct*100)} % de ${euros(totalHT)} signé)\n• Projet : ${p.Référence||p.id}\n• Échéance : aujourd'hui · Priorité Haute\n\nLa facture s'émet ensuite manuellement dans Pennylane.`)) return;
   const today = new Date().toISOString().slice(0,10);
   await _createTask({
     'Titre': titre,
-    'Description': `${cfg.desc}\n\nMontant calculé : ${euros(montant)} HT (${Math.round(cfg.pct*100)}% de ${euros(totalHT)} HT signé)\nProjet : ${p.Référence||p.id}`,
+    'Description': `${cfg.desc}\n\nMontant calculé : ${euros(montant)} HT (${Math.round(cfg.pct*100)} % de ${euros(totalHT)} HT signé)\nProjet : ${p.Référence||p.id}`,
     'Assignée à': 'Virginie',
     'Priorité': cfg.prio,
     'Statut': 'À faire',
     'Échéance': today,
     'Projet': [projetId]
-  }, `Tâche facturation créée — Virginie`);
+  }, `${cfg.label} à émettre — tâche créée pour Virginie (échéance aujourd'hui)`);
 }
 
 async function creerTachePV(projetId) {
@@ -2067,7 +2072,7 @@ async function creerTachePV(projetId) {
     'Statut': 'À faire',
     'Échéance': today,
     'Projet': [projetId]
-  }, `Tâche PV créée — Sébastien`);
+  }, `PV de réception à préparer — tâche créée pour Sébastien`);
 }
 
 async function creerTacheAvis(projetId) {
@@ -2075,13 +2080,13 @@ async function creerTacheAvis(projetId) {
   const today = new Date().toISOString().slice(0,10);
   await _createTask({
     'Titre': `Demander avis client — ${p.Référence||'projet'}`,
-    'Description': `Envoyer un mail au client pour demander un avis Google. Lien : https://g.page/r/...`,
+    'Description': `Envoyer un mail au client pour demander un avis Google. Lien Google review : https://g.page/r/...`,
     'Assignée à': 'Marine',
     'Priorité': 'Moyenne',
     'Statut': 'À faire',
     'Échéance': today,
     'Projet': [projetId]
-  }, `Tâche avis client créée — Marine`);
+  }, `Avis client à demander — tâche créée pour Marine`);
 }
 
 function mailtoConfirmationPose(projetId) {
@@ -2105,7 +2110,7 @@ L'équipe Tanguy Design
 Vannes`;
   const url = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   window.location.href = url;
-  toast('Mail de confirmation pré-rempli ouvert', 'success');
+  toast('Mail de confirmation prêt — vérifie le destinataire et envoie', 'success');
 }
 
 function scrollToAttachments(fieldName) {
@@ -3494,8 +3499,16 @@ async function deleteClient(clientId){
   } catch(e) { toastError('Erreur : '+e.message); }
   finally { hideLoader(); }
 }
-function renderArtisans(){ $('#list-artisans').innerHTML = DATA.artisans.length ? DATA.artisans.map(artisanCard).join('') : emptyState('Aucun artisan','Ajoutez vos partenaires artisans'); }
-function renderFournisseurs(){ $('#list-fournisseurs').innerHTML = DATA.fournisseurs.length ? DATA.fournisseurs.map(fournisseurCard).join('') : emptyState('Aucun fournisseur','Ajoutez vos fournisseurs'); }
+function renderArtisans(){
+  $('#list-artisans').innerHTML = DATA.artisans.length
+    ? DATA.artisans.map(artisanCard).join('')
+    : emptyState('Aucun artisan dans la base', ' Ajoute tes partenaires (plombier, électricien, carreleur…) — ils apparaîtront dans les fiches projet et le calcul de rétro 5 %.', '+ Ajouter un artisan', `openModal('artisans')`);
+}
+function renderFournisseurs(){
+  $('#list-fournisseurs').innerHTML = DATA.fournisseurs.length
+    ? DATA.fournisseurs.map(fournisseurCard).join('')
+    : emptyState('Aucun fournisseur dans la base', ' Ajoute tes fournisseurs cuisine / électroménager / plan de travail — ils seront utilisés pour les commandes auto à la signature des devis.', '+ Ajouter un fournisseur', `openModal('fournisseurs')`);
+}
 function renderCommandes(){
   const fType = document.getElementById('commandes-filter-type')?.value || '';
   const fStatut = document.getElementById('commandes-filter-statut')?.value || '';
@@ -3503,7 +3516,11 @@ function renderCommandes(){
   if (fType === '__notyped') list = list.filter(c => !c.Type);
   else if (fType) list = list.filter(c => c.Type === fType);
   if (fStatut) list = list.filter(c => c.Statut === fStatut);
-  $('#list-commandes').innerHTML = list.length ? list.map(commandeCard).join('') : emptyState('Aucune commande', (fType||fStatut) ? 'Aucune commande ne correspond aux filtres' : 'Les commandes fournisseurs apparaîtront ici');
+  $('#list-commandes').innerHTML = list.length
+    ? list.map(commandeCard).join('')
+    : (fType||fStatut)
+      ? emptyState('Aucune commande ne correspond', ' Essaie de retirer un filtre ou choisis « Tous les types / statuts ».', 'Réinitialiser les filtres', `document.getElementById('commandes-filter-type').value='';document.getElementById('commandes-filter-statut').value='';renderCommandes()`)
+      : emptyState('Aucune commande pour l\'instant', ' Les commandes fournisseurs sont auto-créées à la signature d\'un devis (regroupées par type : Cuisine, Électroménager…). Tu peux aussi en créer manuellement.', '+ Nouvelle commande', `openModal('commandes')`);
 }
 function syncTachesProjetFilter(){
   const sel = document.getElementById('taches-filter-projet');
@@ -3650,7 +3667,11 @@ async function dropTask(ev, newStatut){
     await fetch('/api/data/taches/'+rid, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{Statut:newStatut}})});
   } catch(e) { toastError('Erreur : '+e.message); await loadAll(); }
 }
-function renderSAV(){ $('#list-sav').innerHTML = DATA.sav.length ? DATA.sav.map(savCard).join('') : emptyState('Aucun SAV','Les interventions SAV apparaîtront ici'); }
+function renderSAV(){
+  $('#list-sav').innerHTML = DATA.sav.length
+    ? DATA.sav.map(savCard).join('')
+    : emptyState('Aucune intervention SAV', ' Les tickets SAV (créés via le bouton SAV en haut ou ici) sont centralisés sur 9·58 puis routés vers la bonne équipe.', '+ Nouveau SAV', `openModal('sav')`);
+}
 
 // ============ ADMIN — MARGES & STOCK ============
 function switchAdminTab(tab){
@@ -3699,7 +3720,7 @@ function renderMarges(){
   const lvEl = $('#cv-live'); if (lvEl) lvEl.textContent = live;
   const lEl  = $('#cv-lost'); if (lEl)  lEl.textContent  = lost;
   if (!rows.length) {
-    $('#marges-table').innerHTML = emptyState('Aucun projet signé','Les marges apparaîtront dès qu\'un devis sera signé');
+    $('#marges-table').innerHTML = emptyState('Aucun projet signé pour l\'instant', ' Les marges apparaîtront dès qu\'un devis sera signé (et que les commandes/devis artisans seront enregistrés).');
     return;
   }
   $('#marges-table').innerHTML = `<table class="admin-table">
@@ -3770,7 +3791,7 @@ function renderStock(){
   $('#stock-count').textContent = items.length;
   $('#stock-value').textContent = euros(totalValue);
   if (!items.length) {
-    $('#stock-table').innerHTML = emptyState('Stock vide','Ajoute ton premier article avec « + Nouvel article »');
+    $('#stock-table').innerHTML = emptyState('Stock vide', ' Ajoute ton premier article (référence + quantité + prix achat HT) pour commencer le suivi.');
     return;
   }
   $('#stock-table').innerHTML = `<table class="admin-table">
@@ -3930,7 +3951,9 @@ async function deleteDevis(devisId, label){
   } catch(e) { hideLoader(); toastError('Erreur : '+e.message); }
 }
 function renderDevis(){
-  $('#list-devis').innerHTML = DATA.devis.length ? DATA.devis.map(devisCard).join('') : emptyState('Aucun devis','Importez un PDF Winner/Métron pour commencer');
+  $('#list-devis').innerHTML = DATA.devis.length
+    ? DATA.devis.map(devisCard).join('')
+    : emptyState('Aucun devis pour l\'instant', ' Importe un PDF Winner/Métron — Claude lit le PDF et crée le client + le projet + le devis avec ses zones/lignes/échéances en 1 étape.', '📄 Importer un PDF Winner', `document.getElementById('devis-pdf-input').click()`);
 }
 
 let DEVIS_CURRENT = null;
@@ -4266,7 +4289,9 @@ function fichesCard(f){
   </div>`;
 }
 function renderFichesDecouverte(){
-  $('#list-fiches-decouverte').innerHTML = DATA['fiches-decouverte'].length ? DATA['fiches-decouverte'].map(fichesCard).join('') : emptyState('Aucune fiche découverte','Créez la première fiche lors du RDV découverte');
+  $('#list-fiches-decouverte').innerHTML = DATA['fiches-decouverte'].length
+    ? DATA['fiches-decouverte'].map(fichesCard).join('')
+    : emptyState('Aucune fiche découverte', ' Crée la première fiche pendant le RDV découverte (besoins, contraintes, budget envisagé) — elle alimente ensuite la fiche projet.', '+ Nouvelle fiche découverte', `openDecouverteForm()`);
 }
 
 const DF_SECTIONS = [
@@ -4390,7 +4415,9 @@ function plaudCard(p){
   </div>`;
 }
 function renderPlaud(){
-  $('#list-reunions-plaud').innerHTML = DATA['reunions-plaud'].length ? DATA['reunions-plaud'].map(plaudCard).join('') : emptyState('Aucune réunion','Collez une transcription Plaud pour commencer');
+  $('#list-reunions-plaud').innerHTML = DATA['reunions-plaud'].length
+    ? DATA['reunions-plaud'].map(plaudCard).join('')
+    : emptyState('Aucune transcription Plaud', ' Colle la transcription d\'une réunion (R1 = découverte / R2 = chantier) — Claude extrait les décisions, échéances et points d\'attention.', '+ Nouvelle transcription', `openPlaudModal()`);
 }
 
 function openPlaudModal(){
