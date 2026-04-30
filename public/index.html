@@ -350,6 +350,39 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 .cmd-qa-btn:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 .cmd-qa-btn.active{background:var(--gold);color:#fff;border-color:var(--gold)}
 
+/* === Badges urgence (commandes / devis en retard) === */
+.badge-urg{display:inline-flex;align-items:center;gap:3px;font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.05em;padding:2px 6px;border-radius:3px;font-weight:600;background:var(--red-bg);color:var(--red);border:1px solid rgba(184,50,50,.3)}
+.badge-urg.warn{background:var(--amber-bg);color:var(--amber);border-color:rgba(156,107,10,.3)}
+
+/* === Sidebar TOC fiche projet (desktop) === */
+.proj-layout{display:flex;gap:18px;align-items:flex-start;position:relative}
+.proj-main{flex:1;min-width:0}
+.proj-toc{position:sticky;top:14px;width:180px;flex-shrink:0;background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:12px 6px;max-height:calc(100vh - 28px);overflow-y:auto;font-family:'DM Mono',monospace;display:none}
+.proj-toc-title{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink3);font-weight:700;padding:0 8px 8px;border-bottom:1px solid var(--border);margin-bottom:6px}
+.proj-toc a{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 8px;font-size:11px;color:var(--ink2);text-decoration:none;border-radius:3px;border-left:2px solid transparent;line-height:1.3}
+.proj-toc a:hover{background:var(--gold-bg);color:var(--ink);border-left-color:var(--gold)}
+.proj-toc a.active{background:var(--gold-bg);color:var(--gold-dark);border-left-color:var(--gold);font-weight:600}
+.proj-toc a .toc-count{font-size:9px;color:var(--ink4);background:var(--paper);padding:1px 5px;border-radius:8px;border:1px solid var(--border);min-width:16px;text-align:center}
+.proj-toc a.urgent .toc-count{background:var(--red-bg);color:var(--red);border-color:rgba(184,50,50,.3)}
+@media(min-width:1100px){.proj-toc{display:block}}
+
+/* === Onglets attachments === */
+.attach-tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-top:24px;flex-wrap:wrap}
+.attach-tab{font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);background:transparent;border:none;padding:9px 14px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;display:inline-flex;align-items:center;gap:6px;font-weight:500}
+.attach-tab:hover{color:var(--ink)}
+.attach-tab.on{color:var(--gold);border-bottom-color:var(--gold);font-weight:600}
+.attach-tab .at-count{font-size:10px;color:var(--ink4);background:var(--paper);padding:1px 6px;border-radius:8px;font-weight:400}
+.attach-tab.on .at-count{background:var(--gold-bg);color:var(--gold-dark)}
+.attach-pane{display:none;padding-top:12px}
+.attach-pane.on{display:block}
+
+/* === Empty states avec CTA === */
+.empty-cta{background:linear-gradient(135deg,var(--gold-bg) 0%,#fff 100%);border:1px dashed var(--gold);border-radius:var(--r);padding:20px;text-align:center;margin:8px 0}
+.empty-cta-title{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:6px}
+.empty-cta-sub{font-size:12px;color:var(--ink2);margin-bottom:12px;line-height:1.5}
+.empty-cta-btn{background:var(--gold);color:#fff;border:none;padding:9px 18px;border-radius:5px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.empty-cta-btn:hover{background:var(--gold-dark)}
+
 /* Modal client */
 .modal-bg{position:fixed;inset:0;background:rgba(26,25,22,.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
 .modal-card{background:var(--paper);border-radius:8px;max-width:640px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)}
@@ -1598,10 +1631,11 @@ function commandeCard(c){
   const fournBadge = orig.fournisseur ? `<span class="badge b-gray">${esc(orig.fournisseur)}</span>` : '';
   const typeBadge = c.Type ? `<span class="badge b-blue">${esc(c.Type)}</span>` : '';
   const next = {'Créée':'Envoyée','Envoyée':'Confirmée','Confirmée':'Livrée','Livrée':'Posée'}[c.Statut];
+  const urgBadges = commandeUrgencyBadges(c);
 
   return `<div class="card" onclick="openCommandeDetail('${c.id}')" style="cursor:pointer">
     <div class="card-top">
-      <div class="card-nom">${esc(c.Numéro||'—')} <span class="badge ${statutClass}">${esc(c.Statut||'—')}</span> ${typeBadge} ${origBadge} ${fournBadge} ${c['Facture reçue']?'<span class="badge b-green">Facture ✓</span>':''}</div>
+      <div class="card-nom">${esc(c.Numéro||'—')} <span class="badge ${statutClass}">${esc(c.Statut||'—')}</span> ${typeBadge} ${urgBadges} ${origBadge} ${fournBadge} ${c['Facture reçue']?'<span class="badge b-green">Facture ✓</span>':''}</div>
       <div class="card-amt">${euros(c['Montant HT'])}</div>
     </div>
     <div class="card-meta">
@@ -2214,195 +2248,192 @@ function renderProjetDetail(p){
     : `<strong>${type==='euros'?euros(val):type==='pct'?pct(val):esc(val||'—')}</strong>`;
 
   const html = `
-    <button class="devis-back" onclick="closeProjetDetail()">← Retour aux projets</button>
-    <div class="devis-detail">
-      <div class="devis-header">
-        <div>
-          <div class="devis-title">${esc(p.Référence||'Projet')} <span class="badge ${statutClass}">${esc(p.Statut||'')}</span></div>
-          <div class="devis-sub">${client?`Client : <a href="#" onclick="event.preventDefault();openClientDetail('${client.id}')" style="color:var(--gold)">${esc(client.Nom)}</a>`:'Client non lié'}</div>
-        </div>
-        <div style="display:flex;align-items:flex-start;gap:24px">
-          <div>
-            <div class="devis-total-lbl">Budget HT</div>
-            <div class="devis-total">${euros(p['Budget HT'])}</div>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-            ${editing
-              ? `<button class="btn-primary" onclick="saveProjet('${p.id}')">Enregistrer</button><button class="btn-ghost" onclick="toggleProjetEdit(false)">Annuler</button>`
-              : `<button class="btn-ghost" onclick="toggleProjetEdit(true)">Modifier</button><button class="btn-danger" onclick="deleteProjet('${p.id}')">Supprimer</button>`}
-          </div>
-        </div>
-      </div>
-
-      ${parcoursStepperHTML(computeParcours(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies), p)}
-
-      ${bilanFinancierHTML(p, devisLies, commandesLiees, devisArtisansLies)}
-
-      <div class="zone-title">Informations</div>
-      <div class="proj-grid">
-        <div><span class="proj-lbl">Référence</span>${editing?fld('Référence',p.Référence):'<strong>'+esc(p.Référence||'—')+'</strong>'}</div>
-        <div><span class="proj-lbl">Statut</span>${editing?`<select class="edit-inp" data-pf="Statut">${statuts.map(s=>`<option ${p.Statut===s?'selected':''}>${s}</option>`).join('')}</select>`:'<strong>'+esc(p.Statut||'—')+'</strong>'}</div>
-        <div><span class="proj-lbl">Budget HT</span>${editing?fld('Budget HT',p['Budget HT'],'number'):'<strong>'+euros(p['Budget HT'])+'</strong>'}</div>
-        <div><span class="proj-lbl">Marge prévisionnelle</span>${editing?fld('Marge prévisionnelle',p['Marge prévisionnelle'],'number'):'<strong>'+pct(p['Marge prévisionnelle'])+'</strong>'}</div>
-        <div><span class="proj-lbl">Date découverte</span>${editing?fld('Date découverte',p['Date découverte'],'date'):'<strong>'+esc(p['Date découverte']||'—')+'</strong>'}</div>
-        <div><span class="proj-lbl">Date pose prévue</span>${editing?fld('Date pose prévue',p['Date pose prévue'],'date'):'<strong>'+esc(p['Date pose prévue']||'—')+'</strong>'}</div>
-      </div>
-      <div class="form-row" style="margin-top:14px"><label class="proj-lbl">Description</label>${editing?`<textarea class="edit-inp" data-pf="Description" rows="3">${esc(p.Description||'')}</textarea>`:'<div style="font-size:13px;color:var(--ink2);white-space:pre-wrap">'+esc(p.Description||'—')+'</div>'}</div>
-
-      ${events.length ? `
-        <div class="zone-title" style="margin-top:24px">Timeline du chantier</div>
-        <div class="timeline">
-          ${events.map(e=>`<div class="tl-item tl-${e.type}"><div class="tl-date">${esc(e.date)}</div><div class="tl-label">${esc(e.label)}</div></div>`).join('')}
-        </div>` : ''}
-
-      ${(() => {
-        const principaux = devisLies.filter(d => (d['Type devis']||'Principal') === 'Principal');
-        const additifs = devisLies.filter(d => d['Type devis'] === 'Additif');
-        const totalPrincipal = principaux.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
-        const totalAdditifs = additifs.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
-        const totalCumule = totalPrincipal + totalAdditifs;
-        const renderRow = (d) => {
-          const sc = {'Brouillon':'b-gray','Envoyé':'b-amber','Signé':'b-green','Annulé':'b-red'}[d.Statut]||'b-gray';
-          const tc = d['Type devis'] === 'Additif' ? 'b-amber' : 'b-blue';
-          return `<div class="proj-row" onclick="switchTab('devis');openDevisDetail('${d.id}')">
-            <div><strong>${esc(d['Numéro devis']||'—')}</strong> <span class="badge ${tc}">${esc(d['Type devis']||'Principal')}</span> <span class="badge ${sc}">${esc(d.Statut||'')}</span>${d.Milieu?` <span class="badge b-blue">${esc(d.Milieu)}</span>`:''}</div>
-            <div style="font-family:'DM Mono',monospace">${euros(d['Total TTC'])}</div>
-          </div>`;
-        };
-        return `
-        <div class="zone-title" style="margin-top:24px;display:flex;align-items:center;justify-content:space-between">
-          <span>Devis Tanguy Design (${devisLies.length})</span>
-          <div style="display:flex;gap:6px;align-items:center">
-            ${additifs.length ? `<span style="font-size:11px;color:var(--ink3);font-weight:400">Cumul HT : <strong>${euros(totalCumule)}</strong></span>` : ''}
-            <button class="abtn" onclick="openDevisAdditifModal('${p.id}')" title="Ajouter un devis additif (augmentation de scope)">+ Devis additif</button>
-          </div>
-        </div>
-        ${principaux.length ? `<div class="proj-list">${principaux.map(renderRow).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucun devis principal</div>'}
-        ${additifs.length ? `<div style="margin-top:8px"><div style="font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Devis additifs · ${euros(totalAdditifs)} HT</div><div class="proj-list">${additifs.map(renderRow).join('')}</div></div>` : ''}`;
-      })()}
-
-      ${facturationZoneHTML(p, devisLies, tachesLiees)}
-
-      <div class="zone-title" style="margin-top:24px">Commandes fournisseurs (${commandesLiees.length})</div>
-      ${commandesLiees.length ? (() => {
-        const TYPES = ['Cuisine','Électroménager','Plan de travail','Sanitaire','Accessoires','Autre'];
-        const grouped = {};
-        commandesLiees.forEach(c => {
-          const t = c.Type || 'Non typé';
-          (grouped[t] = grouped[t] || []).push(c);
-        });
-        const order = [...TYPES, 'Non typé'].filter(t => grouped[t]);
-        const renderCmd = (c) => {
-          const sc = {'Créée':'b-gray','Envoyée':'b-amber','Confirmée':'b-blue','Livrée':'b-green','Posée':'b-ink'}[c.Statut]||'b-gray';
-          const next = {'Créée':'Envoyée','Envoyée':'Confirmée','Confirmée':'Livrée','Livrée':'Posée'}[c.Statut];
-          return `<div class="proj-row" style="flex-wrap:wrap;gap:6px">
-            <div style="flex:1;min-width:200px">
-              <strong>${esc(c['Numéro']||'—')}</strong>
-              <span class="badge ${sc}">${esc(c.Statut||'')}</span>
-              ${c.Type?`<span class="badge b-blue">${esc(c.Type)}</span>`:''}
+    <button class="devis-back" type="button" onclick="closeProjetDetail()">← Tous les projets</button>
+    <div class="proj-layout">
+      ${projetTOC(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies)}
+      <div class="proj-main">
+        <div class="devis-detail">
+          <div class="devis-header">
+            <div>
+              <h1 class="devis-title" style="font:inherit;font-size:20px;font-weight:500">${esc(p.Référence||'Projet')} <span class="badge ${statutClass}">${esc(p.Statut||'')}</span></h1>
+              <div class="devis-sub">${client?`Client : <a href="#" onclick="event.preventDefault();openClientDetail('${client.id}')" style="color:var(--gold-dark)">${esc(client.Nom)}</a>`:'<em>Client non lié — sera créé à l\'import du prochain devis Winner</em>'}</div>
+              ${p.Description ? `<div style="margin-top:6px;font-size:13px;color:var(--ink2);max-width:560px;line-height:1.4">${esc(p.Description.slice(0,180))}${p.Description.length>180?` <a href="#zone-info" onclick="event.preventDefault();document.getElementById('zone-info').scrollIntoView({behavior:'smooth'})" style="color:var(--gold-dark)">voir +</a>`:''}</div>` : ''}
             </div>
-            <div style="font-family:'DM Mono',monospace">${euros(c['Montant HT'])}</div>
-            ${next ? `<button class="cmd-qa-btn" onclick="commandeQuickAdvance('${c.id}','${next}')" title="Passer à ${next}">→ ${next}</button>` : ''}
-          </div>`;
-        };
-        return order.map(t => {
-          const arr = grouped[t];
-          const total = arr.reduce((s,c)=>s+(c['Montant HT']||0),0);
-          return `<div style="margin-top:10px">
-            <div style="font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:4px">${esc(t)} · ${arr.length} cmd · ${euros(total)} HT</div>
-            <div class="proj-list">${arr.map(renderCmd).join('')}</div>
-          </div>`;
-        }).join('');
-      })() : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucune commande</div>'}
+            <div style="display:flex;align-items:flex-start;gap:24px">
+              <div>
+                <div class="devis-total-lbl">Budget HT</div>
+                <div class="devis-total">${euros(p['Budget HT'])}</div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+                ${editing
+                  ? `<button class="btn-primary" type="button" onclick="saveProjet('${p.id}')">Enregistrer</button><button class="btn-ghost" type="button" onclick="toggleProjetEdit(false)">Annuler</button>`
+                  : `<button class="btn-ghost" type="button" onclick="toggleProjetEdit(true)">Modifier</button><button class="btn-danger" type="button" onclick="deleteProjet('${p.id}')">Supprimer</button>`}
+              </div>
+            </div>
+          </div>
 
-      ${(() => {
-        const artisanIds = Array.isArray(p.Artisans) ? p.Artisans : [];
-        const artisansProjet = artisanIds.map(id => DATA.artisans.find(a=>a.id===id)).filter(Boolean);
-        const specBySel = {};
-        artisansProjet.forEach(a => {
-          const s = a['Spécialité'] || 'Non défini';
-          (specBySel[s] = specBySel[s] || []).push(a);
-        });
-        // Trouve la fiche générée + le devis artisan par artisan
-        const ficheByArtisan = {};
-        const devisByArtisan = {};
-        (DATA['devis-artisans']||[]).forEach(da => {
-          if (!Array.isArray(da.Projet) || !da.Projet.includes(p.id)) return;
-          const aid = Array.isArray(da.Artisan) ? da.Artisan[0] : null;
-          if (!aid) return;
-          devisByArtisan[aid] = da;
-          const fiche = (da['Fiche de mission PDF']||[])[0];
-          if (fiche) ficheByArtisan[aid] = fiche.url;
-        });
-        return `
-        <div class="zone-title" style="margin-top:24px">Artisans du projet (${artisansProjet.length})</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
-          ${artisansProjet.map(a => {
-            const ficheUrl = ficheByArtisan[a.id];
+          <div id="zone-stepper">${parcoursStepperHTML(computeParcours(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies), p)}</div>
+
+          <div id="zone-bilan">${bilanFinancierHTML(p, devisLies, commandesLiees, devisArtisansLies)}</div>
+
+          <h2 id="zone-info" class="zone-title">Informations</h2>
+          <div class="proj-grid">
+            <div><span class="proj-lbl">Référence</span>${editing?fld('Référence',p.Référence):'<strong>'+esc(p.Référence||'—')+'</strong>'}</div>
+            <div><span class="proj-lbl">Statut</span>${editing?`<select class="edit-inp" data-pf="Statut">${statuts.map(s=>`<option ${p.Statut===s?'selected':''}>${s}</option>`).join('')}</select>`:'<strong>'+esc(p.Statut||'—')+'</strong>'}</div>
+            <div><span class="proj-lbl">Budget HT</span>${editing?fld('Budget HT',p['Budget HT'],'number'):'<strong>'+euros(p['Budget HT'])+'</strong>'}</div>
+            <div><span class="proj-lbl">Marge prévisionnelle</span>${editing?fld('Marge prévisionnelle',p['Marge prévisionnelle'],'number'):'<strong>'+pct(p['Marge prévisionnelle'])+'</strong>'}</div>
+            <div><span class="proj-lbl">Date découverte</span>${editing?fld('Date découverte',p['Date découverte'],'date'):'<strong>'+esc(p['Date découverte']||'—')+'</strong>'}</div>
+            <div><span class="proj-lbl">Date pose prévue</span>${editing?fld('Date pose prévue',p['Date pose prévue'],'date'):'<strong>'+esc(p['Date pose prévue']||'—')+'</strong>'}</div>
+          </div>
+          <div class="form-row" style="margin-top:14px"><label class="proj-lbl">Description</label>${editing?`<textarea class="edit-inp" data-pf="Description" rows="3">${esc(p.Description||'')}</textarea>`:'<div style="font-size:13px;color:var(--ink2);white-space:pre-wrap">'+esc(p.Description||'—')+'</div>'}</div>
+
+          ${events.length ? `
+            <h2 class="zone-title" style="margin-top:24px">Timeline du chantier</h2>
+            <div class="timeline">
+              ${events.map(e=>`<div class="tl-item tl-${e.type}"><div class="tl-date">${esc(e.date)}</div><div class="tl-label">${esc(e.label)}</div></div>`).join('')}
+            </div>` : ''}
+
+          ${(() => {
+            const principaux = devisLies.filter(d => (d['Type devis']||'Principal') === 'Principal');
+            const additifs = devisLies.filter(d => d['Type devis'] === 'Additif');
+            const totalAdditifs = additifs.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
+            const totalPrincipal = principaux.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
+            const totalCumule = totalPrincipal + totalAdditifs;
+            const renderRow = (d) => {
+              const sc = {'Brouillon':'b-gray','Envoyé':'b-amber','Signé':'b-green','Annulé':'b-red'}[d.Statut]||'b-gray';
+              const tc = d['Type devis'] === 'Additif' ? 'b-amber' : 'b-blue';
+              return `<div class="proj-row" onclick="switchTab('devis');openDevisDetail('${d.id}')">
+                <div><strong>${esc(d['Numéro devis']||'—')}</strong> <span class="badge ${tc}">${esc(d['Type devis']||'Principal')}</span> <span class="badge ${sc}">${esc(d.Statut||'')}</span>${d.Milieu?` <span class="badge b-blue">${esc(d.Milieu)}</span>`:''}</div>
+                <div style="font-family:'DM Mono',monospace">${euros(d['Total TTC'])}</div>
+              </div>`;
+            };
             return `
-            <span class="art-chip" style="display:inline-flex;align-items:center;gap:4px;background:var(--paper);border:1px solid var(--border);border-radius:16px;padding:4px 4px 4px 10px;font-size:12px">
-              <span>${esc(a.Nom)}</span>
-              <span style="color:var(--ink3);font-size:10px">${esc(a['Spécialité']||'')}</span>
-              ${ficheUrl ? `<a href="${ficheUrl}" target="_blank" style="color:var(--green,#5a8a3a);text-decoration:none;font-size:12px;padding:0 4px" title="Voir la fiche PDF">📄</a>` : ''}
-              <button onclick="openFicheEditor('${p.id}','${a.id}')" style="background:none;border:none;color:var(--gold);cursor:pointer;font-size:12px;padding:0 4px" title="${ficheUrl?'Modifier la fiche':'Créer la fiche'}">✏️</button>
-              <button onclick="removeArtisanFromProjet('${p.id}','${a.id}')" style="background:none;border:none;color:var(--ink3);cursor:pointer;font-size:14px;padding:0 4px" title="Retirer">×</button>
-            </span>`;
-          }).join('') || '<span style="color:var(--ink4);font-size:12px">Aucun artisan affecté</span>'}
-          <button onclick="openArtisanPicker('${p.id}')" class="btn-ghost" style="padding:4px 10px;font-size:12px">+ Ajouter</button>
-        </div>`;
-      })()}
+            <h2 id="zone-devis" class="zone-title" style="margin-top:24px;display:flex;align-items:center;justify-content:space-between">
+              <span>Devis Tanguy Design (${devisLies.length})</span>
+              <div style="display:flex;gap:6px;align-items:center">
+                ${additifs.length ? `<span style="font-size:11px;color:var(--ink2);font-weight:400">Cumul HT : <strong>${euros(totalCumule)}</strong></span>` : ''}
+                <button class="abtn" type="button" onclick="openDevisAdditifModal('${p.id}')" title="Ajouter un devis additif (augmentation de scope)">+ Devis additif</button>
+              </div>
+            </h2>
+            ${principaux.length ? `<div class="proj-list">${principaux.map(renderRow).join('')}</div>` :
+              emptyCTA('Pas encore de devis principal', 'Importe le PDF Winner pour générer le devis + ses zones/lignes/échéances en un seul clic.', '📄 Importer un PDF Winner', `closeProjetDetail();switchTab('devis');setTimeout(()=>document.getElementById('devis-pdf-input').click(),100)`)}
+            ${additifs.length ? `<div style="margin-top:8px"><div style="font-size:11px;color:var(--ink2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Devis additifs · ${euros(totalAdditifs)} HT</div><div class="proj-list">${additifs.map(renderRow).join('')}</div></div>` : ''}`;
+          })()}
 
-      <div class="zone-title" style="margin-top:24px">Devis artisans (${devisArtisansLies.length}) <span style="float:right;font-size:12px;color:var(--ink3);font-weight:400">Total HT : <strong>${euros(totalArtisansHT)}</strong> · Rétro-commission 5% : <strong style="color:var(--gold)">${euros(totalRetrocom)}</strong></span></div>
-      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-        <label class="btn-ghost" style="cursor:pointer">
-          📎 Uploader un devis artisan
-          <input type="file" accept="application/pdf" style="display:none" onchange="uploadArtisanDevis(event,'${p.id}')">
-        </label>
-        ${(Array.isArray(p.Artisans)&&p.Artisans.length) ? `<button class="btn-primary" onclick="sendAllFichesMission('${p.id}')">✉️ Générer & envoyer les fiches de mission (${p.Artisans.length})</button>` : ''}
+          <div id="zone-fact">${facturationZoneHTML(p, devisLies, tachesLiees)}</div>
+
+          <h2 id="zone-cmds" class="zone-title" style="margin-top:24px">Commandes fournisseurs (${commandesLiees.length})</h2>
+          ${commandesLiees.length ? (() => {
+            const TYPES = ['Cuisine','Électroménager','Plan de travail','Sanitaire','Plan technique','Accessoires','Autre'];
+            const grouped = {};
+            commandesLiees.forEach(c => {
+              const t = c.Type || 'Non typé';
+              (grouped[t] = grouped[t] || []).push(c);
+            });
+            const order = [...TYPES, 'Non typé'].filter(t => grouped[t]);
+            const renderCmd = (c) => {
+              const sc = {'Créée':'b-gray','Envoyée':'b-amber','Confirmée':'b-blue','Livrée':'b-green','Posée':'b-ink'}[c.Statut]||'b-gray';
+              const next = {'Créée':'Envoyée','Envoyée':'Confirmée','Confirmée':'Livrée','Livrée':'Posée'}[c.Statut];
+              const urg = commandeUrgencyBadges(c);
+              return `<div class="proj-row" style="flex-wrap:wrap;gap:6px;cursor:pointer" onclick="openCommandeDetail('${c.id}')">
+                <div style="flex:1;min-width:200px">
+                  <strong>${esc(c['Numéro']||'—')}</strong>
+                  <span class="badge ${sc}">${esc(c.Statut||'')}</span>
+                  ${c.Type?`<span class="badge b-blue">${esc(c.Type)}</span>`:''}
+                  ${urg}
+                </div>
+                <div style="font-family:'DM Mono',monospace">${euros(c['Montant HT'])}</div>
+                ${next ? `<button type="button" class="cmd-qa-btn" onclick="event.stopPropagation();commandeQuickAdvance('${c.id}','${next}')" title="Passer à ${next}">→ ${next}</button>` : ''}
+              </div>`;
+            };
+            return order.map(t => {
+              const arr = grouped[t];
+              const total = arr.reduce((s,c)=>s+(c['Montant HT']||0),0);
+              return `<div style="margin-top:10px">
+                <div style="font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink2);margin-bottom:4px">${esc(t)} · ${arr.length} cmd · ${euros(total)} HT</div>
+                <div class="proj-list">${arr.map(renderCmd).join('')}</div>
+              </div>`;
+            }).join('');
+          })() : emptyCTA('Pas encore de commande', 'Les commandes fournisseurs sont auto-créées à la signature d\'un devis. Tu peux aussi en ajouter manuellement.', '+ Nouvelle commande', `closeProjetDetail();switchTab('commandes');openModal('commandes')`)}
+
+          ${(() => {
+            const artisanIds = Array.isArray(p.Artisans) ? p.Artisans : [];
+            const artisansProjet = artisanIds.map(id => DATA.artisans.find(a=>a.id===id)).filter(Boolean);
+            const ficheByArtisan = {};
+            (DATA['devis-artisans']||[]).forEach(da => {
+              if (!Array.isArray(da.Projet) || !da.Projet.includes(p.id)) return;
+              const aid = Array.isArray(da.Artisan) ? da.Artisan[0] : null;
+              if (!aid) return;
+              const fiche = (da['Fiche de mission PDF']||[])[0];
+              if (fiche) ficheByArtisan[aid] = fiche.url;
+            });
+            return `
+            <h2 id="zone-artisans" class="zone-title" style="margin-top:24px">Artisans du chantier (${artisansProjet.length})</h2>
+            ${artisansProjet.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+              ${artisansProjet.map(a => {
+                const ficheUrl = ficheByArtisan[a.id];
+                return `<span class="art-chip" style="display:inline-flex;align-items:center;gap:4px;background:var(--paper);border:1px solid var(--border);border-radius:16px;padding:4px 4px 4px 10px;font-size:12px">
+                  <span>${esc(a.Nom)}</span>
+                  <span style="color:var(--ink2);font-size:10px">${esc(a['Spécialité']||'')}</span>
+                  ${ficheUrl ? `<a href="${ficheUrl}" target="_blank" style="color:var(--green);text-decoration:none;font-size:12px;padding:0 4px" title="Voir la fiche PDF">📄</a>` : ''}
+                  <button type="button" onclick="openFicheEditor('${p.id}','${a.id}')" style="background:none;border:none;color:var(--gold-dark);cursor:pointer;font-size:12px;padding:0 4px" title="${ficheUrl?'Modifier la fiche':'Créer la fiche'}">✏️</button>
+                  <button type="button" onclick="removeArtisanFromProjet('${p.id}','${a.id}')" style="background:none;border:none;color:var(--ink2);cursor:pointer;font-size:14px;padding:0 4px" title="Retirer">×</button>
+                </span>`;
+              }).join('')}
+              <button type="button" onclick="openArtisanPicker('${p.id}')" class="btn-ghost" style="padding:4px 10px;font-size:12px">+ Ajouter un artisan</button>
+            </div>` : emptyCTA('Aucun artisan affecté', 'Ajoute les artisans du chantier pour générer leurs fiches de mission et calculer la rétro-commission 5 %.', '+ Affecter un artisan', `openArtisanPicker('${p.id}')`)}`;
+          })()}
+
+          <h2 id="zone-devis-art" class="zone-title" style="margin-top:24px">Devis artisans (${devisArtisansLies.length}) <span style="float:right;font-size:12px;color:var(--ink2);font-weight:400">Total HT : <strong>${euros(totalArtisansHT)}</strong> · Rétro 5 % : <strong style="color:var(--gold-dark)">${euros(totalRetrocom)}</strong></span></h2>
+          <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+            <label class="btn-ghost" style="cursor:pointer">
+              📎 Uploader un devis artisan
+              <input type="file" accept="application/pdf" style="display:none" onchange="uploadArtisanDevis(event,'${p.id}')">
+            </label>
+            ${(Array.isArray(p.Artisans)&&p.Artisans.length) ? `<button class="btn-primary" type="button" onclick="sendAllFichesMission('${p.id}')">✉️ Générer & envoyer les fiches de mission (${p.Artisans.length})</button>` : ''}
+          </div>
+          ${devisArtisansLies.length ? `<div class="proj-list">${devisArtisansLies.map(d => {
+            const artId = Array.isArray(d.Artisan) ? d.Artisan[0] : null;
+            const art = artId ? DATA.artisans.find(a=>a.id===artId) : null;
+            const sc = {'À valider':'b-amber','Validé':'b-blue','Fiche envoyée':'b-green','Annulé':'b-red'}[d.Statut]||'b-gray';
+            const pdfUrl = (d['PDF devis original']||[])[0]?.url;
+            const ficheUrl = (d['Fiche de mission PDF']||[])[0]?.url;
+            return `<div class="proj-row">
+              <div style="flex:1">
+                <div><strong>${esc(d['Numéro devis']||'—')}</strong> <span class="badge ${sc}">${esc(d.Statut||'')}</span> ${art?`<span class="badge b-blue">${esc(art.Nom)}</span>`:'<span class="badge b-red">Artisan non lié</span>'}</div>
+                <div style="font-size:11px;color:var(--ink2);margin-top:4px">${esc(d['Description travaux']||'').slice(0,120)}${(d['Description travaux']||'').length>120?'…':''}</div>
+              </div>
+              <div style="text-align:right;min-width:200px">
+                <div style="font-family:'DM Mono',monospace">${euros(d['Montant HT'])} HT</div>
+                <div style="font-size:11px;color:var(--gold-dark)">Rétro 5 % : ${euros(d['Rétro-commission HT'])}</div>
+                <div style="margin-top:4px;display:flex;gap:6px;justify-content:flex-end">
+                  ${pdfUrl?`<a href="${pdfUrl}" target="_blank" style="font-size:11px;color:var(--ink2)">📄 Devis</a>`:''}
+                  ${ficheUrl?`<a href="${ficheUrl}" target="_blank" style="font-size:11px;color:var(--green)">📋 Fiche</a>`:''}
+                  <button type="button" onclick="sendFicheMission('${d.id}')" style="font-size:11px;background:none;border:1px solid var(--ink2);color:var(--ink2);padding:2px 8px;border-radius:4px;cursor:pointer">✉️ Envoyer</button>
+                  <button type="button" onclick="deleteArtisanDevis('${d.id}')" style="font-size:11px;background:none;border:1px solid #c44;color:#c44;padding:2px 8px;border-radius:4px;cursor:pointer">🗑</button>
+                </div>
+              </div>
+            </div>`;
+          }).join('')}</div>` : emptyCTA('Aucun devis artisan', 'Upload un PDF de devis artisan pour le rattacher au chantier et calculer la rétro-commission 5 %.', null, null)}
+
+          <h2 id="zone-taches" class="zone-title" style="margin-top:24px">Tâches (${tachesLiees.length})</h2>
+          ${tachesLiees.length ? `<div class="proj-list">${tachesLiees.map(t=>{
+            const pc = {'Haute':'b-red','Moyenne':'b-amber','Basse':'b-gray'}[t.Priorité]||'b-gray';
+            const sc = {'À faire':'b-gray','En cours':'b-amber','Terminée':'b-green'}[t.Statut]||'b-gray';
+            return `<div class="proj-row">
+              <div><strong>${esc(t.Titre||'—')}</strong> <span class="badge ${pc}">${esc(t.Priorité||'')}</span> <span class="badge ${sc}">${esc(t.Statut||'')}</span></div>
+              <div style="font-size:11px;color:var(--ink2)">${esc(t['Assignée à']||'')} · ${esc(t.Échéance||'')}</div>
+            </div>`;
+          }).join('')}</div>` : emptyCTA('Aucune tâche sur ce chantier', 'Les tâches d\'orchestration (acompte, BC fournisseurs, planif pose) sont créées auto à la signature d\'un devis.', '+ Nouvelle tâche', `openTaskEdit(null)`)}
+
+          <div id="zone-plaud">${projetReunionsSection(p)}</div>
+
+          <div id="zone-journal">${projetJournalSection(p)}</div>
+
+          ${projetAttachmentsTabs(p)}
+
+        </div>
       </div>
-      ${devisArtisansLies.length ? `<div class="proj-list">${devisArtisansLies.map(d => {
-        const artId = Array.isArray(d.Artisan) ? d.Artisan[0] : null;
-        const art = artId ? DATA.artisans.find(a=>a.id===artId) : null;
-        const sc = {'À valider':'b-amber','Validé':'b-blue','Fiche envoyée':'b-green','Annulé':'b-red'}[d.Statut]||'b-gray';
-        const pdfUrl = (d['PDF devis original']||[])[0]?.url;
-        const ficheUrl = (d['Fiche de mission PDF']||[])[0]?.url;
-        return `<div class="proj-row">
-          <div style="flex:1">
-            <div><strong>${esc(d['Numéro devis']||'—')}</strong> <span class="badge ${sc}">${esc(d.Statut||'')}</span> ${art?`<span class="badge b-blue">${esc(art.Nom)}</span>`:'<span class="badge b-red">Artisan non lié</span>'}</div>
-            <div style="font-size:11px;color:var(--ink3);margin-top:4px">${esc(d['Description travaux']||'').slice(0,120)}${(d['Description travaux']||'').length>120?'…':''}</div>
-          </div>
-          <div style="text-align:right;min-width:200px">
-            <div style="font-family:'DM Mono',monospace">${euros(d['Montant HT'])} HT</div>
-            <div style="font-size:11px;color:var(--gold)">Rétrocom 5% : ${euros(d['Rétro-commission HT'])}</div>
-            <div style="margin-top:4px;display:flex;gap:6px;justify-content:flex-end">
-              ${pdfUrl?`<a href="${pdfUrl}" target="_blank" style="font-size:11px;color:var(--ink3)">📄 Devis</a>`:''}
-              ${ficheUrl?`<a href="${ficheUrl}" target="_blank" style="font-size:11px;color:var(--green)">📋 Fiche</a>`:''}
-              <button onclick="sendFicheMission('${d.id}')" style="font-size:11px;background:none;border:1px solid var(--ink4);color:var(--ink2);padding:2px 8px;border-radius:4px;cursor:pointer">✉️ Envoyer</button>
-              <button onclick="deleteArtisanDevis('${d.id}')" style="font-size:11px;background:none;border:1px solid #c44;color:#c44;padding:2px 8px;border-radius:4px;cursor:pointer">🗑</button>
-            </div>
-          </div>
-        </div>`;
-      }).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucun devis artisan. Uploadez un PDF ci-dessus pour en ajouter un.</div>'}
-
-      <div class="zone-title" style="margin-top:24px">Tâches (${tachesLiees.length})</div>
-      ${tachesLiees.length ? `<div class="proj-list">${tachesLiees.map(t=>{
-        const pc = {'Haute':'b-red','Moyenne':'b-amber','Basse':'b-gray'}[t.Priorité]||'b-gray';
-        const sc = {'À faire':'b-gray','En cours':'b-amber','Terminée':'b-green'}[t.Statut]||'b-gray';
-        return `<div class="proj-row">
-          <div><strong>${esc(t.Titre||'—')}</strong> <span class="badge ${pc}">${esc(t.Priorité||'')}</span> <span class="badge ${sc}">${esc(t.Statut||'')}</span></div>
-          <div style="font-size:11px;color:var(--ink3)">${esc(t['Assignée à']||'')} · ${esc(t.Échéance||'')}</div>
-        </div>`;
-      }).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucune tâche</div>'}
-
-      ${projetReunionsSection(p)}
-
-      ${projetJournalSection(p)}
-
-      ${projetAttachmentsSection(p, 'Plan 3D', 'Visualisations 3D Winner/Métron, plans d’aménagement, dossiers de présentation client')}
-      ${projetAttachmentsSection(p, 'Plan technique', 'Plans techniques avec cotes, plans archi, vues autocad, prise de cotes')}
-      ${projetAttachmentsSection(p, 'Images', 'Photos chantier, références ambiance, moodboards')}
-      ${projetAttachmentsSection(p, 'Documents projet', 'Factures, AR, attestations, cahier des charges, notices, comptes rendus…')}
-
     </div>`;
   document.getElementById('projet-detail-view').innerHTML = html;
 }
@@ -2772,6 +2803,96 @@ function sendFicheChantier(projetId) {
 
   const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines)}`;
   window.location.href = mailto;
+}
+
+// ============ ONGLETS ATTACHMENTS (4 zones en 1) ============
+// Avant : 4 sections empilées sur 800+ px. Maintenant : onglets — 1 visible à la fois.
+// Onglet actif par défaut = premier non vide, sinon Plan 3D.
+function projetAttachmentsTabs(p) {
+  const fields = [
+    {name:'Plan 3D',          hint:'Visualisations 3D Winner/Métron, plans d\'aménagement, dossiers de présentation client.', icon:'🏠'},
+    {name:'Plan technique',   hint:'Plans techniques avec cotes, plans archi, vues autocad, prises de cotes.',                icon:'📐'},
+    {name:'Images',           hint:'Photos chantier, références ambiance, moodboards.',                                       icon:'📸'},
+    {name:'Documents projet', hint:'Factures, AR, attestations, cahier des charges, notices, comptes rendus…',                icon:'📁'}
+  ];
+  let activeIdx = 0;
+  for (let i = 0; i < fields.length; i++) {
+    const arr = Array.isArray(p[fields[i].name]) ? p[fields[i].name] : [];
+    if (arr.length > 0) { activeIdx = i; break; }
+  }
+  const tabsHtml = fields.map((f, i) => {
+    const count = Array.isArray(p[f.name]) ? p[f.name].length : 0;
+    return `<button class="attach-tab ${i===activeIdx?'on':''}" type="button" data-attach-tab="${i}" onclick="switchAttachTab(${i})">
+      ${f.icon} ${esc(f.name)} <span class="at-count">${count}</span>
+    </button>`;
+  }).join('');
+  const panesHtml = fields.map((f, i) => {
+    return `<div class="attach-pane ${i===activeIdx?'on':''}" data-attach-pane="${i}">
+      ${projetAttachmentsSection(p, f.name, f.hint)}
+    </div>`;
+  }).join('');
+  return `<div id="zone-attach">
+    <div class="attach-tabs" role="tablist" aria-label="Documents du projet">${tabsHtml}</div>
+    ${panesHtml}
+  </div>`;
+}
+function switchAttachTab(idx) {
+  document.querySelectorAll('[data-attach-tab]').forEach(b => b.classList.toggle('on', Number(b.dataset.attachTab) === idx));
+  document.querySelectorAll('[data-attach-pane]').forEach(p => p.classList.toggle('on', Number(p.dataset.attachPane) === idx));
+}
+
+// ============ SIDEBAR TOC FICHE PROJET (desktop ≥1100px) ============
+// Sticky panel à gauche avec ancres vers les sections + compteurs + indicateurs urgence.
+function projetTOC(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies) {
+  const today = new Date().toISOString().slice(0,10);
+  const cmdsUrgentes = commandesLiees.some(c => !c['Date livraison prévue'] && !['Livrée','Posée'].includes(c.Statut));
+  const tachesEnRetard = tachesLiees.filter(t => t.Statut!=='Terminée' && t.Échéance && t.Échéance < today).length;
+  const devisAttente = devisLies.filter(d => d.Statut === 'Envoyé').length;
+  const items = [
+    {id:'zone-stepper',  label:'Parcours',         count:''},
+    {id:'zone-bilan',    label:'Bilan financier',  count:''},
+    {id:'zone-info',     label:'Informations',     count:''},
+    {id:'zone-devis',    label:'Devis Tanguy',     count:devisLies.length, urgent: devisAttente>0},
+    {id:'zone-fact',     label:'Facturation',      count:''},
+    {id:'zone-cmds',     label:'Commandes',        count:commandesLiees.length, urgent: cmdsUrgentes},
+    {id:'zone-artisans', label:'Artisans',         count:(p.Artisans||[]).length},
+    {id:'zone-devis-art',label:'Devis artisans',   count:devisArtisansLies.length},
+    {id:'zone-taches',   label:'Tâches',           count:tachesLiees.filter(t=>t.Statut!=='Terminée').length, urgent: tachesEnRetard>0},
+    {id:'zone-plaud',    label:'Réunions Plaud',   count:''},
+    {id:'zone-journal',  label:'Journal',          count:''},
+    {id:'zone-attach',   label:'Documents',        count:''}
+  ];
+  return `<aside class="proj-toc" id="proj-toc" aria-label="Sommaire de la fiche projet">
+    <div class="proj-toc-title">Sommaire</div>
+    ${items.map(it => `<a href="#${it.id}" onclick="event.preventDefault();document.getElementById('${it.id}')?.scrollIntoView({behavior:'smooth',block:'start'});" ${it.urgent?'class="urgent"':''} title="${it.urgent?'⚠ Action requise':''}">
+      <span>${esc(it.label)}</span>
+      ${it.count !== '' ? `<span class="toc-count">${it.count}</span>` : ''}
+    </a>`).join('')}
+  </aside>`;
+}
+
+// ============ BADGES URGENCE COMMANDES ============
+// Calculés front. Visent à faire ressortir ce qui doit être traité.
+function commandeUrgencyBadges(c) {
+  const badges = [];
+  if (!c['Date livraison prévue'] && !['Livrée','Posée'].includes(c.Statut)) {
+    badges.push('<span class="badge-urg" title="Aucune date de livraison saisie">⚠ Sans date</span>');
+  }
+  if (c.Statut === 'Envoyée' && c['Date création']) {
+    const days = Math.floor((Date.now() - Date.parse(c['Date création'])) / 86400000);
+    if (days > 7) badges.push(`<span class="badge-urg warn" title="Envoyée depuis ${days} jours sans confirmation fournisseur">⏳ +${days}j sans AR</span>`);
+  }
+  return badges.join(' ');
+}
+
+// ============ EMPTY STATE AVEC CTA ============
+// Plus expressif que "Aucun X" : titre + raison + bouton d'action.
+function emptyCTA(title, sub, btnLabel, btnOnclick) {
+  return `<div class="empty-cta">
+    <div class="empty-cta-title">${esc(title)}</div>
+    <div class="empty-cta-sub">${esc(sub)}</div>
+    ${btnLabel ? `<button class="empty-cta-btn" type="button" onclick="${btnOnclick}">${esc(btnLabel)}</button>` : ''}
+  </div>`;
 }
 
 function projetAttachmentsSection(p, fieldName, hint) {
