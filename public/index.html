@@ -270,6 +270,86 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 @media(max-width:900px){.kanban-grid{grid-template-columns:1fr}}
 .kc-assign{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3);background:transparent;border:1px solid var(--border);border-radius:3px;padding:2px 6px;cursor:pointer;outline:none}
 .kc-assign:hover{border-color:var(--gold);color:var(--ink)}
+
+/* === Parcours stepper (fiche projet) === */
+.parcours-wrap{background:linear-gradient(180deg,#fff 0%,var(--paper) 100%);border:1px solid var(--border);border-radius:var(--r);padding:18px 16px 14px;margin-bottom:18px}
+.parcours-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px}
+.parcours-head .ph-title{font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink2);font-weight:600}
+.parcours-head .ph-progress{font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em}
+.parcours-head .ph-progress strong{color:var(--gold);font-weight:600}
+.parcours-stepper{display:flex;gap:0;align-items:flex-start;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:8px 4px 14px;position:relative;scrollbar-width:thin}
+.parcours-stepper::-webkit-scrollbar{height:6px}
+.parcours-stepper::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+.ps-step{display:flex;flex-direction:column;align-items:center;flex:1 0 auto;min-width:78px;max-width:130px;padding:0 4px;position:relative;cursor:pointer;text-decoration:none;color:inherit}
+.ps-step + .ps-step::before{content:"";position:absolute;top:18px;left:-50%;width:100%;height:2px;background:var(--border);z-index:0}
+.ps-step.done + .ps-step::before,.ps-step.cur + .ps-step::before{background:linear-gradient(90deg,var(--green) 0%,var(--gold) 100%)}
+.ps-step.done + .ps-step.done::before{background:var(--green)}
+.ps-circle{width:36px;height:36px;border-radius:50%;background:#fff;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--ink3);position:relative;z-index:1;transition:all .15s;flex-shrink:0}
+.ps-step:hover .ps-circle{transform:scale(1.08);box-shadow:0 4px 12px rgba(0,0,0,.08)}
+.ps-step.done .ps-circle{background:var(--green);border-color:var(--green);color:#fff}
+.ps-step.cur .ps-circle{background:var(--gold);border-color:var(--gold);color:#fff;box-shadow:0 0 0 4px rgba(184,149,106,.18);animation:ps-pulse 2s ease-in-out infinite}
+.ps-step.partial .ps-circle{background:var(--amber-bg);border-color:var(--amber);color:var(--amber)}
+.ps-step.blocked .ps-circle{background:var(--red-bg);border-color:var(--red);color:var(--red)}
+@keyframes ps-pulse{0%,100%{box-shadow:0 0 0 4px rgba(184,149,106,.18)}50%{box-shadow:0 0 0 6px rgba(184,149,106,.32)}}
+.ps-num{font-family:'DM Mono',monospace;font-size:9px;color:var(--ink4);margin-top:5px;letter-spacing:.04em}
+.ps-label{font-size:11px;color:var(--ink2);margin-top:3px;text-align:center;line-height:1.2;font-weight:500;max-width:120px}
+.ps-step.done .ps-label{color:var(--green)}
+.ps-step.cur .ps-label{color:var(--gold-dark);font-weight:600}
+.ps-step.blocked .ps-label{color:var(--red)}
+.ps-meta{font-family:'DM Mono',monospace;font-size:9px;color:var(--ink4);margin-top:2px;text-align:center;letter-spacing:.03em}
+
+/* Actions à faire (sous le stepper) */
+.parcours-actions{margin-top:6px;border-top:1px dashed var(--border);padding-top:12px}
+.parcours-actions-title{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink3);margin-bottom:8px;font-weight:600;display:flex;align-items:center;gap:6px}
+.parcours-actions-title::before{content:"⚡";font-size:11px}
+.pa-list{display:flex;flex-wrap:wrap;gap:8px}
+.pa-chip{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--border);border-left:3px solid var(--gold);border-radius:4px;padding:7px 11px 7px 9px;font-size:12px;color:var(--ink2);cursor:pointer;transition:all .12s;text-align:left}
+.pa-chip:hover{background:var(--gold-bg);border-color:var(--gold)}
+.pa-chip.urgent{border-left-color:var(--red);background:var(--red-bg)}
+.pa-chip.urgent:hover{background:#fae0db}
+.pa-chip-icon{font-size:13px}
+.pa-chip-meta{font-family:'DM Mono',monospace;font-size:9px;color:var(--ink4);text-transform:uppercase;letter-spacing:.04em;margin-left:4px}
+.pa-empty{font-size:12px;color:var(--green);font-style:italic;padding:4px 0}
+
+/* === Bilan financier prévisionnel (fiche projet) === */
+.bilan-fin{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:14px 18px;margin-top:8px;margin-bottom:8px}
+.bilan-fin-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.bilan-fin-head .bf-title{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink3);font-weight:600}
+.bilan-fin-head .bf-mode{font-family:'DM Mono',monospace;font-size:9px;color:var(--ink4);background:var(--paper);padding:2px 8px;border-radius:10px;border:1px solid var(--border)}
+.bf-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--border);border-radius:5px;overflow:hidden}
+@media(max-width:700px){.bf-grid{grid-template-columns:repeat(2,1fr)}}
+.bf-cell{padding:11px 12px;background:#fff;border-right:1px solid var(--border);border-bottom:1px solid var(--border)}
+.bf-cell:last-child{border-right:none}
+.bf-cell.bf-result{background:var(--gold-bg);border-right:none}
+.bf-cell .bf-lbl{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:4px}
+.bf-cell .bf-val{font-family:'DM Mono',monospace;font-size:15px;font-weight:500;color:var(--ink)}
+.bf-cell .bf-sub{font-size:10px;color:var(--ink4);margin-top:2px}
+.bf-cell.bf-cost .bf-val{color:#c25656}
+.bf-cell.bf-result .bf-val{color:var(--gold-dark);font-weight:700;font-size:17px}
+.bf-cell.bf-result.bf-neg .bf-val{color:#c25656}
+.bf-breakdown{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}
+.bf-bd-chip{font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);background:var(--paper);border:1px solid var(--border);border-radius:3px;padding:3px 8px}
+.bf-bd-chip strong{color:var(--ink);font-weight:600}
+
+/* === Zone Facturation (fiche projet) === */
+.facturation-zone{background:linear-gradient(135deg,var(--gold-bg) 0%,#fff 100%);border:1px solid var(--gold);border-left:3px solid var(--gold);border-radius:var(--r);padding:14px 16px;margin-top:14px}
+.fz-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px}
+.fz-title{font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--gold-dark);font-weight:700;display:flex;align-items:center;gap:6px}
+.fz-status{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink4)}
+.fz-buttons{display:flex;flex-wrap:wrap;gap:8px}
+.fz-btn{display:flex;flex-direction:column;align-items:flex-start;gap:2px;background:#fff;border:1px solid var(--gold);border-radius:5px;padding:8px 12px;cursor:pointer;font-family:inherit;color:var(--ink);transition:all .12s;flex:1 0 auto;min-width:160px;max-width:240px;text-align:left}
+.fz-btn:hover{background:var(--gold);color:#fff}
+.fz-btn.done{background:var(--green-bg);border-color:var(--green);color:var(--green);cursor:default}
+.fz-btn.done:hover{background:var(--green-bg)}
+.fz-btn-lbl{font-size:11px;font-weight:600;display:flex;align-items:center;gap:5px}
+.fz-btn-amt{font-family:'DM Mono',monospace;font-size:12px;color:inherit;opacity:.75;font-weight:500}
+
+/* === Boutons rapides commandes === */
+.cmd-quick-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.cmd-qa-btn{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.04em;background:#fff;border:1px solid var(--border);color:var(--ink2);padding:5px 10px;border-radius:3px;cursor:pointer;transition:all .12s}
+.cmd-qa-btn:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.cmd-qa-btn.active{background:var(--gold);color:#fff;border-color:var(--gold)}
+
 /* Modal client */
 .modal-bg{position:fixed;inset:0;background:rgba(26,25,22,.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
 .modal-card{background:var(--paper);border-radius:8px;max-width:640px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)}
@@ -824,7 +904,31 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 
   <!-- COMMANDES -->
   <section class="scr" id="scr-commandes">
-    <div class="sh"><div class="st">Commandes fournisseurs</div><button class="abtn primary" onclick="openModal('commandes')">+ Nouvelle commande</button></div>
+    <div class="sh">
+      <div class="st">Commandes fournisseurs</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="commandes-filter-type" onchange="renderCommandes()" style="padding:7px 10px;border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:12px;background:#fff">
+          <option value="">Tous les types</option>
+          <option value="Cuisine">Cuisine</option>
+          <option value="Électroménager">Électroménager</option>
+          <option value="Plan de travail">Plan de travail</option>
+          <option value="Sanitaire">Sanitaire</option>
+          <option value="Plan technique">Plan technique</option>
+          <option value="Accessoires">Accessoires</option>
+          <option value="Autre">Autre</option>
+          <option value="__notyped">Sans type</option>
+        </select>
+        <select id="commandes-filter-statut" onchange="renderCommandes()" style="padding:7px 10px;border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:12px;background:#fff">
+          <option value="">Tous les statuts</option>
+          <option value="Créée">Créée</option>
+          <option value="Envoyée">Envoyée</option>
+          <option value="Confirmée">Confirmée</option>
+          <option value="Livrée">Livrée</option>
+          <option value="Posée">Posée</option>
+        </select>
+        <button class="abtn primary" onclick="openModal('commandes')">+ Nouvelle commande</button>
+      </div>
+    </div>
     <div class="list" id="list-commandes"></div>
   </section>
 
@@ -1492,10 +1596,12 @@ function commandeCard(c){
   else if (orig.type === 'auto') origBadge = `<span class="badge b-amber">⚡ Auto devis</span>`;
   else origBadge = `<span class="badge b-gray">✍ Manuelle</span>`;
   const fournBadge = orig.fournisseur ? `<span class="badge b-gray">${esc(orig.fournisseur)}</span>` : '';
+  const typeBadge = c.Type ? `<span class="badge b-blue">${esc(c.Type)}</span>` : '';
+  const next = {'Créée':'Envoyée','Envoyée':'Confirmée','Confirmée':'Livrée','Livrée':'Posée'}[c.Statut];
 
   return `<div class="card" onclick="openCommandeDetail('${c.id}')" style="cursor:pointer">
     <div class="card-top">
-      <div class="card-nom">${esc(c.Numéro||'—')} <span class="badge ${statutClass}">${esc(c.Statut||'—')}</span> ${origBadge} ${fournBadge} ${c['Facture reçue']?'<span class="badge b-green">Facture ✓</span>':''}</div>
+      <div class="card-nom">${esc(c.Numéro||'—')} <span class="badge ${statutClass}">${esc(c.Statut||'—')}</span> ${typeBadge} ${origBadge} ${fournBadge} ${c['Facture reçue']?'<span class="badge b-green">Facture ✓</span>':''}</div>
       <div class="card-amt">${euros(c['Montant HT'])}</div>
     </div>
     <div class="card-meta">
@@ -1504,6 +1610,7 @@ function commandeCard(c){
       <span>Livraison ${esc(c['Date livraison prévue']||'—')}</span>
       ${orig.type === 'import' && orig.pdf ? `<span style="color:var(--ink4);font-size:10px">Source : ${esc(orig.pdf)}</span>` : ''}
     </div>
+    ${next ? `<div class="cmd-quick-actions"><button class="cmd-qa-btn" onclick="event.stopPropagation();commandeQuickAdvance('${c.id}','${next}')" title="Passer à ${next}">→ ${next}</button></div>` : ''}
   </div>`;
 }
 
@@ -1512,6 +1619,9 @@ function openCommandeDetail(cmdId){
   const orig = commandeOrigin(c);
   const projetId = Array.isArray(c.Projet) ? c.Projet[0] : null;
   const projet = projetId ? DATA.projets.find(p => p.id === projetId) : null;
+  const STATUTS_CMD = ['Créée','Envoyée','Confirmée','Livrée','Posée'];
+  const TYPES_CMD = ['Cuisine','Électroménager','Plan de travail','Sanitaire','Accessoires','Autre'];
+  const next = {'Créée':'Envoyée','Envoyée':'Confirmée','Confirmée':'Livrée','Livrée':'Posée'}[c.Statut];
   const html = `
     <div class="modal-bg on" id="cmd-detail-bg" onclick="if(event.target===this)closeCommandeDetail()">
       <div class="modal-card" style="max-width:540px">
@@ -1520,20 +1630,34 @@ function openCommandeDetail(cmdId){
           <button class="modal-close" onclick="closeCommandeDetail()">×</button>
         </div>
         <div class="modal-body">
-          <div class="form-row"><label>Statut</label><strong>${esc(c.Statut||'—')}</strong></div>
+          <div class="form-grid2">
+            <div class="form-row"><label>Statut</label>
+              <select id="cmd-edit-statut">${STATUTS_CMD.map(s=>`<option ${c.Statut===s?'selected':''}>${s}</option>`).join('')}</select>
+            </div>
+            <div class="form-row"><label>Type</label>
+              <select id="cmd-edit-type">
+                <option value="">— non typé —</option>
+                ${TYPES_CMD.map(t=>`<option ${c.Type===t?'selected':''}>${t}</option>`).join('')}
+              </select>
+            </div>
+          </div>
           <div class="form-row"><label>Projet</label>${projet ? `<a href="#" onclick="event.preventDefault();closeCommandeDetail();switchTab('projets');openProjetDetail('${projetId}')" style="color:var(--gold)">${esc(projet.Référence||'—')}</a>` : '<em>Non lié</em>'}</div>
           <div class="form-row"><label>Montant HT</label><strong>${euros(c['Montant HT'])}</strong></div>
-          <div class="form-row"><label>Date création</label>${esc(c['Date création']||'—')}</div>
-          <div class="form-row"><label>Livraison prévue</label>${esc(c['Date livraison prévue']||'—')}</div>
+          <div class="form-grid2">
+            <div class="form-row"><label>Date création</label><strong>${esc(c['Date création']||'—')}</strong></div>
+            <div class="form-row"><label>Livraison prévue</label><input type="date" id="cmd-edit-livraison" value="${esc(c['Date livraison prévue']||'')}"></div>
+          </div>
           <div class="form-row"><label>Origine</label>
             ${orig.type==='import' ? `<div><strong>Importée depuis PDF</strong><br><span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${esc(orig.pdf)}</span>${orig.fournisseur?`<br><span style="font-size:11px">Fournisseur : ${esc(orig.fournisseur)}</span>`:''}</div>` :
               orig.type==='auto' ? `<strong>Générée automatiquement</strong> à la signature d'un devis` :
               `<strong>Saisie manuelle</strong>`}
           </div>
           ${c.Notes ? `<div class="form-row"><label>Notes</label><div style="font-size:12px;color:var(--ink2);white-space:pre-wrap;background:#faf8f4;padding:10px;border-radius:4px">${esc(c.Notes)}</div></div>` : ''}
+          ${next ? `<div style="margin-top:6px"><button class="cmd-qa-btn active" onclick="commandeQuickAdvance('${c.id}','${next}',true)">⚡ Avancer en 1 clic → ${next}</button></div>` : ''}
         </div>
         <div class="modal-foot" style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--border)">
-          <button class="abtn" onclick="closeCommandeDetail()">Fermer</button>
+          <button class="abtn" onclick="closeCommandeDetail()">Annuler</button>
+          <button class="abtn primary" onclick="saveCommandeEdit('${c.id}')">Enregistrer</button>
         </div>
       </div>
     </div>`;
@@ -1541,6 +1665,46 @@ function openCommandeDetail(cmdId){
   document.body.appendChild(host);
 }
 function closeCommandeDetail(){ document.getElementById('cmd-detail-host')?.remove(); }
+
+async function saveCommandeEdit(cmdId){
+  const fields = {};
+  const statut = document.getElementById('cmd-edit-statut')?.value;
+  const type = document.getElementById('cmd-edit-type')?.value;
+  const livraison = document.getElementById('cmd-edit-livraison')?.value;
+  if (statut) fields['Statut'] = statut;
+  if (type !== undefined) fields['Type'] = type || null;
+  if (livraison !== undefined) fields['Date livraison prévue'] = livraison || null;
+  try {
+    const r = await fetch('/api/data/commandes/'+cmdId, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields})});
+    if (!r.ok) {
+      const err = await r.json().catch(()=>({}));
+      // Erreur typique : champ Type pas encore créé sur Airtable → faire fallback gracieux
+      if (/UNKNOWN_FIELD_NAME|Type/i.test(err.error?.message||err.error||'')) {
+        toastError('Champ "Type" pas encore créé sur Airtable. Lance scripts/setup-commande-type.js puis recharge.');
+        return;
+      }
+      throw new Error(err.error?.message||err.error||'erreur');
+    }
+    toastSuccess('Commande mise à jour');
+    closeCommandeDetail();
+    await loadAll();
+  } catch(e) { toastError('Erreur : '+e.message); }
+}
+
+async function commandeQuickAdvance(cmdId, newStatut, closeAfter) {
+  const c = DATA.commandes.find(x=>x.id===cmdId); if(!c) return;
+  if (!confirm(`Passer la commande ${c.Numéro||cmdId} → "${newStatut}" ?`)) return;
+  try {
+    const r = await fetch('/api/data/commandes/'+cmdId, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{Statut:newStatut}})});
+    if (!r.ok) {
+      const err = await r.json().catch(()=>({}));
+      throw new Error(err.error?.message || err.error || 'erreur');
+    }
+    toastSuccess(`Commande → ${newStatut}`);
+    if (closeAfter) closeCommandeDetail();
+    await loadAll();
+  } catch(e) { toastError('Erreur : '+e.message); }
+}
 
 function taskCard(t){
   const prioClass = {'Haute':'b-red','Moyenne':'b-amber','Basse':'b-gray'}[t.Priorité]||'b-gray';
@@ -1608,6 +1772,392 @@ function closeProjetDetail(){
 function toggleProjetEdit(on){ PROJET_EDIT = on; const p = DATA.projets.find(x=>x.id===CURRENT_PROJET_ID); if(p)renderProjetDetail(p); }
 let CURRENT_PROJET_ID = null;
 
+// ============ PARCOURS CHANTIER (stepper) ============
+// Calcule l'état des 11 étapes du parcours idéal client à partir des données projet.
+// Pas de nouveau champ Airtable requis : tout est dérivé des statuts/dates/tâches/commandes/devis existants.
+function computeParcours(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies) {
+  const reunionsR1 = (DATA['reunions-plaud']||[]).filter(r => Array.isArray(r.Projet) && r.Projet.includes(p.id) && (r.Niveau||'R1')==='R1');
+  const reunionsR2 = (DATA['reunions-plaud']||[]).filter(r => Array.isArray(r.Projet) && r.Projet.includes(p.id) && r.Niveau==='R2');
+  const fichesDecouverte = (DATA['fiches-decouverte']||[]).filter(f => Array.isArray(f.Projet) && f.Projet.includes(p.id));
+  const savLies = (DATA.sav||[]).filter(s => Array.isArray(s.Projet) && s.Projet.includes(p.id));
+
+  const devisEnvoyes = devisLies.filter(d => ['Envoyé','Signé'].includes(d.Statut));
+  const devisSignes = devisLies.filter(d => d.Statut === 'Signé');
+  const tachesAcompte = tachesLiees.filter(t => /facture acompte|acompte/i.test(t.Titre || ''));
+  const tachesAcompteDone = tachesAcompte.filter(t => t.Statut === 'Terminée');
+  const tachesFactureSolde = tachesLiees.filter(t => /facture solde|facture client|facture finale|solde/i.test(t.Titre || ''));
+  const tachesFactureSoldeDone = tachesFactureSolde.filter(t => t.Statut === 'Terminée');
+  const planTechFiles = (p['Plan technique']||[]).length;
+  const cmdsEnvoyees = commandesLiees.filter(c => ['Envoyée','Confirmée','Livrée','Posée'].includes(c.Statut));
+  const cmdsLivrees = commandesLiees.filter(c => ['Livrée','Posée'].includes(c.Statut));
+  const cmdsPosees = commandesLiees.filter(c => c.Statut === 'Posée');
+  const datePoseSet = !!p['Date pose prévue'];
+  const todayIso = new Date().toISOString().slice(0,10);
+  const posePassed = datePoseSet && p['Date pose prévue'] < todayIso;
+  const tachesPV = tachesLiees.filter(t => /pv|réception|reception/i.test(t.Titre || ''));
+  const tachesPVDone = tachesPV.filter(t => t.Statut === 'Terminée');
+  const tachesAvis = tachesLiees.filter(t => /avis|review|google/i.test(t.Titre || ''));
+  const tachesAvisDone = tachesAvis.filter(t => t.Statut === 'Terminée');
+  const isStatut = (s) => p.Statut === s;
+  const inStatuts = (...arr) => arr.includes(p.Statut);
+
+  const steps = [];
+
+  // 1. Découverte
+  steps.push({n:1, key:'decouverte', label:'Découverte', icon:'👋',
+    state: (reunionsR1.length || fichesDecouverte.length || p['Date découverte']) ? 'done' :
+           inStatuts('Découverte') ? 'cur' : 'pending',
+    meta: p['Date découverte'] ? p['Date découverte'].slice(5).replace('-','/') : (reunionsR1.length ? `R1 ×${reunionsR1.length}` : '')
+  });
+  // 2. Devis présenté
+  steps.push({n:2, key:'devis', label:'Devis présenté', icon:'📄',
+    state: devisEnvoyes.length ? 'done' :
+           devisLies.length ? 'partial' :
+           inStatuts('Dessin','Devis') ? 'cur' : 'pending',
+    meta: devisEnvoyes.length ? `${devisEnvoyes.length} env.` : (devisLies.length ? `${devisLies.length} brouillon` : '')
+  });
+  // 3. Signature BC
+  steps.push({n:3, key:'signature', label:'Signature BC', icon:'✍️',
+    state: devisSignes.length ? 'done' :
+           devisEnvoyes.length ? 'cur' : 'pending',
+    meta: devisSignes.length ? `${devisSignes.length} signé${devisSignes.length>1?'s':''}` : ''
+  });
+  // 4. Acompte facturé
+  steps.push({n:4, key:'acompte', label:'Acompte 30%', icon:'💶',
+    state: tachesAcompteDone.length ? 'done' :
+           devisSignes.length && tachesAcompte.length ? 'cur' :
+           devisSignes.length ? 'cur' : 'pending',
+    meta: tachesAcompteDone.length ? '✓ envoyée' : (tachesAcompte.length ? 'à émettre' : '')
+  });
+  // 5. Plans techniques
+  steps.push({n:5, key:'plans', label:'Plans techniques', icon:'📐',
+    state: planTechFiles >= 1 ? 'done' :
+           devisSignes.length ? 'cur' : 'pending',
+    meta: planTechFiles ? `${planTechFiles} plan${planTechFiles>1?'s':''}` : ''
+  });
+  // 6. Commandes envoyées
+  steps.push({n:6, key:'commandes', label:'Commandes', icon:'📦',
+    state: commandesLiees.length>0 && cmdsEnvoyees.length === commandesLiees.length ? 'done' :
+           cmdsEnvoyees.length > 0 ? 'partial' :
+           commandesLiees.length > 0 || inStatuts('Commandes') ? 'cur' : 'pending',
+    meta: commandesLiees.length ? `${cmdsEnvoyees.length}/${commandesLiees.length} env.` : ''
+  });
+  // 7. Réception
+  steps.push({n:7, key:'reception', label:'Réception', icon:'🚚',
+    state: commandesLiees.length>0 && cmdsLivrees.length === commandesLiees.length ? 'done' :
+           cmdsLivrees.length > 0 ? 'partial' :
+           cmdsEnvoyees.length > 0 ? 'cur' : 'pending',
+    meta: commandesLiees.length ? `${cmdsLivrees.length}/${commandesLiees.length} livr.` : ''
+  });
+  // 8. Pose
+  steps.push({n:8, key:'pose', label:'Pose', icon:'🔨',
+    state: cmdsPosees.length > 0 || inStatuts('SAV','Terminé') ? 'done' :
+           inStatuts('Pose') || (datePoseSet && posePassed) ? 'cur' :
+           datePoseSet ? 'partial' : 'pending',
+    meta: p['Date pose prévue'] ? p['Date pose prévue'].slice(5).replace('-','/') : ''
+  });
+  // 9. PV réception
+  steps.push({n:9, key:'pv', label:'PV réception', icon:'📋',
+    state: tachesPVDone.length > 0 || isStatut('Terminé') ? 'done' :
+           inStatuts('SAV') ? 'cur' :
+           cmdsPosees.length > 0 || isStatut('Pose') ? 'cur' : 'pending',
+    meta: tachesPVDone.length ? '✓ signé' : ''
+  });
+  // 10. Facture solde
+  steps.push({n:10, key:'facture-solde', label:'Facture solde', icon:'🧾',
+    state: tachesFactureSoldeDone.length > 0 ? 'done' :
+           inStatuts('SAV','Terminé') || cmdsPosees.length > 0 ? 'cur' : 'pending',
+    meta: tachesFactureSoldeDone.length ? '✓ envoyée' : ''
+  });
+  // 11. Avis client
+  steps.push({n:11, key:'avis', label:'Avis client', icon:'⭐',
+    state: tachesAvisDone.length > 0 ? 'done' :
+           tachesFactureSoldeDone.length > 0 ? 'cur' : 'pending',
+    meta: tachesAvisDone.length ? '✓ reçu' : ''
+  });
+  // 12. SAV (affiché seulement si actif ou en cours)
+  if (savLies.length > 0 || isStatut('SAV')) {
+    steps.push({n:12, key:'sav', label:'SAV', icon:'🛠️',
+      state: isStatut('Terminé') ? 'done' : 'cur',
+      meta: savLies.length ? `${savLies.length} ticket${savLies.length>1?'s':''}` : ''
+    });
+  }
+
+  return steps;
+}
+
+function parcoursStepperHTML(steps, p) {
+  const total = steps.length;
+  const done = steps.filter(s => s.state === 'done').length;
+  const pct = total ? Math.round(done/total*100) : 0;
+  const stepHtml = steps.map(s => {
+    return `<a class="ps-step ${s.state}" onclick="parcoursStepInfo('${esc(s.key)}','${p.id}')" title="${esc(s.label)}">
+      <div class="ps-circle">${s.icon}</div>
+      <div class="ps-num">${String(s.n).padStart(2,'0')}</div>
+      <div class="ps-label">${esc(s.label)}</div>
+      ${s.meta ? `<div class="ps-meta">${esc(s.meta)}</div>` : ''}
+    </a>`;
+  }).join('');
+  return `<div class="parcours-wrap">
+    <div class="parcours-head">
+      <div class="ph-title">⛯ Parcours chantier</div>
+      <div class="ph-progress"><strong>${done}/${total}</strong> étapes · <strong>${pct}%</strong></div>
+    </div>
+    <div class="parcours-stepper">${stepHtml}</div>
+    ${parcoursActionsHTML(steps, p)}
+  </div>`;
+}
+
+function parcoursActionsHTML(steps, p) {
+  const actions = [];
+  const cur = steps.filter(s => s.state === 'cur');
+  const partial = steps.filter(s => s.state === 'partial');
+  for (const s of [...cur, ...partial]) {
+    if (s.key === 'decouverte') actions.push({icon:'📞', label:'Saisir RDV découverte', meta:'modifier projet', urgent:false, onclick:`toggleProjetEdit(true)`});
+    if (s.key === 'devis') actions.push({icon:'📤', label:'Finaliser et envoyer le devis', meta:'onglet Devis', urgent:false, onclick:`switchTab('devis')`});
+    if (s.key === 'signature') actions.push({icon:'✍️', label:'Signer le devis (côté client)', meta:'attendre BC', urgent:true, onclick:`switchTab('devis')`});
+    if (s.key === 'acompte') actions.push({icon:'💶', label:'Émettre facture acompte (30%)', meta:'tâche → Pennylane', urgent:true, onclick:`creerTacheFacturation('${p.id}','acompte')`});
+    if (s.key === 'plans') actions.push({icon:'📐', label:'Uploader le plan technique', meta:'fiche projet', urgent:false, onclick:`scrollToAttachments('Plan technique')`});
+    if (s.key === 'commandes') actions.push({icon:'📦', label:'Envoyer les BC fournisseurs', meta:'à faire', urgent:true, onclick:`switchTab('commandes')`});
+    if (s.key === 'reception') actions.push({icon:'🚚', label:'Confirmer commandes livrées', meta:'à valider', urgent:false, onclick:`switchTab('commandes')`});
+    if (s.key === 'pose') {
+      if (!p['Date pose prévue']) actions.push({icon:'📅', label:'Fixer la date de pose', meta:'modifier projet', urgent:true, onclick:`toggleProjetEdit(true)`});
+      else actions.push({icon:'✉️', label:'Envoyer mail confirmation pose', meta:'au client', urgent:false, onclick:`mailtoConfirmationPose('${p.id}')`});
+    }
+    if (s.key === 'pv') actions.push({icon:'📋', label:'Préparer PV de réception', meta:'tâche pose', urgent:false, onclick:`creerTachePV('${p.id}')`});
+    if (s.key === 'facture-solde') actions.push({icon:'🧾', label:'Émettre facture solde', meta:'tâche → Pennylane', urgent:true, onclick:`creerTacheFacturation('${p.id}','solde')`});
+    if (s.key === 'avis') actions.push({icon:'⭐', label:'Demander avis client', meta:'mail / Google', urgent:false, onclick:`creerTacheAvis('${p.id}')`});
+    if (s.key === 'sav') actions.push({icon:'🛠️', label:'Suivre les SAV ouverts', meta:'tickets', urgent:false, onclick:`switchTab('sav')`});
+  }
+  if (!actions.length) {
+    return `<div class="parcours-actions"><div class="parcours-actions-title">Prochaines actions</div><div class="pa-empty">✓ Tout est à jour — bon chantier !</div></div>`;
+  }
+  return `<div class="parcours-actions">
+    <div class="parcours-actions-title">Prochaines actions (${actions.length})</div>
+    <div class="pa-list">
+      ${actions.map(a=>`<button class="pa-chip${a.urgent?' urgent':''}" onclick="${a.onclick}">
+        <span class="pa-chip-icon">${a.icon}</span>
+        <span>${esc(a.label)}</span>
+        <span class="pa-chip-meta">${esc(a.meta)}</span>
+      </button>`).join('')}
+    </div>
+  </div>`;
+}
+
+function parcoursStepInfo(key, projetId) {
+  const labels = {
+    'decouverte': "Saisir la date du RDV découverte sur la fiche projet (Modifier) ou créer une R1 Plaud depuis cette fiche.",
+    'devis': "Importer un PDF Winner depuis l'onglet Devis, ou créer un devis additif depuis cette fiche.",
+    'signature': "Bouton « Signer » depuis la fiche du devis dans l'onglet Devis. Auto-crée 3 tâches (acompte, BC fournisseurs, planif pose).",
+    'acompte': "Le bouton « Facture acompte » plus bas crée la tâche dans la liste de Virginie. La facture s'émet ensuite dans Pennylane.",
+    'plans': "Uploader le PDF du plan technique dans la zone « Plan technique » plus bas (≤ 5 MB).",
+    'commandes': "Marquer les commandes « Envoyée » dans l'onglet Commandes (Créée → Envoyée → Confirmée → Livrée → Posée).",
+    'reception': "À la livraison, marquer la commande « Livrée » depuis l'onglet Commandes.",
+    'pose': "Définir la date de pose dans Modifier puis envoyer la confirmation au client par mail.",
+    'pv': "Crée une tâche « PV de réception » assignée à Sébastien (à signer en présence du client).",
+    'facture-solde': "Le bouton « Facture solde » plus bas crée la tâche pour Virginie. À émettre dans Pennylane.",
+    'avis': "Crée une tâche « Demander avis client » pour Marine (mail + lien Google review).",
+    'sav': "Voir les tickets SAV depuis l'onglet SAV. Bouton SAV en haut pour créer un ticket centralisé 9·58."
+  };
+  if (labels[key]) toast(labels[key], 'success');
+}
+
+// Helper : créer une tâche structurée et recharger
+async function _createTask(fields, successMsg) {
+  try {
+    const r = await fetch('/api/data/taches', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields})});
+    if (!r.ok) throw new Error((await r.json()).error || 'erreur');
+    toastSuccess(successMsg);
+    await loadAll();
+  } catch(e) { toastError('Erreur : '+e.message); }
+}
+
+async function creerTacheFacturation(projetId, type) {
+  const p = DATA.projets.find(x=>x.id===projetId); if(!p) return;
+  const devisSignes = DATA.devis.filter(d => Array.isArray(d.Projet) && d.Projet.includes(projetId) && d.Statut==='Signé');
+  const totalHT = devisSignes.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
+  const cfg = {
+    'acompte':   {label:'Facture acompte 30%', pct:0.30, prio:'Haute', desc:'Acompte versé à la signature du BC. Émettre via Pennylane.'},
+    'reception': {label:'Facture intermédiaire (réception meubles)', pct:0.40, prio:'Haute', desc:'À émettre à la réception des meubles fournisseur.'},
+    'solde':     {label:'Facture solde de fin de chantier', pct:0.30, prio:'Haute', desc:'Solde après PV de réception signé. Émettre via Pennylane et déclencher la relance auto.'}
+  }[type];
+  if (!cfg) return;
+  const montant = Math.round(totalHT * cfg.pct * 100) / 100;
+  const titre = `[FACTURATION] ${cfg.label} — ${p.Référence||'projet'} — ${euros(montant)} HT`;
+  if (!confirm(`Créer la tâche :\n\n${titre}\n\nAssignée à Virginie · Priorité ${cfg.prio}\n\n(La facture sera ensuite émise dans Pennylane)`)) return;
+  const today = new Date().toISOString().slice(0,10);
+  await _createTask({
+    'Titre': titre,
+    'Description': `${cfg.desc}\n\nMontant calculé : ${euros(montant)} HT (${Math.round(cfg.pct*100)}% de ${euros(totalHT)} HT signé)\nProjet : ${p.Référence||p.id}`,
+    'Assignée à': 'Virginie',
+    'Priorité': cfg.prio,
+    'Statut': 'À faire',
+    'Échéance': today,
+    'Projet': [projetId]
+  }, `Tâche facturation créée — Virginie`);
+}
+
+async function creerTachePV(projetId) {
+  const p = DATA.projets.find(x=>x.id===projetId); if(!p) return;
+  const today = new Date().toISOString().slice(0,10);
+  await _createTask({
+    'Titre': `PV de réception — ${p.Référence||'projet'}`,
+    'Description': `Préparer et faire signer le PV de réception en présence du client. Sans réserve si possible — sinon noter les réserves dans le journal chantier.`,
+    'Assignée à': 'Sébastien',
+    'Priorité': 'Haute',
+    'Statut': 'À faire',
+    'Échéance': today,
+    'Projet': [projetId]
+  }, `Tâche PV créée — Sébastien`);
+}
+
+async function creerTacheAvis(projetId) {
+  const p = DATA.projets.find(x=>x.id===projetId); if(!p) return;
+  const today = new Date().toISOString().slice(0,10);
+  await _createTask({
+    'Titre': `Demander avis client — ${p.Référence||'projet'}`,
+    'Description': `Envoyer un mail au client pour demander un avis Google. Lien : https://g.page/r/...`,
+    'Assignée à': 'Marine',
+    'Priorité': 'Moyenne',
+    'Statut': 'À faire',
+    'Échéance': today,
+    'Projet': [projetId]
+  }, `Tâche avis client créée — Marine`);
+}
+
+function mailtoConfirmationPose(projetId) {
+  const p = DATA.projets.find(x=>x.id===projetId); if(!p) return;
+  const cli = Array.isArray(p.Client) ? DATA.clients.find(c=>c.id===p.Client[0]) : null;
+  const to = cli?.Email || '';
+  const date = p['Date pose prévue'] ? new Date(p['Date pose prévue']).toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'}) : '[DATE À DÉFINIR]';
+  const subject = `Confirmation de la date de pose — ${p.Référence||'votre projet'}`;
+  const body = `Bonjour ${cli?.Contact||cli?.Nom||''},
+
+Nous avons le plaisir de confirmer la date de pose de votre cuisine :
+
+📅 ${date}
+
+Notre équipe sera présente sur place dès le matin. Merci de bien vouloir libérer la zone d'intervention la veille au soir.
+
+Si vous avez la moindre question, n'hésitez pas.
+
+Bien cordialement,
+L'équipe Tanguy Design
+Vannes`;
+  const url = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.location.href = url;
+  toast('Mail de confirmation pré-rempli ouvert', 'success');
+}
+
+function scrollToAttachments(fieldName) {
+  const id = 'attach-section-' + fieldName.replace(/\s+/g,'-').toLowerCase();
+  const el = document.getElementById(id);
+  if (el) { el.scrollIntoView({behavior:'smooth', block:'center'}); el.style.animation = 'ps-pulse 1.5s ease-in-out 2'; setTimeout(()=>el.style.animation='', 3500); }
+}
+
+// ============ BILAN FINANCIER PRÉVISIONNEL ============
+// CA = devis Envoyé/Signé · Coûts auto = commandes fournisseurs + devis artisans HT
+// Rétro-commission 5% Tanguy = 5% du HT artisans (réduit le coût pour Tanguy)
+function computeBilanFinancier(p, devisLies, commandesLiees, devisArtisansLies) {
+  const devisSignes = devisLies.filter(d => d.Statut === 'Signé');
+  const devisEnvoyes = devisLies.filter(d => ['Envoyé','Signé'].includes(d.Statut));
+  // Total HT pris : signé en priorité, sinon envoyé, sinon brouillon
+  const sumHT = (arr) => arr.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
+  const caSigne = sumHT(devisSignes);
+  const caPrevi = devisSignes.length ? caSigne : (devisEnvoyes.length ? sumHT(devisEnvoyes) : sumHT(devisLies));
+  const mode = devisSignes.length ? 'Réalisé' : (devisEnvoyes.length ? 'Prévisionnel (envoyé)' : 'Prévisionnel (brouillon)');
+  const coutsFournisseurs = commandesLiees.reduce((s,c)=>s+(c['Montant HT']||0),0);
+  const coutsArtisans = devisArtisansLies.reduce((s,d)=>s+(d['Montant HT']||0),0);
+  const retrocom5 = devisArtisansLies.reduce((s,d)=>s+(d['Rétro-commission HT']||(d['Montant HT']||0)*0.05),0);
+  // Override coûts manuel (sur le projet)
+  const override = p['Coûts réels override'];
+  const coutsTotal = (override!=null && override!=='') ? Number(override) : (coutsFournisseurs + coutsArtisans - retrocom5);
+  const marge = caPrevi - coutsTotal;
+  const margePct = caPrevi > 0 ? (marge/caPrevi*100) : null;
+  return {ca:caPrevi, caSigne, mode, coutsFournisseurs, coutsArtisans, retrocom5, coutsTotal, marge, margePct, isOverride: override!=null && override!=''};
+}
+
+function bilanFinancierHTML(p, devisLies, commandesLiees, devisArtisansLies) {
+  const b = computeBilanFinancier(p, devisLies, commandesLiees, devisArtisansLies);
+  if (!b.ca && !b.coutsTotal) return ''; // rien à afficher si projet vide
+  const margeCls = b.marge < 0 ? 'bf-neg' : '';
+  const pctTxt = b.margePct != null ? b.margePct.toFixed(1)+'%' : '—';
+  return `<div class="bilan-fin">
+    <div class="bilan-fin-head">
+      <div class="bf-title">💰 Bilan financier ${b.isOverride?'(override)':''}</div>
+      <div class="bf-mode">${esc(b.mode)}</div>
+    </div>
+    <div class="bf-grid">
+      <div class="bf-cell">
+        <div class="bf-lbl">CA HT</div>
+        <div class="bf-val">${euros(b.ca)}</div>
+        ${b.caSigne && b.ca !== b.caSigne ? `<div class="bf-sub">dont ${euros(b.caSigne)} signé</div>` : ''}
+      </div>
+      <div class="bf-cell bf-cost">
+        <div class="bf-lbl">Coûts HT</div>
+        <div class="bf-val">−${euros(b.coutsTotal)}</div>
+        <div class="bf-sub">${b.isOverride ? 'manuel' : 'fourn. + artisans − 5%'}</div>
+      </div>
+      <div class="bf-cell bf-result ${margeCls}">
+        <div class="bf-lbl">Marge HT</div>
+        <div class="bf-val">${euros(b.marge)}</div>
+        <div class="bf-sub">${b.marge>=0?'positif':'négatif'}</div>
+      </div>
+      <div class="bf-cell bf-result ${margeCls}">
+        <div class="bf-lbl">Marge %</div>
+        <div class="bf-val">${pctTxt}</div>
+        <div class="bf-sub">sur CA HT</div>
+      </div>
+    </div>
+    ${!b.isOverride ? `<div class="bf-breakdown">
+      <span class="bf-bd-chip">Fournisseurs <strong>${euros(b.coutsFournisseurs)}</strong></span>
+      <span class="bf-bd-chip">Artisans <strong>${euros(b.coutsArtisans)}</strong></span>
+      <span class="bf-bd-chip">Rétro 5% <strong style="color:var(--gold-dark)">−${euros(b.retrocom5)}</strong></span>
+    </div>` : ''}
+  </div>`;
+}
+
+// ============ ZONE FACTURATION (Pennylane stub) ============
+function facturationZoneHTML(p, devisLies, tachesLiees) {
+  const devisSignes = devisLies.filter(d => d.Statut === 'Signé');
+  if (!devisSignes.length) return ''; // rien à facturer tant que rien n'est signé
+  const totalHT = devisSignes.reduce((s,d)=>s+(d['Total HT final']||d['Total HT après remise']||d['Total HT articles']||0),0);
+  const acompteTask = tachesLiees.find(t => /^\[FACTURATION\].*acompte/i.test(t.Titre || ''));
+  const interTask   = tachesLiees.find(t => /^\[FACTURATION\].*intermédiaire|réception meubles/i.test(t.Titre || ''));
+  const soldeTask   = tachesLiees.find(t => /^\[FACTURATION\].*solde/i.test(t.Titre || ''));
+  const isDone = (t) => t && t.Statut === 'Terminée';
+  const btn = (type, lbl, pct, task) => {
+    const montant = Math.round(totalHT * pct * 100) / 100;
+    if (isDone(task)) {
+      return `<button class="fz-btn done" disabled>
+        <span class="fz-btn-lbl">✓ ${esc(lbl)}</span>
+        <span class="fz-btn-amt">${euros(montant)} HT — émise</span>
+      </button>`;
+    }
+    if (task) {
+      return `<button class="fz-btn" onclick="switchTab('taches')">
+        <span class="fz-btn-lbl">⏳ ${esc(lbl)}</span>
+        <span class="fz-btn-amt">${euros(montant)} HT — en tâche</span>
+      </button>`;
+    }
+    return `<button class="fz-btn" onclick="creerTacheFacturation('${p.id}','${type}')">
+      <span class="fz-btn-lbl">📄 ${esc(lbl)}</span>
+      <span class="fz-btn-amt">${euros(montant)} HT (${Math.round(pct*100)}%)</span>
+    </button>`;
+  };
+  return `<div class="facturation-zone">
+    <div class="fz-head">
+      <div class="fz-title">💸 Facturation client</div>
+      <div class="fz-status">CA signé HT : <strong style="color:var(--gold-dark)">${euros(totalHT)}</strong> · Pennylane stub</div>
+    </div>
+    <div class="fz-buttons">
+      ${btn('acompte', 'Facture acompte', 0.30, acompteTask)}
+      ${btn('reception', 'Facture réception', 0.40, interTask)}
+      ${btn('solde', 'Facture solde', 0.30, soldeTask)}
+    </div>
+  </div>`;
+}
+
 function renderProjetDetail(p){
   CURRENT_PROJET_ID = p.id;
   const editing = PROJET_EDIT;
@@ -1659,6 +2209,10 @@ function renderProjetDetail(p){
         </div>
       </div>
 
+      ${parcoursStepperHTML(computeParcours(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies), p)}
+
+      ${bilanFinancierHTML(p, devisLies, commandesLiees, devisArtisansLies)}
+
       <div class="zone-title">Informations</div>
       <div class="proj-grid">
         <div><span class="proj-lbl">Référence</span>${editing?fld('Référence',p.Référence):'<strong>'+esc(p.Référence||'—')+'</strong>'}</div>
@@ -1702,14 +2256,39 @@ function renderProjetDetail(p){
         ${additifs.length ? `<div style="margin-top:8px"><div style="font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Devis additifs · ${euros(totalAdditifs)} HT</div><div class="proj-list">${additifs.map(renderRow).join('')}</div></div>` : ''}`;
       })()}
 
+      ${facturationZoneHTML(p, devisLies, tachesLiees)}
+
       <div class="zone-title" style="margin-top:24px">Commandes fournisseurs (${commandesLiees.length})</div>
-      ${commandesLiees.length ? `<div class="proj-list">${commandesLiees.map(c=>{
-        const sc = {'Créée':'b-gray','Envoyée':'b-amber','Confirmée':'b-blue','Livrée':'b-green','Posée':'b-ink'}[c.Statut]||'b-gray';
-        return `<div class="proj-row">
-          <div><strong>${esc(c['Numéro']||'—')}</strong> <span class="badge ${sc}">${esc(c.Statut||'')}</span></div>
-          <div style="font-family:'DM Mono',monospace">${euros(c['Montant HT'])}</div>
-        </div>`;
-      }).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucune commande</div>'}
+      ${commandesLiees.length ? (() => {
+        const TYPES = ['Cuisine','Électroménager','Plan de travail','Sanitaire','Accessoires','Autre'];
+        const grouped = {};
+        commandesLiees.forEach(c => {
+          const t = c.Type || 'Non typé';
+          (grouped[t] = grouped[t] || []).push(c);
+        });
+        const order = [...TYPES, 'Non typé'].filter(t => grouped[t]);
+        const renderCmd = (c) => {
+          const sc = {'Créée':'b-gray','Envoyée':'b-amber','Confirmée':'b-blue','Livrée':'b-green','Posée':'b-ink'}[c.Statut]||'b-gray';
+          const next = {'Créée':'Envoyée','Envoyée':'Confirmée','Confirmée':'Livrée','Livrée':'Posée'}[c.Statut];
+          return `<div class="proj-row" style="flex-wrap:wrap;gap:6px">
+            <div style="flex:1;min-width:200px">
+              <strong>${esc(c['Numéro']||'—')}</strong>
+              <span class="badge ${sc}">${esc(c.Statut||'')}</span>
+              ${c.Type?`<span class="badge b-blue">${esc(c.Type)}</span>`:''}
+            </div>
+            <div style="font-family:'DM Mono',monospace">${euros(c['Montant HT'])}</div>
+            ${next ? `<button class="cmd-qa-btn" onclick="commandeQuickAdvance('${c.id}','${next}')" title="Passer à ${next}">→ ${next}</button>` : ''}
+          </div>`;
+        };
+        return order.map(t => {
+          const arr = grouped[t];
+          const total = arr.reduce((s,c)=>s+(c['Montant HT']||0),0);
+          return `<div style="margin-top:10px">
+            <div style="font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:4px">${esc(t)} · ${arr.length} cmd · ${euros(total)} HT</div>
+            <div class="proj-list">${arr.map(renderCmd).join('')}</div>
+          </div>`;
+        }).join('');
+      })() : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucune commande</div>'}
 
       ${(() => {
         const artisanIds = Array.isArray(p.Artisans) ? p.Artisans : [];
@@ -2184,8 +2763,9 @@ function projetAttachmentsSection(p, fieldName, hint) {
       + Ajouter
       <input type="file" id="${inputId}" style="display:none" onchange="uploadProjetAttachment('${p.id}','${esc(fieldName)}',this.files[0],this)">
     </label>`;
+  const sectionId = 'attach-section-' + fieldName.replace(/\s+/g, '-').toLowerCase();
   return `
-    <div class="zone-title" style="margin-top:24px;display:flex;align-items:center;justify-content:space-between">
+    <div id="${sectionId}" class="zone-title" style="margin-top:24px;display:flex;align-items:center;justify-content:space-between">
       <span>${esc(fieldName)} (${list.length})</span>
       ${addBtn}
     </div>
@@ -2766,7 +3346,15 @@ async function deleteClient(clientId){
 }
 function renderArtisans(){ $('#list-artisans').innerHTML = DATA.artisans.length ? DATA.artisans.map(artisanCard).join('') : emptyState('Aucun artisan','Ajoutez vos partenaires artisans'); }
 function renderFournisseurs(){ $('#list-fournisseurs').innerHTML = DATA.fournisseurs.length ? DATA.fournisseurs.map(fournisseurCard).join('') : emptyState('Aucun fournisseur','Ajoutez vos fournisseurs'); }
-function renderCommandes(){ $('#list-commandes').innerHTML = DATA.commandes.length ? DATA.commandes.map(commandeCard).join('') : emptyState('Aucune commande','Les commandes fournisseurs apparaîtront ici'); }
+function renderCommandes(){
+  const fType = document.getElementById('commandes-filter-type')?.value || '';
+  const fStatut = document.getElementById('commandes-filter-statut')?.value || '';
+  let list = DATA.commandes;
+  if (fType === '__notyped') list = list.filter(c => !c.Type);
+  else if (fType) list = list.filter(c => c.Type === fType);
+  if (fStatut) list = list.filter(c => c.Statut === fStatut);
+  $('#list-commandes').innerHTML = list.length ? list.map(commandeCard).join('') : emptyState('Aucune commande', (fType||fStatut) ? 'Aucune commande ne correspond aux filtres' : 'Les commandes fournisseurs apparaîtront ici');
+}
 function syncTachesProjetFilter(){
   const sel = document.getElementById('taches-filter-projet');
   if (!sel) return;
