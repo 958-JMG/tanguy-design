@@ -1652,17 +1652,26 @@ function openCommandeDetail(cmdId){
               orig.type==='auto' ? `<strong>Générée automatiquement</strong> à la signature d'un devis` :
               `<strong>Saisie manuelle</strong>`}
           </div>
-          ${c.Notes ? `<div class="form-row"><label>Notes</label><div style="font-size:12px;color:var(--ink2);white-space:pre-wrap;background:#faf8f4;padding:10px;border-radius:4px">${esc(c.Notes)}</div></div>` : ''}
-          ${next ? `<div style="margin-top:6px"><button class="cmd-qa-btn active" onclick="commandeQuickAdvance('${c.id}','${next}',true)">⚡ Avancer en 1 clic → ${next}</button></div>` : ''}
+          <div class="form-row">
+            <label>Contenu / lignes détail <span style="color:var(--ink4);font-weight:400;text-transform:none;letter-spacing:0">— éditable, va au fournisseur</span></label>
+            <textarea id="cmd-edit-notes" rows="8" style="font-family:'DM Mono',monospace;font-size:12px;line-height:1.5" placeholder="Liste des produits / références / quantités à commander…">${esc(c.Notes||'')}</textarea>
+            <div style="font-size:10px;color:var(--ink4);margin-top:4px">Pré-rempli auto à la signature du devis. Édite ici ce qui sera réellement commandé au fournisseur.</div>
+          </div>
+          ${next ? `<div style="margin-top:6px"><button type="button" class="cmd-qa-btn active" onclick="commandeQuickAdvance('${c.id}','${next}',true)">⚡ Marquer « ${next} » en 1 clic</button></div>` : ''}
         </div>
-        <div class="modal-foot" style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--border)">
-          <button class="abtn" onclick="closeCommandeDetail()">Annuler</button>
-          <button class="abtn primary" onclick="saveCommandeEdit('${c.id}')">Enregistrer</button>
+        <div class="modal-foot" style="display:flex;justify-content:space-between;gap:8px;padding:14px 20px;border-top:1px solid var(--border)">
+          <button type="button" class="abtn" style="color:#c25656;border-color:#e0a8a8" onclick="deleteCommande('${c.id}')">🗑 Supprimer la commande</button>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="abtn" onclick="closeCommandeDetail()">Annuler</button>
+            <button type="button" class="abtn primary" onclick="saveCommandeEdit('${c.id}')">Enregistrer</button>
+          </div>
         </div>
       </div>
     </div>`;
   const host = document.createElement('div'); host.id = 'cmd-detail-host'; host.innerHTML = html;
   document.body.appendChild(host);
+  // Auto-focus sur le textarea contenu (action principale attendue à l'ouverture)
+  setTimeout(()=>{ const t = document.getElementById('cmd-edit-notes'); if(t){ t.focus(); t.setSelectionRange(t.value.length, t.value.length); }}, 100);
 }
 function closeCommandeDetail(){ document.getElementById('cmd-detail-host')?.remove(); }
 
@@ -1671,16 +1680,17 @@ async function saveCommandeEdit(cmdId){
   const statut = document.getElementById('cmd-edit-statut')?.value;
   const type = document.getElementById('cmd-edit-type')?.value;
   const livraison = document.getElementById('cmd-edit-livraison')?.value;
+  const notes = document.getElementById('cmd-edit-notes')?.value;
   if (statut) fields['Statut'] = statut;
   if (type !== undefined) fields['Type'] = type || null;
   if (livraison !== undefined) fields['Date livraison prévue'] = livraison || null;
+  if (notes !== undefined) fields['Notes'] = notes;
   try {
     const r = await fetch('/api/data/commandes/'+cmdId, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields})});
     if (!r.ok) {
       const err = await r.json().catch(()=>({}));
-      // Erreur typique : champ Type pas encore créé sur Airtable → faire fallback gracieux
-      if (/UNKNOWN_FIELD_NAME|Type/i.test(err.error?.message||err.error||'')) {
-        toastError('Champ "Type" pas encore créé sur Airtable. Lance scripts/setup-commande-type.js puis recharge.');
+      if (/UNKNOWN_FIELD_NAME.*Type|"Type"/i.test(err.error?.message||err.error||'')) {
+        toastError('Le champ « Type » n\'est pas encore créé sur Airtable. Demande à JMG de lancer la migration (scripts/setup-commande-type.js).');
         return;
       }
       throw new Error(err.error?.message||err.error||'erreur');
@@ -1689,6 +1699,21 @@ async function saveCommandeEdit(cmdId){
     closeCommandeDetail();
     await loadAll();
   } catch(e) { toastError('Erreur : '+e.message); }
+}
+
+async function deleteCommande(cmdId) {
+  const c = DATA.commandes.find(x=>x.id===cmdId); if(!c) return;
+  if (!confirm(`Supprimer définitivement la commande :\n\n${c.Numéro||cmdId}\n${euros(c['Montant HT'])} HT\n\nCette action est irréversible (mais les Lignes du devis d'origine restent intactes).`)) return;
+  try {
+    const r = await fetch('/api/data/commandes/'+cmdId, {method:'DELETE'});
+    if (!r.ok) {
+      const err = await r.json().catch(()=>({}));
+      throw new Error(err.error?.message || err.error || 'erreur');
+    }
+    toastSuccess('Commande supprimée');
+    closeCommandeDetail();
+    await loadAll();
+  } catch(e) { toastError('Erreur suppression : '+e.message); }
 }
 
 async function commandeQuickAdvance(cmdId, newStatut, closeAfter) {

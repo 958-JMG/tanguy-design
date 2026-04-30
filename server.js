@@ -632,17 +632,44 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
 
     if (dv.Statut === 'Signé') return res.status(400).json({ error: 'Déjà signé' });
 
+    // 1bis. Récup nom client (via projet → client) pour préfixer les numéros de commande.
+    // Convention : `<NOMCLIENT> · <TYPE> · <num devis>-<idx>` — scan visuel rapide à 100+ commandes.
+    let clientNom = '';
+    if (projetId) {
+      try {
+        const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`, { headers: { Authorization: `Bearer ${AT_KEY}` } });
+        if (pr.ok) {
+          const pjson = await pr.json();
+          const clientIds = Array.isArray(pjson.fields?.Client) ? pjson.fields.Client : [];
+          if (clientIds.length) {
+            const cr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.clients.id}/${clientIds[0]}`, { headers: { Authorization: `Bearer ${AT_KEY}` } });
+            if (cr.ok) {
+              const cjson = await cr.json();
+              clientNom = (cjson.fields?.Nom || '').toUpperCase().trim();
+            }
+          }
+        }
+      } catch(e) { /* fallback silencieux : pas de nom client → format legacy */ }
+    }
+
     // 2. Récup toutes les lignes du devis
     const allLignes = await atFetchAll(TABLES['lignes-devis'].id);
     const lignes = allLignes.filter(l => Array.isArray(l.fields?.Devis) && l.fields.Devis.includes(devisId));
 
-    // 3. Groupement par catégorie mappée
+    // 3. Groupement par catégorie mappée + collecte des libellés de lignes pour pré-remplir le contenu
     const totauxParCat = {};
+    const lignesParType = {};
     for (const l of lignes) {
       const cat = l.fields['Catégorie'];
       const type = CAT_TO_FOURNISSEUR_TYPE[cat];
       if (!type) continue;
       totauxParCat[type] = (totauxParCat[type] || 0) + (parseFloat(l.fields['Montant HT']) || 0);
+      const lib = l.fields['Désignation'] || l.fields['Description'] || l.fields['Référence'] || '';
+      const qte = l.fields['Quantité'] || '';
+      const mt = l.fields['Montant HT'] || 0;
+      if (lib) {
+        (lignesParType[type] = lignesParType[type] || []).push(`• ${qte ? qte+'× ' : ''}${lib}${mt ? ' — '+(Math.round(mt*100)/100)+' € HT' : ''}`);
+      }
     }
 
     // 4. Création des commandes fournisseurs
@@ -650,15 +677,21 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     let idx = 1;
     for (const [type, montant] of Object.entries(totauxParCat)) {
       if (montant <= 0) continue;
+      const numCmd = clientNom
+        ? `${clientNom} · ${type.toUpperCase()} · ${numero}-${idx}`
+        : `${numero}-${type.slice(0,3).toUpperCase()}-${idx}`;
+      const contenuSugg = (lignesParType[type] || []).join('\n');
+      const notesPrefill = `[Auto-généré depuis devis ${numero} signé le ${new Date().toLocaleDateString('fr-FR')}]\n\nContenu prévisionnel (à valider/ajuster avant envoi au fournisseur) :\n${contenuSugg || '— Pas de détail ligne disponible —'}`;
       const cf = {
-        'Numéro': `${numero}-${type.slice(0,3).toUpperCase()}-${idx}`,
+        'Numéro': numCmd,
         'Statut': 'Créée',
         'Date création': new Date().toISOString().slice(0,10),
-        'Montant HT': Math.round(montant * 100) / 100
+        'Montant HT': Math.round(montant * 100) / 100,
+        'Notes': notesPrefill
       };
       if (projetId) cf['Projet'] = [projetId];
       const c = await atCreate(TABLES.commandes.id, cf);
-      commandesCreees.push({ id: c.id, type, montant });
+      commandesCreees.push({ id: c.id, type, montant, numero: numCmd });
       idx++;
     }
 
