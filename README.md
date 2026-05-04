@@ -34,13 +34,24 @@ node scripts/import-dossiers-v2.js <dossier> [--execute]       # importe dossier
 ## Tables Airtable
 Clients · Projets · Artisans · Fournisseurs · Commandes · Tâches · SAV · Devis · Zones devis · Lignes devis · Échéances devis · Fiches découverte · Réunions Plaud · Stock · Devis Artisans
 
-## Champs custom sur Projets (2026-04-24)
-- `Plans devis` (attachments) — dossiers de présentation, visualisations, plans d'aménagement
-- `Plans techniques` (attachments) — plans archi, autocad, prise de cotes
-- `Documents projet` (attachments) — BC, AR, cahier des charges, notices, etc.
-- `Journal chantier` (Long text) — remarques datées `[YYYY-MM-DD HH:MM — Auteur] texte` (plus récent en haut)
+## Champs custom sur Projets
+- `Plan 3D` (attachments) — dossiers de présentation, visualisations Winner / Métron, plans d'aménagement
+- `Plan technique` (attachments) — plans archi, autocad, prise de cotes
+- `Images` (attachments) — photos chantier, références ambiance, moodboards
+- `Documents projet` (attachments) — BC, AR, cahier des charges, notices, factures, etc.
+- `Journal chantier` (Long text) — remarques datées `[YYYY-MM-DD HH:MM — Auteur] texte` (plus récent en haut). Éditable / supprimable depuis la fiche projet (PATCH/DELETE `/api/projets/:id/journal`).
 
 Limite Airtable : 5 MB par fichier via l'API.
+
+## Fonctionnalités fiche projet (refonte 2026-04-30)
+- **Stepper parcours chantier** (12 étapes : Découverte → Devis → Signature → Acompte → Plans tech → Commandes → Réception → Pose → PV → Facture solde → Avis → SAV) — calcul 100 % front à partir des données existantes.
+- **Bilan financier prévisionnel** (CA, fournisseurs, artisans − rétro 5 %, marge € + %) avec mode auto-détecté (Réalisé / Prévi).
+- **Zone facturation** (Acompte 30 % / Réception 40 % / Solde 30 %) qui crée des tâches `[FACTURATION]` pour Virginie.
+- **Sidebar TOC** (≥ 1100 px) avec compteurs et badges urgence rouges.
+- **Onglets attachments** : Plan 3D / Plan technique / Images / Documents projet (un visible à la fois).
+- **R1 Découverte / R2 Chantier** : transcriptions Plaud collées directement dans la fiche projet, analysées par Claude (synthèse, contexte, attentes, points de douleur, tâches identifiées).
+- **Tâches éditables** : clic sur une row → modal d'édition · bouton 🗑 inline pour suppression rapide.
+- **Responsive mobile** (≤ 760 px) : stepper compact horizontalement scrollable, fiche en 1 colonne, modale plein écran.
 
 ## Sécurité
 
