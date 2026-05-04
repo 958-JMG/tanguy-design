@@ -638,6 +638,40 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
   .alert-bar{padding:12px 14px}
   .alert-chip{font-size:11px;padding:5px 10px}
 }
+/* === Fiche projet : compactage mobile === */
+@media(max-width:760px){
+  /* Stepper plus compact en scroll horizontal */
+  .parcours-stepper{padding:6px 2px 12px;gap:0}
+  .ps-step{min-width:64px;max-width:96px;padding:0 2px}
+  .ps-circle{width:30px;height:30px;font-size:14px}
+  .ps-step + .ps-step::before{top:15px}
+  .ps-num{font-size:8px;margin-top:4px}
+  .ps-label{font-size:10px;line-height:1.15;margin-top:2px;max-width:90px}
+  .ps-meta{font-size:8px}
+  /* Header parcours wrap */
+  .parcours-head{flex-wrap:wrap;gap:6px}
+  /* Actions chips wrap mieux */
+  .pa-list{gap:6px}
+  .pa-chip{font-size:11px;padding:6px 9px}
+  /* Fiche projet 1 colonne */
+  .proj-grid{grid-template-columns:1fr !important;gap:10px}
+  /* Zone-title : titre + actions stack proprement */
+  .zone-title{flex-wrap:wrap;gap:6px !important}
+  /* Proj-row plus respirante */
+  .proj-row{flex-wrap:wrap;gap:6px}
+  .proj-row > div{min-width:0}
+  /* Onglets attachments scrollables */
+  .attach-tabs{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
+  .attach-tab{flex-shrink:0;padding:8px 11px;font-size:10px}
+  /* Bilan financier déjà en 2 cols à 700px (déclenché à 700) */
+  /* Facturation buttons stack */
+  .fz-btn{min-width:100% !important;max-width:100% !important}
+  /* Modal pleine largeur */
+  .modal-card{width:100%;max-height:96vh}
+  /* Journal entry padding réduit */
+  .journal-entry{padding:8px 10px}
+}
+
 @media(max-width:480px){
   .kanban{grid-template-columns:1fr}
   .shell{padding:12px 10px 80px}
@@ -2509,13 +2543,20 @@ function renderProjetDetail(p){
             </div>`;
           }).join('')}</div>` : emptyCTA('Aucun devis artisan', 'Upload un PDF de devis artisan pour le rattacher au chantier et calculer la rétro-commission 5 %.', null, null)}
 
-          <h2 id="zone-taches" class="zone-title" style="margin-top:24px">Tâches (${tachesLiees.length})</h2>
+          <h2 id="zone-taches" class="zone-title" style="margin-top:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+            <span>Tâches (${tachesLiees.length})</span>
+            <button class="abtn" onclick="openTaskEdit(null)" title="Ajouter une tâche manuellement à ce chantier">+ Tâche</button>
+          </h2>
           ${tachesLiees.length ? `<div class="proj-list">${tachesLiees.map(t=>{
             const pc = {'Haute':'b-red','Moyenne':'b-amber','Basse':'b-gray'}[t.Priorité]||'b-gray';
             const sc = {'À faire':'b-gray','En cours':'b-amber','Terminée':'b-green'}[t.Statut]||'b-gray';
-            return `<div class="proj-row">
-              <div><strong>${esc(t.Titre||'—')}</strong> <span class="badge ${pc}">${esc(t.Priorité||'')}</span> <span class="badge ${sc}">${esc(t.Statut||'')}</span></div>
-              <div style="font-size:11px;color:var(--ink2)">${esc(t['Assignée à']||'')} · ${esc(t.Échéance||'')}</div>
+            const overdue = t.Échéance && t.Échéance < new Date().toISOString().slice(0,10) && t.Statut !== 'Terminée';
+            return `<div class="proj-row" style="cursor:pointer" onclick="if(!event.target.closest('button'))openTaskEdit('${t.id}')" title="Clique pour modifier ou supprimer">
+              <div style="flex:1;min-width:0">
+                <div><strong>${esc(t.Titre||'—')}</strong> <span class="badge ${pc}">${esc(t.Priorité||'')}</span> <span class="badge ${sc}">${esc(t.Statut||'')}</span>${overdue?` <span class="badge-urg">⏳ Retard</span>`:''}</div>
+                <div style="font-size:11px;color:var(--ink2);margin-top:3px">${esc(t['Assignée à']||'—')}${t.Échéance?` · ${esc(t.Échéance)}`:''}</div>
+              </div>
+              <button type="button" onclick="event.stopPropagation();deleteTaskQuick('${t.id}','${esc((t.Titre||'').replace(/'/g,"\\'"))}')" title="Supprimer la tâche" style="background:none;border:1px solid var(--border);color:var(--ink3);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">🗑</button>
             </div>`;
           }).join('')}</div>` : emptyCTA('Aucune tâche sur ce chantier', 'Les tâches d\'orchestration (acompte, BC fournisseurs, planif pose) sont créées auto à la signature d\'un devis.', '+ Nouvelle tâche', `openTaskEdit(null)`)}
 
@@ -2553,10 +2594,16 @@ function projetJournalSection(p) {
       <input id="journal-input" placeholder="Nouvelle remarque datée (RDV, appel, décision…)" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:13px" onkeydown="if(event.key==='Enter')addJournalEntry('${p.id}')">
       <button class="abtn primary" onclick="addJournalEntry('${p.id}')">+ Remarque</button>
     </div>
-    ${entries.length ? `<div class="journal-list">${entries.map(e => `
-      <div class="journal-entry">
-        ${e.meta ? `<div class="journal-meta">${esc(e.meta)}</div>` : ''}
-        <div class="journal-text">${esc(e.text)}</div>
+    ${entries.length ? `<div class="journal-list">${entries.map((e, i) => `
+      <div class="journal-entry" data-jidx="${i}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          ${e.meta ? `<div class="journal-meta">${esc(e.meta)}</div>` : '<div></div>'}
+          <div style="display:flex;gap:4px;flex-shrink:0">
+            <button type="button" onclick="editJournalEntry('${p.id}',${i})" title="Modifier cette remarque" style="background:none;border:1px solid var(--border);color:var(--ink3);padding:2px 6px;border-radius:3px;cursor:pointer;font-size:11px;line-height:1">✏️</button>
+            <button type="button" onclick="deleteJournalEntry('${p.id}',${i})" title="Supprimer cette remarque" style="background:none;border:1px solid var(--border);color:var(--ink3);padding:2px 6px;border-radius:3px;cursor:pointer;font-size:11px;line-height:1">🗑</button>
+          </div>
+        </div>
+        <div class="journal-text" id="jtext-${p.id}-${i}">${esc(e.text)}</div>
       </div>`).join('')}</div>` : '<div class="muted" style="font-size:12px;color:var(--ink4);padding:8px">Aucune remarque — la première structure ton historique chantier.</div>'}`;
 }
 async function addJournalEntry(projetId) {
@@ -2574,6 +2621,53 @@ async function addJournalEntry(projetId) {
     await loadAll();
     const p = DATA.projets.find(x=>x.id===projetId);
     if (p) renderProjetDetail(p);
+  } catch(e) { toastError('Erreur : '+e.message); }
+  finally { hideLoader(); }
+}
+
+async function editJournalEntry(projetId, index) {
+  const p = DATA.projets.find(x => x.id === projetId);
+  if (!p) return;
+  const entries = parseJournalEntries(p['Journal chantier']);
+  const entry = entries[index];
+  if (!entry) { toastError('Entrée introuvable'); return; }
+  const next = prompt('Modifier la remarque :', entry.text);
+  if (next == null) return;
+  const text = next.trim();
+  if (!text) { toastError('La remarque ne peut pas être vide'); return; }
+  if (text === entry.text) return;
+  showLoader('Mise à jour…');
+  try {
+    const r = await fetch('/api/projets/'+projetId+'/journal', {
+      method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ index, text })
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'erreur');
+    toastSuccess('Remarque modifiée');
+    await loadAll();
+    const refreshed = DATA.projets.find(x=>x.id===projetId);
+    if (refreshed) renderProjetDetail(refreshed);
+  } catch(e) { toastError('Erreur : '+e.message); }
+  finally { hideLoader(); }
+}
+
+async function deleteJournalEntry(projetId, index) {
+  const p = DATA.projets.find(x => x.id === projetId);
+  if (!p) return;
+  const entries = parseJournalEntries(p['Journal chantier']);
+  const entry = entries[index];
+  if (!entry) { toastError('Entrée introuvable'); return; }
+  const preview = (entry.text || '').slice(0, 60) + (entry.text && entry.text.length > 60 ? '…' : '');
+  if (!confirm(`Supprimer cette remarque ?\n\n« ${preview} »`)) return;
+  showLoader('Suppression…');
+  try {
+    const r = await fetch('/api/projets/'+projetId+'/journal', {
+      method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ index })
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'erreur');
+    toastSuccess('Remarque supprimée');
+    await loadAll();
+    const refreshed = DATA.projets.find(x=>x.id===projetId);
+    if (refreshed) renderProjetDetail(refreshed);
   } catch(e) { toastError('Erreur : '+e.message); }
   finally { hideLoader(); }
 }
@@ -2650,7 +2744,8 @@ function openPlaudModalForProjet(projetId, niveau){
     <input type="hidden" id="plaud-projet-id" value="${esc(projetId)}">
     <input type="hidden" id="plaud-niveau" value="${niv}">
   `;
-  $('#modalFoot').innerHTML = `<button class="btn-primary" onclick="submitPlaud()">Analyser & enregistrer</button>`;
+  // Pas de footer custom : le bouton "Enregistrer" du modal standard appelle submitModal()
+  // qui dispatche vers submitPlaud() via currentModalTable === '__plaud__'.
   currentModalTable = '__plaud__';
   $('#modalBg').classList.add('on');
 }
@@ -3652,8 +3747,10 @@ function kanbanAssigneeOptions(currentValue){
 function kanbanCard(t){
   const prioClass = {'Haute':'b-red','Moyenne':'b-amber','Basse':'b-gray'}[t.Priorité]||'b-gray';
   const overdue = t.Échéance && t.Échéance < new Date().toISOString().slice(0,10) && t.Statut !== 'Terminée';
-  return `<div class="kanban-card" draggable="true" ondragstart="event.dataTransfer.setData('rid','${t.id}')" onclick="if(!event.target.closest('.kc-assign'))openTaskEdit('${t.id}')" style="cursor:pointer">
-    <div class="kc-title">${esc(t.Titre||'—')}</div>
+  const safeTitle = (t.Titre||'').replace(/'/g, "\\'");
+  return `<div class="kanban-card" draggable="true" ondragstart="event.dataTransfer.setData('rid','${t.id}')" onclick="if(!event.target.closest('.kc-assign')&&!event.target.closest('.kc-del'))openTaskEdit('${t.id}')" style="cursor:pointer;position:relative">
+    <button type="button" class="kc-del" onclick="event.stopPropagation();deleteTaskQuick('${t.id}','${esc(safeTitle)}')" title="Supprimer cette tâche" style="position:absolute;top:6px;right:6px;background:rgba(255,255,255,.9);border:1px solid var(--border);color:var(--ink3);width:22px;height:22px;border-radius:4px;cursor:pointer;font-size:11px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0">🗑</button>
+    <div class="kc-title" style="padding-right:26px">${esc(t.Titre||'—')}</div>
     <div class="kc-meta">
       <span class="badge ${prioClass}">${esc(t.Priorité||'—')}</span>
       <select class="kc-assign" onclick="event.stopPropagation()" onchange="reassignTask('${t.id}',this.value)">
@@ -3663,6 +3760,18 @@ function kanbanCard(t){
     ${t.Échéance?`<div class="kc-date${overdue?' overdue':''}">📅 ${esc(t.Échéance)}</div>`:''}
     ${t.Description?`<div class="kc-desc">${esc(t.Description.slice(0,90))}${t.Description.length>90?'…':''}</div>`:''}
   </div>`;
+}
+
+// Suppression rapide d'une tâche sans passer par le modal d'édition.
+async function deleteTaskQuick(taskId, title){
+  if (!taskId) return;
+  if (!confirm(`Supprimer la tâche « ${title || 'sans titre'} » ?`)) return;
+  try {
+    const r = await fetch('/api/data/taches/'+taskId, { method:'DELETE' });
+    if (!r.ok) throw new Error('erreur');
+    toastSuccess('Tâche supprimée');
+    await loadAll();
+  } catch(e) { toastError('Erreur : '+e.message); }
 }
 
 // ============ TASK EDIT MODAL ============

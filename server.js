@@ -1052,6 +1052,59 @@ app.post('/api/projets/:id/journal', requireAuth, async (req, res) => {
   }
 });
 
+// PATCH une entrée du Journal chantier par index (0 = plus récente).
+// Body : { index:number, text:string }. Préserve la meta d'origine + ajoute trace de modif.
+app.patch('/api/projets/:id/journal', requireAuth, async (req, res) => {
+  const projetId = req.params.id;
+  const index = Number(req.body?.index);
+  const text = (req.body?.text || '').trim();
+  if (!Number.isInteger(index) || index < 0) return res.status(400).json({ error: 'index invalide' });
+  if (!text) return res.status(400).json({ error: 'text requis' });
+  try {
+    const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`,
+      { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!pr.ok) throw new Error('projet introuvable');
+    const current = ((await pr.json()).fields?.['Journal chantier']) || '';
+    const lines = current.split('\n').map(l => l.trim()).filter(Boolean);
+    if (index >= lines.length) return res.status(404).json({ error: 'entrée introuvable' });
+    const m = lines[index].match(/^\[([^\]]+)\]\s*(.*)$/);
+    const originalMeta = m ? m[1] : '';
+    const now = new Date();
+    const stamp = `${now.toISOString().slice(0,10)} ${now.toTimeString().slice(0,5)}`;
+    const author = req.session.user ? req.session.user.charAt(0).toUpperCase() + req.session.user.slice(1) : 'Équipe';
+    const metaWithEdit = originalMeta
+      ? `${originalMeta} · modifié ${stamp} par ${author}`
+      : `${stamp} — ${author}`;
+    lines[index] = `[${metaWithEdit}] ${text}`;
+    await atPatch(TABLES.projets.id, projetId, { 'Journal chantier': lines.join('\n') });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[projets/journal-patch] error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE une entrée du Journal chantier par index.
+app.delete('/api/projets/:id/journal', requireAuth, async (req, res) => {
+  const projetId = req.params.id;
+  const index = Number(req.body?.index);
+  if (!Number.isInteger(index) || index < 0) return res.status(400).json({ error: 'index invalide' });
+  try {
+    const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`,
+      { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!pr.ok) throw new Error('projet introuvable');
+    const current = ((await pr.json()).fields?.['Journal chantier']) || '';
+    const lines = current.split('\n').map(l => l.trim()).filter(Boolean);
+    if (index >= lines.length) return res.status(404).json({ error: 'entrée introuvable' });
+    lines.splice(index, 1);
+    await atPatch(TABLES.projets.id, projetId, { 'Journal chantier': lines.join('\n') });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[projets/journal-delete] error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.delete('/api/projets/:id/attachments', requireAuth, async (req, res) => {
   const projetId = req.params.id;
   const { field, attachmentId } = req.body || {};
