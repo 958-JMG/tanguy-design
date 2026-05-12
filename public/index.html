@@ -103,6 +103,32 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);f
 .alert-chip strong{font-weight:600}
 .alert-empty{font-size:12px;color:#3a8259;font-style:italic}
 
+/* === Prochaines actions (fiche projet) === */
+.next-actions{background:linear-gradient(90deg,rgba(184,150,90,.08),rgba(184,150,90,.02));border:1px solid rgba(184,150,90,.3);border-left:3px solid var(--gold-dark);border-radius:var(--r);padding:14px 18px;margin:18px 0}
+.next-actions-empty{background:rgba(76,167,116,.05);border-color:rgba(76,167,116,.2);border-left-color:#4ca774}
+.na-title{font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--gold-dark);margin-bottom:10px;font-weight:500;display:flex;align-items:center;gap:6px}
+.next-actions-empty .na-title{color:#3a8259}
+.na-count{font-size:10px;color:var(--ink4);background:var(--paper);padding:1px 7px;border-radius:8px;font-weight:400}
+.na-empty{font-size:12px;color:#3a8259;font-style:italic}
+.na-list{display:flex;flex-direction:column;gap:8px}
+.na-item{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px 12px}
+.na-item.na-high{border-left:3px solid #c25656;background:rgba(224,116,116,.04)}
+.na-item.na-med{border-left:3px solid var(--gold);background:rgba(184,150,90,.04)}
+.na-item.na-low{border-left:3px solid #4ca774;background:rgba(76,167,116,.03)}
+.na-icon{font-size:20px;flex-shrink:0;width:28px;text-align:center}
+.na-content{flex:1;min-width:0}
+.na-label{font-size:13px;font-weight:500;color:var(--ink);line-height:1.3}
+.na-hint{font-size:11px;color:var(--ink3);margin-top:2px;line-height:1.4}
+.na-btn{flex-shrink:0;background:var(--ink);color:#fff;border:none;border-radius:4px;padding:6px 12px;font-size:11px;font-weight:500;cursor:pointer;transition:opacity .12s;font-family:inherit}
+.na-btn:hover{opacity:.85}
+.na-item.na-high .na-btn{background:#c25656}
+.na-item.na-med .na-btn{background:var(--gold-dark)}
+@media(max-width:640px){
+  .na-item{flex-wrap:wrap}
+  .na-content{flex:1 1 calc(100% - 40px);min-width:0}
+  .na-btn{flex:1 1 100%;margin-top:6px;padding:8px 12px}
+}
+
 /* Dash grid */
 .dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
 @media(max-width:760px){.dash-grid{grid-template-columns:1fr}}
@@ -1288,6 +1314,60 @@ async function loadAll(){
   }
 }
 
+// ============ POLLING GLOBAL (accueil + autres onglets) ============
+// 2026-05-12 — Refresh auto toutes les 30s tant que l'app est ouverte ET visible.
+// Pause si :
+//   - onglet en arrière-plan (économise CPU + API Airtable)
+//   - édition projet en cours (PROJET_EDIT)
+//   - modale d'édition ouverte (tâche / commande / commande-mail)
+//   - polling projet en cours (déjà géré par startProjetPolling, on n'écrase pas)
+// Pas de cumul : si PROJET_POLLING_TIMER tourne (fiche projet ouverte), c'est lui qui refresh.
+const GLOBAL_POLL_MS = 30000;
+let GLOBAL_POLL_TIMER = null;
+let GLOBAL_POLL_BUSY = false;
+function startGlobalPolling(){
+  if (GLOBAL_POLL_TIMER) return;
+  GLOBAL_POLL_TIMER = setInterval(async () => {
+    try {
+      if (document.hidden) return;
+      if (GLOBAL_POLL_BUSY) return;
+      // Pas la peine de doubler : si on est sur la fiche projet, PROJET_POLLING_TIMER fait le job.
+      const projetView = document.getElementById('projet-detail-view');
+      if (projetView && projetView.style.display !== 'none') return;
+      // Si l'user est en train d'éditer/saisir quelque part, on ne touche pas.
+      if (typeof PROJET_EDIT !== 'undefined' && PROJET_EDIT) return;
+      if (document.getElementById('task-edit-host')) return;
+      if (document.getElementById('cmd-detail-host')) return;
+      if (document.getElementById('cmd-mail-host')) return;
+      // Si un champ texte/textarea/input editable a le focus, on attend (l'user tape).
+      const ae = document.activeElement;
+      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) {
+        // Sauf checkboxes/radios qui ne sont pas du texte en cours de saisie
+        if (!['checkbox','radio','submit','button'].includes(ae.type)) return;
+      }
+      GLOBAL_POLL_BUSY = true;
+      try { await loadAll(); } finally { GLOBAL_POLL_BUSY = false; }
+    } catch (e) { /* silencieux */ }
+  }, GLOBAL_POLL_MS);
+}
+function stopGlobalPolling(){
+  if (GLOBAL_POLL_TIMER) { clearInterval(GLOBAL_POLL_TIMER); GLOBAL_POLL_TIMER = null; }
+}
+// Refresh immédiat au retour de l'onglet (mieux qu'attendre 30s).
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  // Si polling projet géré ailleurs, on laisse faire (lui a son propre visibilitychange).
+  const projetView = document.getElementById('projet-detail-view');
+  if (projetView && projetView.style.display !== 'none') return;
+  if (GLOBAL_POLL_BUSY) return;
+  if (typeof PROJET_EDIT !== 'undefined' && PROJET_EDIT) return;
+  if (document.getElementById('task-edit-host')) return;
+  if (document.getElementById('cmd-detail-host')) return;
+  if (document.getElementById('cmd-mail-host')) return;
+  GLOBAL_POLL_BUSY = true;
+  loadAll().finally(() => { GLOBAL_POLL_BUSY = false; });
+});
+
 // ============ RENDER ============
 function renderAll(){
   // Counts
@@ -1777,6 +1857,13 @@ function openCommandeDetail(cmdId){
             <div style="font-size:10px;color:var(--ink4);margin-top:4px">Pré-rempli auto à la signature du devis. Édite ici ce qui sera réellement commandé au fournisseur.</div>
           </div>
           ${next ? `<div style="margin-top:6px"><button type="button" class="cmd-qa-btn active" onclick="commandeQuickAdvance('${c.id}','${next}',true)">⚡ Marquer « ${next} » en 1 clic</button></div>` : ''}
+          <div style="margin-top:10px;border-top:1px dashed var(--border);padding-top:10px">
+            <div style="font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Envoyer au fournisseur</div>
+            <button type="button" class="abtn primary" onclick="openEmailFournisseurFromCommande('${c.id}')" style="width:100%">
+              ✉️ Préparer l'email au fournisseur
+            </button>
+            <div style="font-size:10px;color:var(--ink4);margin-top:4px;line-height:1.4">Ouvre ton client mail (Mail / Gmail / Outlook) avec sujet + corps pré-remplis. Tu modifies ce que tu veux et tu envoies depuis ta boîte habituelle. À ton retour ici, tu pourras passer la commande en « Envoyée » d'un clic.</div>
+          </div>
         </div>
         <div class="modal-foot" style="display:flex;justify-content:space-between;gap:8px;padding:14px 20px;border-top:1px solid var(--border)">
           <button type="button" class="abtn" style="color:#c25656;border-color:#e0a8a8" onclick="deleteCommande('${c.id}')">🗑 Supprimer la commande</button>
@@ -1856,6 +1943,156 @@ async function commandeQuickAdvance(cmdId, newStatut, closeAfter) {
       }
     }
   } catch(e) { toastError('Erreur : '+e.message); }
+}
+
+// ============ ENVOI EMAIL FOURNISSEUR (mailto:) ============
+// 2026-05-12 — Approche simple/robuste/souverain :
+// - Pas de SMTP/Resend/Brevo/n8n. On ouvre `mailto:` → client mail de l'utilisateur (Mail/Gmail/Outlook).
+// - L'email part de la boîte habituelle du user (donc tracé, SPF/DKIM côté Tanguy, archivé côté envoyeur).
+// - Pré-remplit To (Email commande fournisseur match Type), Subject, Body (Notes + projet + total).
+// - Au retour de l'app : propose de passer la commande en "Envoyée".
+
+function findFournisseurForCommande(c) {
+  // 1) Priorité : champ Fournisseur (link) si présent et résolvable
+  if (Array.isArray(c.Fournisseur) && c.Fournisseur[0]) {
+    const f = DATA.fournisseurs.find(x => x.id === c.Fournisseur[0]);
+    if (f) return f;
+  }
+  // 2) Fallback : match par Type (Cuisine, Électroménager, Plan de travail, Sanitaire, Accessoires, Autre)
+  if (c.Type) {
+    const matches = DATA.fournisseurs.filter(f => (f.Type||'').toLowerCase() === c.Type.toLowerCase());
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) return matches[0]; // premier match — l'user pourra édit
+  }
+  return null;
+}
+
+function openEmailFournisseurFromCommande(cmdId) {
+  const c = DATA.commandes.find(x => x.id === cmdId); if (!c) return;
+  const projetId = Array.isArray(c.Projet) ? c.Projet[0] : null;
+  const projet = projetId ? DATA.projets.find(p => p.id === projetId) : null;
+  const fourn = findFournisseurForCommande(c);
+  const fournEmail = fourn?.['Email commande'] || '';
+  const fournNom = fourn?.Nom || '';
+  // Suggestions de fournisseurs (même type) pour permettre changement rapide.
+  const matchesType = c.Type ? DATA.fournisseurs.filter(f => (f.Type||'').toLowerCase() === (c.Type||'').toLowerCase()) : [];
+
+  const refCmd = c.Numéro || cmdId;
+  const refProjet = projet?.Référence || '';
+  const subject = `Commande ${refCmd}${refProjet ? ' — chantier ' + refProjet : ''} — Tanguy Design`;
+  const total = euros(c['Montant HT']) + ' HT';
+  const livraison = c['Date livraison prévue'] ? `\nDate de livraison souhaitée : ${c['Date livraison prévue']}` : '';
+  const notes = (c.Notes || '').trim();
+  const bodyDefault = `Bonjour${fournNom ? ' ' + fournNom : ''},
+
+Merci de prendre en charge la commande ci-dessous :
+
+Référence : ${refCmd}
+${refProjet ? 'Chantier : ' + refProjet + '\n' : ''}Montant : ${total}${livraison}
+
+Détail :
+${notes || '— à compléter —'}
+
+Merci de bien vouloir nous confirmer la prise en charge et la date de livraison prévue.
+
+Cordialement,
+${(window.ME||'').charAt(0).toUpperCase() + (window.ME||'').slice(1) || 'Tanguy Design'}
+Tanguy Design — Vannes
+tanguydesign.fr`;
+
+  // Mini-modale d'édition avant l'envoi (pour pouvoir corriger To/Subject/Body avant d'ouvrir le client mail).
+  const html = `
+    <div class="modal-bg on" id="cmd-mail-bg" onclick="if(event.target===this)closeEmailFournisseur()">
+      <div class="modal-card" style="max-width:640px">
+        <div class="modal-head">
+          <div class="modal-title">✉️ Email fournisseur — ${esc(refCmd)}</div>
+          <button class="modal-close" onclick="closeEmailFournisseur()">×</button>
+        </div>
+        <div class="modal-body">
+          ${!fournEmail ? `<div style="background:#fff4e6;border:1px solid #f4c279;padding:8px 12px;border-radius:4px;margin-bottom:12px;font-size:12px;color:#7a4a00">
+            ⚠ Aucun email fournisseur trouvé pour le type "${esc(c.Type||'—')}".
+            ${matchesType.length === 0 && c.Type ? `<br>→ Ajoute un fournisseur de type "${esc(c.Type)}" dans la table Fournisseurs avec son "Email commande".` : ''}
+            ${matchesType.length > 0 ? `<br>→ Le fournisseur "${esc(matchesType[0].Nom||'')}" n'a pas d'« Email commande » renseigné.` : ''}
+          </div>` : ''}
+          <div class="form-row"><label>Destinataire(s)</label>
+            <input id="cmf-to" type="email" multiple value="${esc(fournEmail)}" placeholder="email@fournisseur.fr" style="width:100%">
+            ${matchesType.length > 1 ? `<div style="font-size:10px;color:var(--ink4);margin-top:4px">${matchesType.length} fournisseurs de type "${esc(c.Type||'—')}". Tu peux cliquer pour pré-remplir :
+              ${matchesType.map(f => `<button type="button" class="abtn" style="font-size:10px;padding:2px 6px;margin:2px" onclick="document.getElementById('cmf-to').value='${esc(f['Email commande']||'')}'">${esc(f.Nom||'')}${f['Email commande']?'':' (sans email)'}</button>`).join('')}
+            </div>` : ''}
+          </div>
+          <div class="form-row"><label>Sujet</label>
+            <input id="cmf-subject" type="text" value="${esc(subject)}" style="width:100%">
+          </div>
+          <div class="form-row"><label>Corps du mail</label>
+            <textarea id="cmf-body" rows="14" style="font-family:'DM Mono',monospace;font-size:12px;line-height:1.5;width:100%">${esc(bodyDefault)}</textarea>
+          </div>
+          <div style="font-size:11px;color:var(--ink3);background:var(--paper);padding:8px;border-radius:4px;line-height:1.5">
+            <strong>📬 Ce qui va se passer :</strong> ton client mail (Apple Mail, Gmail web, Outlook…) va s'ouvrir avec ces infos pré-remplies. Tu finalises, tu joins les pièces (BC PDF, plans), tu envoies depuis ta boîte habituelle. À ton retour ici, tu peux passer la commande en « Envoyée ».
+          </div>
+        </div>
+        <div class="modal-foot" style="display:flex;justify-content:space-between;gap:8px;padding:14px 20px;border-top:1px solid var(--border)">
+          <button type="button" class="abtn" onclick="closeEmailFournisseur()">Annuler</button>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="abtn" onclick="copyEmailFournisseurBody()">📋 Copier le corps</button>
+            <button type="button" class="abtn primary" onclick="sendEmailFournisseurMailto('${c.id}')">✉️ Ouvrir mon client mail</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  const host = document.createElement('div');
+  host.id = 'cmd-mail-host';
+  host.innerHTML = html;
+  document.body.appendChild(host);
+  setTimeout(() => document.getElementById('cmf-body')?.focus(), 100);
+}
+
+function closeEmailFournisseur() { document.getElementById('cmd-mail-host')?.remove(); }
+
+function copyEmailFournisseurBody() {
+  const body = document.getElementById('cmf-body')?.value || '';
+  navigator.clipboard.writeText(body).then(
+    () => toastSuccess('Corps du mail copié dans le presse-papier'),
+    () => toastError('Copie impossible — sélectionne et copie manuellement')
+  );
+}
+
+function sendEmailFournisseurMailto(cmdId) {
+  const to = (document.getElementById('cmf-to')?.value || '').trim();
+  const subject = (document.getElementById('cmf-subject')?.value || '').trim();
+  const body = document.getElementById('cmf-body')?.value || '';
+  if (!to) {
+    if (!confirm('Aucun destinataire renseigné. Ouvrir quand même le client mail (tu pourras saisir l\'adresse) ?')) return;
+  }
+  // mailto: spec : encodeURIComponent pour respecter le RFC 6068.
+  const url = 'mailto:' + encodeURIComponent(to)
+    + '?subject=' + encodeURIComponent(subject)
+    + '&body=' + encodeURIComponent(body);
+  // Ouvre le client mail système (n'ouvre PAS un nouvel onglet web sauf si l'OS l'a configuré ainsi).
+  window.location.href = url;
+  closeEmailFournisseur();
+  // Petit délai puis proposer le changement de statut.
+  setTimeout(() => {
+    const c = DATA.commandes.find(x => x.id === cmdId);
+    if (!c) return;
+    if (c.Statut === 'Créée') {
+      if (confirm(`Email préparé pour « ${c.Numéro||cmdId} ».\n\nUne fois envoyé depuis ton client mail, passer la commande en « Envoyée » ?`)) {
+        fetch('/api/data/commandes/'+cmdId, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{Statut:'Envoyée'}})})
+          .then(r => r.ok ? loadAll() : null)
+          .then(() => {
+            toastSuccess('Commande passée en « Envoyée »');
+            // Refresh fiche projet si ouverte
+            if (Array.isArray(c.Projet) && c.Projet[0]) {
+              const view = document.getElementById('projet-detail-view');
+              if (view && view.style.display !== 'none') {
+                const p = DATA.projets.find(x => x.id === c.Projet[0]);
+                if (p) renderProjetDetail(p);
+              }
+            }
+          })
+          .catch(e => toastError('Erreur : ' + (e.message||'inconnue')));
+      }
+    }
+  }, 1500);
 }
 
 function taskCard(t){
@@ -2264,6 +2501,189 @@ function scrollToAttachments(fieldName) {
   if (el) { el.scrollIntoView({behavior:'smooth', block:'center'}); el.style.animation = 'ps-pulse 1.5s ease-in-out 2'; setTimeout(()=>el.style.animation='', 3500); }
 }
 
+// ============ PROCHAINES ACTIONS (widget contextuel) ============
+// 2026-05-12 — Détermine 1 à 4 actions concrètes et cliquables que l'utilisateur DOIT faire
+// pour avancer le projet, en lisant l'état du stepper. Chaque action = label + onclick handler.
+function prochainesActionsHTML(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies) {
+  const actions = [];
+  const todayIso = new Date().toISOString().slice(0,10);
+
+  const devisBrouillons = devisLies.filter(d => d.Statut === 'Brouillon');
+  const devisEnvoyes = devisLies.filter(d => d.Statut === 'Envoyé');
+  const devisSignes = devisLies.filter(d => d.Statut === 'Signé');
+  const tachesAFaire = tachesLiees.filter(t => t.Statut !== 'Terminée');
+  const tachesAcompteOuvertes = tachesAFaire.filter(t => /acompte|facture acompte/i.test(t.Titre||''));
+  const tachesSoldeOuvertes = tachesAFaire.filter(t => /facture solde|facture client|solde/i.test(t.Titre||''));
+  const tachesPVOuvertes = tachesAFaire.filter(t => /pv|réception|reception/i.test(t.Titre||''));
+  const tachesAvisOuvertes = tachesAFaire.filter(t => /avis|review|google/i.test(t.Titre||''));
+  const tachesEnRetard = tachesAFaire.filter(t => t.Échéance && t.Échéance < todayIso);
+
+  const planTechFiles = (p['Plan technique']||[]).length;
+  const cmdsCreees = commandesLiees.filter(c => c.Statut === 'Créée');
+  const cmdsSansDate = commandesLiees.filter(c => !c['Date livraison prévue'] && !['Livrée','Posée'].includes(c.Statut));
+  const cmdsLivrees = commandesLiees.filter(c => c.Statut === 'Livrée');
+  const datePoseSet = !!p['Date pose prévue'];
+  const cmdsPosees = commandesLiees.filter(c => c.Statut === 'Posée');
+  const aucunDevis = devisLies.length === 0;
+  const aucunClient = !p.Client || (Array.isArray(p.Client) && p.Client.length === 0);
+
+  // Action 1 : pas de client lié → bug catalogue
+  if (aucunClient) {
+    actions.push({
+      icon: '👤', urgency: 'high', label: 'Lier ce projet à un client',
+      hint: "Aucun client n'est rattaché. Importe un devis Winner ou édite le projet pour rattacher manuellement.",
+      btn: 'Modifier le projet', onclick: `toggleProjetEdit(true)`
+    });
+  }
+
+  // Action 2 : pas de devis → import Winner
+  if (!aucunClient && aucunDevis) {
+    actions.push({
+      icon: '📄', urgency: 'high', label: 'Importer le premier devis Winner',
+      hint: 'Aucun devis pour ce projet. Importe le PDF Winner pour générer auto les zones, lignes et échéances.',
+      btn: 'Importer un PDF Winner', onclick: `closeProjetDetail();switchTab('devis');setTimeout(()=>document.getElementById('devis-pdf-input').click(),100)`
+    });
+  }
+
+  // Action 3 : devis Brouillon → envoyer au client
+  if (devisBrouillons.length > 0 && devisEnvoyes.length === 0 && devisSignes.length === 0) {
+    const d = devisBrouillons[0];
+    actions.push({
+      icon: '📤', urgency: 'med', label: `Envoyer le devis ${d['Numéro devis']||''} au client`,
+      hint: 'Le devis est en brouillon. Passe-le en « Envoyé » quand tu l\'as transmis au client.',
+      btn: 'Ouvrir le devis', onclick: `openDevisDetail('${d.id}')`
+    });
+  }
+
+  // Action 4 : devis Envoyé → relance ou signature
+  if (devisEnvoyes.length > 0 && devisSignes.length === 0) {
+    const d = devisEnvoyes[0];
+    actions.push({
+      icon: '✍️', urgency: 'med', label: `Faire signer le devis ${d['Numéro devis']||''} (BC)`,
+      hint: 'Le devis a été envoyé. Une fois signé par le client, marque-le en « Signé » : ça génère auto les commandes fournisseurs + tâches.',
+      btn: 'Ouvrir le devis', onclick: `openDevisDetail('${d.id}')`
+    });
+  }
+
+  // Action 5 : devis Signé → acompte
+  if (devisSignes.length > 0 && tachesAcompteOuvertes.length > 0) {
+    const t = tachesAcompteOuvertes[0];
+    actions.push({
+      icon: '💶', urgency: 'high', label: 'Émettre la facture d\'acompte 30%',
+      hint: `Tâche "${t.Titre}" assignée à ${t['Assignée à']||'—'}. Marque-la terminée une fois la facture envoyée.`,
+      btn: 'Ouvrir la tâche', onclick: `openTaskEdit('${t.id}')`
+    });
+  }
+
+  // Action 6 : devis Signé + pas de plans techniques → uploader
+  if (devisSignes.length > 0 && planTechFiles === 0) {
+    actions.push({
+      icon: '📐', urgency: 'med', label: 'Uploader les plans techniques',
+      hint: 'Les plans techniques (cotes, archi, autocad) sont essentiels pour la pose. Upload-les pour avancer le projet.',
+      btn: 'Aller à Documents', onclick: `document.getElementById('zone-attach')?.scrollIntoView({behavior:'smooth'});setTimeout(()=>switchAttachTab(1),300)`
+    });
+  }
+
+  // Action 7 : commandes Créées → envoyer aux fournisseurs (1 action par cmd Créée)
+  if (cmdsCreees.length > 0) {
+    cmdsCreees.slice(0, 3).forEach(c => {
+      actions.push({
+        icon: '📦', urgency: 'med', label: `Envoyer la commande ${c.Numéro||''} au fournisseur`,
+        hint: `${euros(c['Montant HT'])} HT · type ${c.Type||'—'}. Ouvre la commande puis clique sur "Préparer l'email au fournisseur".`,
+        btn: '✉️ Préparer l\'email', onclick: `openCommandeDetail('${c.id}')`
+      });
+    });
+  }
+
+  // Action 8 : commandes sans date livraison → relancer
+  if (cmdsSansDate.length > 0 && cmdsCreees.length === 0) {
+    const c = cmdsSansDate[0];
+    actions.push({
+      icon: '📅', urgency: 'med', label: `Confirmer la date livraison de ${c.Numéro||''}`,
+      hint: 'La commande est envoyée mais pas de date livraison confirmée. Relance le fournisseur.',
+      btn: 'Ouvrir la commande', onclick: `openCommandeDetail('${c.id}')`
+    });
+  }
+
+  // Action 9 : commandes livrées + pas de date pose → planifier
+  if (cmdsLivrees.length > 0 && !datePoseSet) {
+    actions.push({
+      icon: '🔨', urgency: 'med', label: 'Planifier la date de pose',
+      hint: 'Les commandes sont arrivées. Définis la date de pose dans la fiche projet.',
+      btn: 'Modifier le projet', onclick: `toggleProjetEdit(true);setTimeout(()=>document.querySelector('[data-pf=\"Date pose prévue\"]')?.focus(),200)`
+    });
+  }
+
+  // Action 10 : Pose réalisée → PV
+  if (cmdsPosees.length > 0 && tachesPVOuvertes.length > 0) {
+    const t = tachesPVOuvertes[0];
+    actions.push({
+      icon: '📋', urgency: 'med', label: 'Faire signer le PV de réception',
+      hint: 'La pose est terminée. Fais signer le PV de réception client puis marque la tâche terminée.',
+      btn: 'Ouvrir la tâche', onclick: `openTaskEdit('${t.id}')`
+    });
+  }
+
+  // Action 11 : facture solde
+  if (tachesSoldeOuvertes.length > 0 && cmdsPosees.length > 0) {
+    const t = tachesSoldeOuvertes[0];
+    actions.push({
+      icon: '🧾', urgency: 'med', label: 'Émettre la facture de solde',
+      hint: `Tâche "${t.Titre}" — solde dû par le client après pose.`,
+      btn: 'Ouvrir la tâche', onclick: `openTaskEdit('${t.id}')`
+    });
+  }
+
+  // Action 12 : avis Google
+  if (tachesAvisOuvertes.length > 0 && (cmdsPosees.length > 0 || p.Statut === 'Terminé')) {
+    const t = tachesAvisOuvertes[0];
+    actions.push({
+      icon: '⭐', urgency: 'low', label: 'Solliciter l\'avis Google du client',
+      hint: 'Chantier terminé. C\'est le moment de demander un avis Google pour ton SEO.',
+      btn: 'Ouvrir la tâche', onclick: `openTaskEdit('${t.id}')`
+    });
+  }
+
+  // Action transverse : tâches en retard (toujours visible si présent)
+  if (tachesEnRetard.length > 0) {
+    actions.unshift({
+      icon: '⚠', urgency: 'high', label: `${tachesEnRetard.length} tâche${tachesEnRetard.length>1?'s':''} en retard`,
+      hint: 'Une ou plusieurs échéances sont dépassées. Aller voir les tâches du projet.',
+      btn: 'Voir les tâches', onclick: `document.getElementById('zone-taches')?.scrollIntoView({behavior:'smooth'})`
+    });
+  }
+
+  // Si aucune action : projet idle/terminé
+  if (actions.length === 0) {
+    return `<div class="next-actions next-actions-empty">
+      <div class="na-title">🎯 Prochaines actions</div>
+      <div class="na-empty">Tout est à jour sur ce projet — rien d'urgent à faire.${p.Statut === 'Terminé' ? ' Chantier terminé ✓' : ''}</div>
+    </div>`;
+  }
+
+  // Garde max 4 actions (les plus urgentes en haut)
+  const sorted = actions.sort((a,b) => {
+    const order = {high:0, med:1, low:2};
+    return (order[a.urgency]||9) - (order[b.urgency]||9);
+  }).slice(0, 4);
+
+  return `<div class="next-actions">
+    <div class="na-title">🎯 Prochaines actions <span class="na-count">${actions.length}${actions.length > 4 ? ' (top 4)' : ''}</span></div>
+    <div class="na-list">
+      ${sorted.map(a => `
+        <div class="na-item na-${a.urgency}">
+          <div class="na-icon">${a.icon}</div>
+          <div class="na-content">
+            <div class="na-label">${esc(a.label)}</div>
+            <div class="na-hint">${esc(a.hint)}</div>
+          </div>
+          <button type="button" class="na-btn" onclick="${a.onclick}">${a.btn}</button>
+        </div>
+      `).join('')}
+    </div>
+  </div>`;
+}
+
 // ============ BILAN FINANCIER PRÉVISIONNEL ============
 // CA = devis Envoyé/Signé · Coûts auto = commandes fournisseurs + devis artisans HT
 // Rétro-commission 5% Tanguy = 5% du HT artisans (réduit le coût pour Tanguy)
@@ -2423,6 +2843,8 @@ function renderProjetDetail(p){
           </div>
 
           <div id="zone-stepper">${parcoursStepperHTML(computeParcours(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies), p)}</div>
+
+          <div id="zone-next-actions">${prochainesActionsHTML(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies)}</div>
 
           <div id="zone-bilan">${bilanFinancierHTML(p, devisLies, commandesLiees, devisArtisansLies)}</div>
 
@@ -3018,8 +3440,9 @@ function projetTOC(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies)
   const tachesEnRetard = tachesLiees.filter(t => t.Statut!=='Terminée' && t.Échéance && t.Échéance < today).length;
   const devisAttente = devisLies.filter(d => d.Statut === 'Envoyé').length;
   const items = [
-    {id:'zone-stepper',  label:'Parcours',         count:''},
-    {id:'zone-bilan',    label:'Bilan financier',  count:''},
+    {id:'zone-stepper',     label:'Parcours',          count:''},
+    {id:'zone-next-actions',label:'Prochaines actions',count:''},
+    {id:'zone-bilan',       label:'Bilan financier',   count:''},
     {id:'zone-info',     label:'Informations',     count:''},
     {id:'zone-devis',    label:'Devis Tanguy',     count:devisLies.length, urgent: devisAttente>0},
     {id:'zone-fact',     label:'Facturation',      count:''},
@@ -4995,8 +5418,8 @@ async function deleteFromModal(){
 $('#modalBg').addEventListener('click', e => { if (e.target === $('#modalBg')) closeModal(); });
 
 // ============ INIT ============
-loadAll();
-setInterval(loadAll, 2*60*1000); // refresh 2 min
+loadAll().then(() => startGlobalPolling());
+// 2026-05-12 : remplacé setInterval(loadAll, 2min) par startGlobalPolling() (30s + guards édition + visibilitychange).
 </script>
 </body>
 </html>
