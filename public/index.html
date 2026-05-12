@@ -2527,12 +2527,12 @@ function prochainesActionsHTML(p, devisLies, commandesLiees, tachesLiees, devisA
   const aucunDevis = devisLies.length === 0;
   const aucunClient = !p.Client || (Array.isArray(p.Client) && p.Client.length === 0);
 
-  // Action 1 : pas de client lié → bug catalogue
+  // Action 1 : pas de client lié → ouvre mode édition + focus select Client
   if (aucunClient) {
     actions.push({
       icon: '👤', urgency: 'high', label: 'Lier ce projet à un client',
-      hint: "Aucun client n'est rattaché. Importe un devis Winner ou édite le projet pour rattacher manuellement.",
-      btn: 'Modifier le projet', onclick: `toggleProjetEdit(true)`
+      hint: "Aucun client n'est rattaché. Sélectionne-en un dans la liste, ou crée-en un nouveau.",
+      btn: 'Lier un client', onclick: `toggleProjetEdit(true);setTimeout(()=>{const s=document.querySelector('#projet-detail-view [data-pf=\\'Client\\']');if(s){s.focus();s.scrollIntoView({behavior:'smooth',block:'center'})}},250)`
     });
   }
 
@@ -2849,6 +2849,22 @@ function renderProjetDetail(p){
           <div id="zone-bilan">${bilanFinancierHTML(p, devisLies, commandesLiees, devisArtisansLies)}</div>
 
           <h2 id="zone-info" class="zone-title">Informations</h2>
+          ${editing ? (() => {
+            // 2026-05-12 : permet de rattacher un client en mode édition (widget "Lier ce projet à un client").
+            const clientCurrentId = Array.isArray(p.Client) ? (p.Client[0]||'') : '';
+            const clientsSorted = [...DATA.clients].sort((a,b)=>(a.Nom||'').localeCompare(b.Nom||''));
+            return `<div class="form-row" style="margin-bottom:14px">
+              <label class="proj-lbl">Client rattaché</label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <select class="edit-inp" data-pf="Client" data-pf-type="link" style="flex:1;min-width:200px">
+                  <option value="">— Aucun client lié —</option>
+                  ${clientsSorted.map(c => `<option value="${c.id}" ${clientCurrentId===c.id?'selected':''}>${esc(c.Nom||'—')}${c.Téléphone?' · '+esc(c.Téléphone):''}</option>`).join('')}
+                </select>
+                <button type="button" class="abtn" onclick="openClientDetail(null)" title="Créer un nouveau client (sauvegarde puis re-sélectionne)">+ Nouveau client</button>
+              </div>
+              <div style="font-size:10px;color:var(--ink4);margin-top:4px">Si tu crées un nouveau client, sauvegarde-le puis reviens ici pour le sélectionner dans la liste.</div>
+            </div>`;
+          })() : ''}
           <div class="proj-grid">
             <div><span class="proj-lbl">Référence</span>${editing?fld('Référence',p.Référence):'<strong>'+esc(p.Référence||'—')+'</strong>'}</div>
             <div><span class="proj-lbl">Statut</span>${editing?`<select class="edit-inp" data-pf="Statut">${statuts.map(s=>`<option ${p.Statut===s?'selected':''}>${s}</option>`).join('')}</select>`:'<strong>'+esc(p.Statut||'—')+'</strong>'}</div>
@@ -3562,7 +3578,14 @@ async function saveProjet(projetId){
   const fields = {};
   document.querySelectorAll('#projet-detail-view [data-pf]').forEach(inp => {
     const key = inp.dataset.pf;
+    const type = inp.dataset.pfType;
     let v = inp.value;
+    // 2026-05-12 : champs de type "link" (linked record Airtable) → array d'IDs.
+    // Permet de rattacher/changer/délier le client depuis le mode édition projet.
+    if (type === 'link') {
+      fields[key] = v ? [v] : [];
+      return;
+    }
     if (['Budget HT','Marge prévisionnelle'].includes(key)) v = v?parseFloat(v):null;
     if (v !== '' && v !== null) fields[key] = v;
   });
@@ -4037,13 +4060,11 @@ async function openClientDetail(clientId){
           </div>
           <div class="form-row"><label>Notes / Suivi</label><textarea id="cf-Notes" rows="5" placeholder="Suivi commercial, historique, préférences…">${esc(c.Notes||'')}</textarea></div>
 
-          ${!isNew && (linkedProjets.length||linkedDevis.length) ? `
-            <div class="linked-block">
-              <div class="linked-title">Projets liés (${linkedProjets.length})</div>
-              ${linkedProjets.length ? linkedProjets.map(p=>`<div class="linked-item" onclick="closeClientDetail();openProjetDetail('${p.id}')">${esc(p.Référence||'—')} <span style="color:var(--ink4)">· ${esc(p.Statut||'')}</span></div>`).join('') : '<div class="muted" style="font-size:11px;color:var(--ink4)">Aucun</div>'}
-              <div class="linked-title" style="margin-top:14px">Devis liés (${linkedDevis.length})</div>
-              ${linkedDevis.length ? linkedDevis.map(d=>`<div class="linked-item" onclick="closeClientDetail();switchTab('devis');openDevisDetail('${d.id}')">${esc(d['Numéro devis']||'—')} <span style="color:var(--ink4)">· ${euros(d['Total TTC'])}</span></div>`).join('') : '<div class="muted" style="font-size:11px;color:var(--ink4)">Aucun</div>'}
-            </div>` : ''}
+          ${!isNew ? `
+            <div class="linked-block" id="client-linked-block">
+              ${renderClientLinkedBlock(clientId)}
+            </div>` : `
+            <div class="muted" style="font-size:11px;color:var(--ink4);background:var(--paper);padding:8px 10px;border-radius:4px">💡 Une fois le client créé, tu pourras lui rattacher des projets depuis cette modale.</div>`}
         </div>
         <div class="modal-foot">
           ${!isNew?`<button class="btn-danger" onclick="deleteClient('${clientId}')">Supprimer</button>`:'<span></span>'}
@@ -4059,6 +4080,101 @@ async function openClientDetail(clientId){
   host.innerHTML = html;
 }
 function closeClientDetail(){ const h=document.getElementById('client-modal-host'); if(h)h.innerHTML=''; }
+
+// ============ RATTACHEMENT BIDIRECTIONNEL CLIENT ↔ PROJET ============
+// 2026-05-12 — Permet de rattacher/délier des projets depuis la fiche client (modale).
+// Côté projet (fiche projet) : déjà fait via le sélecteur dans le mode édition projet.
+// Le rattachement est stocké côté Projet (champ Client = [clientId]) — on PATCH le projet
+// même quand on agit depuis la fiche client. Cela maintient une source de vérité unique.
+
+function renderClientLinkedBlock(clientId) {
+  const linkedDevis = DATA.devis.filter(d => Array.isArray(d.Client) && d.Client.includes(clientId));
+  const linkedProjets = DATA.projets.filter(p => Array.isArray(p.Client) && p.Client.includes(clientId));
+  // Projets disponibles à rattacher (tous sauf déjà liés à CE client, triés par référence)
+  const projetsDispos = DATA.projets
+    .filter(p => !Array.isArray(p.Client) || !p.Client.includes(clientId))
+    .sort((a,b) => (a.Référence||'').localeCompare(b.Référence||''));
+  return `
+    <div class="linked-title">Projets liés (${linkedProjets.length})</div>
+    ${linkedProjets.length ? linkedProjets.map(p => `
+      <div class="linked-item" style="display:flex;align-items:center;gap:8px;justify-content:space-between">
+        <span style="flex:1;cursor:pointer" onclick="closeClientDetail();openProjetDetail('${p.id}')" title="Ouvrir le projet">
+          ${esc(p.Référence||'—')} <span style="color:var(--ink4)">· ${esc(p.Statut||'')}</span>${p['Budget HT']?` <span style="color:var(--ink4)">· ${euros(p['Budget HT'])}</span>`:''}
+        </span>
+        <button type="button" class="abtn" style="font-size:11px;padding:2px 8px;border-color:#e0a8a8;color:#c25656" onclick="detachProjetFromClient('${p.id}','${clientId}')" title="Délier ce projet du client (le projet n'est pas supprimé)">× Délier</button>
+      </div>
+    `).join('') : '<div class="muted" style="font-size:11px;color:var(--ink4);padding:4px 0">Aucun projet rattaché à ce client.</div>'}
+    <div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <select id="client-attach-projet-select" style="flex:1;min-width:180px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:4px;background:#fff">
+        <option value="">— Rattacher un projet existant —</option>
+        ${projetsDispos.map(p => {
+          const otherClientId = Array.isArray(p.Client) && p.Client[0] ? p.Client[0] : null;
+          const otherClient = otherClientId ? DATA.clients.find(c => c.id === otherClientId) : null;
+          const hint = otherClient ? ` (actuellement : ${(otherClient.Nom||'').slice(0,20)})` : '';
+          return `<option value="${p.id}">${esc(p.Référence||'—')}${esc(hint)}</option>`;
+        }).join('')}
+      </select>
+      <button type="button" class="abtn primary" style="font-size:11px;padding:5px 10px" onclick="attachProjetToClient(document.getElementById('client-attach-projet-select').value, '${clientId}')">Rattacher</button>
+      <button type="button" class="abtn" style="font-size:11px;padding:5px 10px" onclick="openNewProjetForClient('${clientId}')" title="Crée un nouveau projet déjà lié à ce client">+ Nouveau projet</button>
+    </div>
+    <div class="linked-title" style="margin-top:14px">Devis liés (${linkedDevis.length})</div>
+    ${linkedDevis.length ? linkedDevis.map(d => `<div class="linked-item" onclick="closeClientDetail();switchTab('devis');openDevisDetail('${d.id}')">${esc(d['Numéro devis']||'—')} <span style="color:var(--ink4)">· ${euros(d['Total TTC'])}</span></div>`).join('') : '<div class="muted" style="font-size:11px;color:var(--ink4);padding:4px 0">Aucun devis (créés auto via les projets liés).</div>'}
+  `;
+}
+
+async function attachProjetToClient(projetId, clientId) {
+  if (!projetId) { toastError('Sélectionne un projet dans la liste'); return; }
+  const p = DATA.projets.find(x => x.id === projetId);
+  if (!p) { toastError('Projet introuvable'); return; }
+  const wasLinked = Array.isArray(p.Client) && p.Client.length > 0 && p.Client[0] !== clientId;
+  if (wasLinked) {
+    const other = DATA.clients.find(c => c.id === p.Client[0]);
+    if (!confirm(`Le projet « ${p.Référence||'—'} » est actuellement lié à ${other?.Nom||'un autre client'}.\n\nÉcraser et le rattacher au client courant ?`)) return;
+  }
+  showLoader('Rattachement…');
+  try {
+    const r = await fetch('/api/data/projets/'+projetId, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({fields:{Client: [clientId]}})
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'erreur');
+    toastSuccess(`Projet « ${p.Référence||'—'} » rattaché`);
+    await loadAll();
+    const block = document.getElementById('client-linked-block');
+    if (block) block.innerHTML = renderClientLinkedBlock(clientId);
+  } catch(e) { toastError('Erreur : '+e.message); }
+  finally { hideLoader(); }
+}
+
+async function detachProjetFromClient(projetId, clientId) {
+  const p = DATA.projets.find(x => x.id === projetId);
+  if (!p) return;
+  if (!confirm(`Délier le projet « ${p.Référence||'—'} » de ce client ?\n\nLe projet n'est PAS supprimé, juste détaché. Tu pourras le rerattacher plus tard.`)) return;
+  showLoader('Détachement…');
+  try {
+    const r = await fetch('/api/data/projets/'+projetId, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({fields:{Client: []}})
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'erreur');
+    toastSuccess(`Projet « ${p.Référence||'—'} » délié`);
+    await loadAll();
+    const block = document.getElementById('client-linked-block');
+    if (block) block.innerHTML = renderClientLinkedBlock(clientId);
+  } catch(e) { toastError('Erreur : '+e.message); }
+  finally { hideLoader(); }
+}
+
+// Crée un nouveau projet déjà lié au client courant.
+// Le hint global est lu par saveModal après création (PATCH du projet créé avec Client=[clientId]).
+function openNewProjetForClient(clientId) {
+  window.NEW_PROJET_CLIENT_HINT = clientId;
+  closeClientDetail();
+  switchTab('projets');
+  openModal('projets');
+}
 
 async function saveClient(clientId){
   const fields = {};
@@ -5316,6 +5432,7 @@ function closeModal(){
   currentModalRecordId = null;
   const delBtn = document.getElementById('modalDeleteBtn');
   if (delBtn) delBtn.style.display = 'none';
+  window.NEW_PROJET_CLIENT_HINT = null; // reset hint pour ne pas polluer la prochaine ouverture
 }
 
 async function submitModal(){
@@ -5348,6 +5465,23 @@ async function submitModal(){
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error||'erreur');
+
+    // 2026-05-12 : rattachement auto au client si on a ouvert la modale depuis une fiche client.
+    if (currentModalTable === 'projets' && !currentModalRecordId && window.NEW_PROJET_CLIENT_HINT && d.record?.id) {
+      const clientHint = window.NEW_PROJET_CLIENT_HINT;
+      window.NEW_PROJET_CLIENT_HINT = null;
+      try {
+        await fetch('/api/data/projets/'+d.record.id, {
+          method:'PATCH',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({fields:{Client: [clientHint]}})
+        });
+        const cli = DATA.clients.find(c => c.id === clientHint);
+        toastSuccess(`Projet créé et rattaché à ${cli?.Nom||'le client'}`);
+      } catch(e) {
+        toastError('Projet créé mais rattachement client échoué : '+e.message);
+      }
+    }
 
     // Enrichissement Plaud (uniquement à la création d'un projet)
     if (currentModalTable === 'projets' && !currentModalRecordId) {
