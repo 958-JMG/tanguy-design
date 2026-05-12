@@ -204,6 +204,49 @@ function requireAdminIfRestrictedTable(req, res, next) {
   next();
 }
 
+// ────────────────────────────────────────────────────────────────────────────────
+// withKeepAlive — wrapper pour les routes qui appellent Claude (PDF parsing, Plaud)
+// ────────────────────────────────────────────────────────────────────────────────
+// Cloudflare timeout = 100s sans byte reçu de l'origine. Sonnet 4.5 + vision PDF
+// peut prendre 60-120s → CF coupe avec HTTP 524 alors que le backend est encore
+// en train d'attendre Anthropic.
+//
+// Solution : envoyer 1 byte (un espace, compatible JSON.parse côté client) toutes
+// les 20s pour que CF reset son timer "no data received". Le client final reçoit
+// du whitespace au début + le JSON à la fin → JSON.parse gère bien.
+//
+// Compromise : si l'origine échoue APRÈS le 1er byte envoyé, on ne peut plus
+// retourner un status 4xx/5xx → le response sera 200 avec {error: ...}. Le
+// frontend doit donc check à la fois r.ok ET d.error (déjà mis à jour).
+async function withKeepAlive(req, res, handler) {
+  // Disable buffering pour qu'Express envoie chaque write au client immédiatement
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no'); // nginx & équivalent
+  res.write(' '); // flush initial → CF voit le 1er byte
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  let keepAlive = setInterval(() => {
+    try { res.write(' '); } catch (_) {}
+  }, 20000); // toutes les 20s (< 100s CF timeout)
+
+  try {
+    const result = await handler();
+    clearInterval(keepAlive);
+    keepAlive = null;
+    res.end(JSON.stringify(result));
+  } catch (e) {
+    if (keepAlive) clearInterval(keepAlive);
+    console.error('[withKeepAlive] error:', e.message);
+    // headers déjà envoyés → on ne peut plus changer le status, on retourne JSON {error}
+    try {
+      res.end(JSON.stringify({ error: e.message || 'erreur serveur' }));
+    } catch (_) {
+      // socket peut-être fermé, abandonner silencieusement
+    }
+  }
+}
+
 // keyGenerator commun aux rate-limiters : utilise la vraie IP client (CF-Connecting-IP prioritaire)
 // sinon tous les users seraient groupés derrière l'IP Cloudflare unique → rate-limit inutile.
 const ipKeyGen = (req) => clientIp(req);
@@ -440,7 +483,10 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
     return res.status(400).json({ error: 'Devis additif : projetId requis (le projet doit déjà exister)' });
   }
 
-  try {
+  // RC Pro 2026 — withKeepAlive : envoie 1 byte toutes les 20s pendant que Claude
+  // analyse le PDF (peut prendre 60-120s avec Sonnet 4.5 vision). Sans ça, Cloudflare
+  // coupe à 100s sans byte reçu → HTTP 524.
+  await withKeepAlive(req, res, async () => {
     console.log(`[devis/import] parsing ${req.file.originalname} (${req.file.size} bytes)`);
     const parsed = await parseDevisPdf(req.file.buffer);
     console.log(`[devis/import] ✓ parsed: ${parsed.lignes?.length || 0} lignes, ${parsed.zones?.length || 0} zones`);
@@ -621,7 +667,7 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
       if (echeancesBatch.length) await atCreateBatch(TABLES['echeances-devis'].id, echeancesBatch);
     }
 
-    res.json({
+    return {
       ok: true,
       devisId,
       parsed_summary: {
@@ -631,11 +677,8 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
         zones: parsed.zones?.length || 0,
         echeances: parsed.echeances?.length || 0
       }
-    });
-  } catch (e) {
-    console.error('[devis/import] error:', e);
-    res.status(500).json({ error: e.message });
-  }
+    };
+  });
 });
 
 // --- DEVIS : signature → génération commandes fournisseurs + tâches ---
@@ -762,7 +805,8 @@ app.post('/api/plaud/parse', requireAuth, async (req, res) => {
   if (!transcript) return res.status(400).json({ error: 'transcript requis' });
   if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY non configurée' });
 
-  try {
+  // withKeepAlive — Claude parse Plaud peut prendre 30-60s → idem fix devis/import
+  await withKeepAlive(req, res, async () => {
     const parsed = await parsePlaudTranscript(transcript);
     // Si niveau non fourni : R1 si Type réunion = Découverte/Présentation devis, R2 sinon.
     const typeR = type_reunion || 'Découverte';
@@ -789,11 +833,8 @@ app.post('/api/plaud/parse', requireAuth, async (req, res) => {
     Object.keys(fields).forEach(k => { if (fields[k] === null || fields[k] === '') delete fields[k]; });
 
     const rec = await atCreate(TABLES['reunions-plaud'].id, fields);
-    res.json({ ok: true, record: rec, parsed, niveau: niveauResolu });
-  } catch (e) {
-    console.error('[plaud/parse] error:', e);
-    res.status(500).json({ error: e.message });
-  }
+    return { ok: true, record: rec, parsed, niveau: niveauResolu };
+  });
 });
 
 // --- DEVIS ARTISAN : import PDF + parsing + création record ---
@@ -804,7 +845,8 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
   const projetId = req.body.projetId || null;
   const artisanId = req.body.artisanId || null; // optionnel — sinon on match par nom d'entreprise
 
-  try {
+  // withKeepAlive — parser un PDF artisan via Claude peut prendre 60-120s
+  await withKeepAlive(req, res, async () => {
     console.log(`[artisan-devis/import] parsing ${req.file.originalname} (${req.file.size} bytes)`);
     const parsed = await parseArtisanDevisPdf(req.file.buffer);
     console.log(`[artisan-devis/import] ✓ parsed: ${parsed.artisan?.entreprise} / ${euros(parsed.totaux?.total_ht)}`);
@@ -875,7 +917,7 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
       }
     }
 
-    res.json({
+    return {
       ok: true,
       recordId,
       artisan_matched: !!resolvedArtisanId,
@@ -886,11 +928,8 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
         montant_ttc: montantTTC,
         retrocommission: retrocom
       }
-    });
-  } catch (e) {
-    console.error('[artisan-devis/import] error:', e);
-    res.status(500).json({ error: e.message });
-  }
+    };
+  });
 });
 
 // --- Génération Fiche de mission : logique mutualisée ---

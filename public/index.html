@@ -2687,7 +2687,9 @@ async function submitDevisAdditif(){
     fd.append('type', 'Additif');
     const r = await fetch('/api/devis/import', { method: 'POST', body: fd });
     const d = await r.json();
-    if (!r.ok) throw new Error(d.error || 'erreur');
+    // RC Pro 2026 — withKeepAlive backend peut renvoyer 200 avec {error}
+    // (impossible de changer le status après le 1er byte). On check d.error en plus.
+    if (!r.ok || d.error) throw new Error(d.error || 'erreur');
     toastSuccess(`Devis additif créé · ${d.parsed_summary?.lignes||0} lignes`);
     closeModal();
     await loadAll();
@@ -3339,7 +3341,7 @@ async function uploadArtisanDevis(event, projetId){
     fd.append('projetId', projetId);
     const r = await fetch('/api/artisan-devis/import', { method: 'POST', body: fd });
     const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'Erreur import');
+    if (!r.ok || data.error) throw new Error(data.error || 'Erreur import');
     const s = data.parsed_summary || {};
     let msg = `✅ Devis ${s.numero||''} importé — ${euros(s.montant_ht)} HT · rétro-com ${euros(s.retrocommission)}`;
     if (!data.artisan_matched) msg += `\n⚠️ Artisan "${data.artisan_name||''}" non trouvé dans la base — à lier manuellement.`;
@@ -4350,7 +4352,7 @@ async function doImportDevisPdf(file, projetId){
     if (projetId) fd.append('projetId', projetId);
     const r = await fetch('/api/devis/import', {method:'POST', body:fd});
     const d = await r.json();
-    if (!r.ok) throw new Error(d.error||'Erreur parsing');
+    if (!r.ok || d.error) throw new Error(d.error||'Erreur parsing');
     hideLoader();
     toastSuccess(`Devis ${d.parsed_summary.numero} importé · ${d.parsed_summary.lignes} lignes · ${euros(d.parsed_summary.total_ttc)}`);
     await loadAll();
@@ -4536,7 +4538,7 @@ async function submitPlaud(){
     if (niveau) payload.niveau = niveau;
     const r = await fetch('/api/plaud/parse', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d = await r.json();
-    if (!r.ok) throw new Error(d.error||'Erreur');
+    if (!r.ok || d.error) throw new Error(d.error||'Erreur');
     toastSuccess(`Transcription ${d.niveau||''} analysée et liée au projet`);
     await loadAll();
     // Si on était sur la fiche projet, refresh
