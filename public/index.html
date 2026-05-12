@@ -1847,6 +1847,14 @@ async function commandeQuickAdvance(cmdId, newStatut, closeAfter) {
     toastSuccess(`${c.Numéro||'Commande'} marquée « ${newStatut} »`);
     if (closeAfter) closeCommandeDetail();
     await loadAll();
+    // Bidirectionnel : si une fiche projet liée est ouverte, refresh stepper
+    if (Array.isArray(c.Projet) && c.Projet[0]) {
+      const projetView = document.getElementById('projet-detail-view');
+      if (projetView && projetView.style.display !== 'none' && typeof renderProjetDetail === 'function') {
+        const p = DATA.projets.find(x => x.id === c.Projet[0]);
+        if (p) renderProjetDetail(p);
+      }
+    }
   } catch(e) { toastError('Erreur : '+e.message); }
 }
 
@@ -3756,6 +3764,17 @@ async function dropTask(ev, newStatut){
   renderTaches();
   try {
     await fetch('/api/data/taches/'+rid, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{Statut:newStatut}})});
+    // Bidirectionnel : si la tâche est liée à un projet, rafraîchir le stepper de ce projet
+    // (le stepper computeParcours lit le statut des tâches "Acompte", "Facture solde", "PV", "Avis").
+    if (Array.isArray(task.Projet) && task.Projet[0]) {
+      // Recharger la donnée puis re-rendre la fiche projet si elle est ouverte
+      await loadAll();
+      const projetView = document.getElementById('projet-detail-view');
+      if (projetView && projetView.style.display !== 'none' && typeof renderProjetDetail === 'function') {
+        const p = DATA.projets.find(x => x.id === task.Projet[0]);
+        if (p) renderProjetDetail(p);
+      }
+    }
   } catch(e) { toastError('Erreur : '+e.message); await loadAll(); }
 }
 function renderSAV(){
@@ -4070,6 +4089,40 @@ function toggleDevisEdit(on){
   renderDevisDetail(DEVIS_CURRENT);
 }
 
+// Changement de statut devis (Brouillon ↔ Envoyé ↔ Annulé). Ne PASSE PAS par signDevis
+// car celui-ci déclenche aussi la création des commandes et le passage projet en Commandes.
+// Pour le statut "Signé", il faut OBLIGATOIREMENT signDevis (pipeline complet).
+async function setDevisStatut(devisId, statut) {
+  if (statut === 'Signé') return signDevis(devisId); // garde-fou
+  const conf = statut === 'Annulé'
+    ? confirm(`Marquer ce devis comme "Annulé" ?\n\n(Le devis reste visible mais ne compte plus dans les KPIs.)`)
+    : true;
+  if (!conf) return;
+  showLoader(`Mise à jour statut → ${statut}…`);
+  try {
+    const r = await fetch('/api/data/devis/'+devisId, {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({fields:{Statut: statut}})
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'erreur');
+    hideLoader();
+    toastSuccess(`Statut devis → ${statut}`);
+    await loadAll();
+    // Re-render le détail devis (pour rafraîchir les boutons selon nouveau statut)
+    await openDevisDetail(devisId);
+    // Si une fiche projet est ouverte, la rafraîchir aussi (stepper bouge)
+    const projet = (DATA.devis.find(x => x.id === devisId)||{})['Projet'];
+    if (projet && projet[0]) {
+      const p = DATA.projets.find(x => x.id === projet[0]);
+      if (p && typeof renderProjetDetail === 'function' && document.getElementById('projet-detail-view') && document.getElementById('projet-detail-view').style.display !== 'none') {
+        renderProjetDetail(p);
+      }
+    }
+  } catch(e) { hideLoader(); toastError('Erreur : '+e.message); }
+}
+
 async function signDevis(devisId){
   if (!confirm('Signer ce bon de commande ?\n\nCela va :\n- Passer le statut en SIGNÉ\n- Générer les commandes fournisseurs par catégorie\n- Créer les tâches de suivi (acompte, commandes, pose)\n- Passer le projet en statut "Commandes"')) return;
   showLoader('Signature en cours…');
@@ -4209,12 +4262,33 @@ function renderDevisDetail(data){
       </tr>`).join('')}</tbody>
     </table>` : '';
 
-  const isSigned = dv.Statut === 'Signé';
+  const statut = dv.Statut || 'Brouillon';
+  const isSigned = statut === 'Signé';
+  // Statuts cyclables : Brouillon → Envoyé → Signé / Annulé. Boutons contextuels.
+  const statusActions = editing ? '' : (() => {
+    const btns = [];
+    if (statut === 'Brouillon') {
+      btns.push(`<button class="btn-ghost" onclick="setDevisStatut('${devisId}','Envoyé')" title="Marquer envoyé au client">📤 Envoyé</button>`);
+      btns.push(`<button class="btn-primary" onclick="signDevis('${devisId}')" title="Signature client + génère commandes + tâches + passe projet en Commandes">✓ Signer ce BC</button>`);
+    } else if (statut === 'Envoyé') {
+      btns.push(`<button class="btn-ghost" onclick="setDevisStatut('${devisId}','Brouillon')" title="Repasser en brouillon">↩ Brouillon</button>`);
+      btns.push(`<button class="btn-primary" onclick="signDevis('${devisId}')" title="Signature client + génère commandes + tâches">✓ Signer ce BC</button>`);
+    } else if (statut === 'Signé') {
+      btns.push(`<span style="font-size:12px;color:var(--green);font-weight:600">✓ BC signé · commandes générées</span>`);
+    } else if (statut === 'Annulé') {
+      btns.push(`<button class="btn-ghost" onclick="setDevisStatut('${devisId}','Brouillon')" title="Réactiver le devis">↻ Réactiver</button>`);
+    }
+    // Annuler dispo sauf si déjà annulé
+    if (statut !== 'Annulé' && statut !== 'Signé') {
+      btns.push(`<button class="btn-ghost" onclick="setDevisStatut('${devisId}','Annulé')" style="color:var(--ink3)" title="Annuler ce devis">✕ Annuler</button>`);
+    }
+    return btns.join('');
+  })();
   const actionsBar = editing
     ? `<div style="display:flex;gap:8px"><button class="btn-primary" onclick="saveDevisEdits()">Enregistrer</button><button class="btn-ghost" onclick="toggleDevisEdit(false)">Annuler</button></div>`
     : `<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
         <button class="btn-ghost" onclick="toggleDevisEdit(true)">Modifier</button>
-        ${isSigned ? '' : `<button class="btn-primary" onclick="signDevis('${devisId}')">✓ Signer ce BC</button>`}
+        ${statusActions}
         <button class="btn-danger" onclick="deleteDevis('${devisId}','${esc(dv['Numéro devis']||'ce devis')}')">Supprimer</button>
       </div>`;
 
