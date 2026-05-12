@@ -2527,12 +2527,12 @@ function prochainesActionsHTML(p, devisLies, commandesLiees, tachesLiees, devisA
   const aucunDevis = devisLies.length === 0;
   const aucunClient = !p.Client || (Array.isArray(p.Client) && p.Client.length === 0);
 
-  // Action 1 : pas de client lié → bug catalogue
+  // Action 1 : pas de client lié → ouvre mode édition + focus select Client
   if (aucunClient) {
     actions.push({
       icon: '👤', urgency: 'high', label: 'Lier ce projet à un client',
-      hint: "Aucun client n'est rattaché. Importe un devis Winner ou édite le projet pour rattacher manuellement.",
-      btn: 'Modifier le projet', onclick: `toggleProjetEdit(true)`
+      hint: "Aucun client n'est rattaché. Sélectionne-en un dans la liste, ou crée-en un nouveau.",
+      btn: 'Lier un client', onclick: `toggleProjetEdit(true);setTimeout(()=>{const s=document.querySelector('#projet-detail-view [data-pf=\\'Client\\']');if(s){s.focus();s.scrollIntoView({behavior:'smooth',block:'center'})}},250)`
     });
   }
 
@@ -2849,6 +2849,22 @@ function renderProjetDetail(p){
           <div id="zone-bilan">${bilanFinancierHTML(p, devisLies, commandesLiees, devisArtisansLies)}</div>
 
           <h2 id="zone-info" class="zone-title">Informations</h2>
+          ${editing ? (() => {
+            // 2026-05-12 : permet de rattacher un client en mode édition (widget "Lier ce projet à un client").
+            const clientCurrentId = Array.isArray(p.Client) ? (p.Client[0]||'') : '';
+            const clientsSorted = [...DATA.clients].sort((a,b)=>(a.Nom||'').localeCompare(b.Nom||''));
+            return `<div class="form-row" style="margin-bottom:14px">
+              <label class="proj-lbl">Client rattaché</label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <select class="edit-inp" data-pf="Client" data-pf-type="link" style="flex:1;min-width:200px">
+                  <option value="">— Aucun client lié —</option>
+                  ${clientsSorted.map(c => `<option value="${c.id}" ${clientCurrentId===c.id?'selected':''}>${esc(c.Nom||'—')}${c.Téléphone?' · '+esc(c.Téléphone):''}</option>`).join('')}
+                </select>
+                <button type="button" class="abtn" onclick="openClientDetail(null)" title="Créer un nouveau client (sauvegarde puis re-sélectionne)">+ Nouveau client</button>
+              </div>
+              <div style="font-size:10px;color:var(--ink4);margin-top:4px">Si tu crées un nouveau client, sauvegarde-le puis reviens ici pour le sélectionner dans la liste.</div>
+            </div>`;
+          })() : ''}
           <div class="proj-grid">
             <div><span class="proj-lbl">Référence</span>${editing?fld('Référence',p.Référence):'<strong>'+esc(p.Référence||'—')+'</strong>'}</div>
             <div><span class="proj-lbl">Statut</span>${editing?`<select class="edit-inp" data-pf="Statut">${statuts.map(s=>`<option ${p.Statut===s?'selected':''}>${s}</option>`).join('')}</select>`:'<strong>'+esc(p.Statut||'—')+'</strong>'}</div>
@@ -3562,7 +3578,14 @@ async function saveProjet(projetId){
   const fields = {};
   document.querySelectorAll('#projet-detail-view [data-pf]').forEach(inp => {
     const key = inp.dataset.pf;
+    const type = inp.dataset.pfType;
     let v = inp.value;
+    // 2026-05-12 : champs de type "link" (linked record Airtable) → array d'IDs.
+    // Permet de rattacher/changer/délier le client depuis le mode édition projet.
+    if (type === 'link') {
+      fields[key] = v ? [v] : [];
+      return;
+    }
     if (['Budget HT','Marge prévisionnelle'].includes(key)) v = v?parseFloat(v):null;
     if (v !== '' && v !== null) fields[key] = v;
   });
