@@ -14,6 +14,12 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
 
+// RC Pro 2026 : logs PII (noms clients/artisans) en mode debug seulement.
+// En prod : silencieux pour respecter la minimisation RGPD des logs.
+function logPII(msg) {
+  if (!IS_PROD) console.log(msg);
+}
+
 // --- Session secret : refus de démarrer en prod sans secret robuste ---
 const SESSION_SECRET_FALLBACK = 'dev-only-change-me';
 if (IS_PROD) {
@@ -161,7 +167,10 @@ app.use(session({
   name: 'tanguy.sid',
   keys: [process.env.SESSION_SECRET || SESSION_SECRET_FALLBACK],
   httpOnly: true,
-  sameSite: 'lax',
+  // RC Pro 2026 : sameSite='strict' (vs 'lax') bloque les CSRF cross-site, y compris navigations top-level.
+  // Trade-off UX : un user qui clique sur un lien externe vers tanguydesign.958.fr en étant déjà loggué
+  // verra une page non-authentifiée (cookie pas envoyé sur la 1re requête). Acceptable ici (cockpit interne).
+  sameSite: 'strict',
   secure: IS_PROD, // HTTPS only en prod
   maxAge: 1000 * 60 * 60 * 24 * 30
 }));
@@ -170,6 +179,29 @@ function requireAuth(req, res, next) {
   if (req.session && req.session.user) return next();
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'not authenticated' });
   return res.redirect('/login');
+}
+
+// RC Pro 2026 : refuse l'accès si user n'est pas dans ADMIN_LOGINS (Stock, Marges, etc.)
+// Le menu Admin frontend était masqué via window.ME_ADMIN mais l'API restait ouverte
+// à tout user authentifié (bypass trivial via curl). Ajout d'un check serveur.
+function requireAdmin(req, res, next) {
+  if (!req.session || !req.session.user) {
+    return res.status(401).json({ error: 'not authenticated' });
+  }
+  if (!ADMIN_LOGINS.has(req.session.user)) {
+    return res.status(403).json({ error: 'admin only' });
+  }
+  next();
+}
+
+// Tables protégées admin-only (lecture/écriture). Le frontend masque déjà ces menus
+// aux non-admins, mais le backend doit aussi refuser pour éviter le bypass curl.
+const ADMIN_ONLY_TABLES = new Set(['stock']);
+function requireAdminIfRestrictedTable(req, res, next) {
+  if (ADMIN_ONLY_TABLES.has(req.params.table)) {
+    return requireAdmin(req, res, next);
+  }
+  next();
 }
 
 // keyGenerator commun aux rate-limiters : utilise la vraie IP client (CF-Connecting-IP prioritaire)
@@ -330,7 +362,7 @@ app.get('/api/me', (req, res) => {
 });
 
 // --- Data API générique ---
-app.get('/api/data/:table', requireAuth, async (req, res) => {
+app.get('/api/data/:table', requireAuth, requireAdminIfRestrictedTable, async (req, res) => {
   const t = TABLES[req.params.table];
   if (!t) return res.status(404).json({ error: 'unknown table' });
   try {
@@ -339,7 +371,7 @@ app.get('/api/data/:table', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/data/:table', requireAuth, async (req, res) => {
+app.post('/api/data/:table', requireAuth, requireAdminIfRestrictedTable, async (req, res) => {
   const t = TABLES[req.params.table];
   if (!t) return res.status(404).json({ error: 'unknown table' });
   try {
@@ -348,7 +380,7 @@ app.post('/api/data/:table', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.patch('/api/data/:table/:id', requireAuth, async (req, res) => {
+app.patch('/api/data/:table/:id', requireAuth, requireAdminIfRestrictedTable, async (req, res) => {
   const t = TABLES[req.params.table];
   if (!t) return res.status(404).json({ error: 'unknown table' });
   try {
@@ -357,7 +389,7 @@ app.patch('/api/data/:table/:id', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.delete('/api/data/:table/:id', requireAuth, async (req, res) => {
+app.delete('/api/data/:table/:id', requireAuth, requireAdminIfRestrictedTable, async (req, res) => {
   const t = TABLES[req.params.table];
   if (!t) return res.status(404).json({ error: 'unknown table' });
   try {
@@ -462,7 +494,7 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
       const match = allClients.find(c => (c.fields?.Nom||'').trim().toUpperCase().replace(/\s+/g,' ') === nomNorm);
       if (match) {
         resolvedClientId = match.id;
-        console.log(`[devis/import] client existant matché: ${match.fields.Nom}`);
+        logPII(`[devis/import] client existant matché: ${match.fields.Nom}`);
       } else {
         const c = parsed.client;
         const adresseLignes = [c.adresse, [c.cp, c.ville].filter(Boolean).join(' ')].filter(Boolean).join('\n');
@@ -474,7 +506,7 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
         cf.Notes = 'Créé automatiquement via import devis';
         const nc = await atCreate(TABLES.clients.id, cf);
         resolvedClientId = nc.id;
-        console.log(`[devis/import] nouveau client créé: ${c.nom}`);
+        logPII(`[devis/import] nouveau client créé: ${c.nom}`);
       }
     }
 
@@ -786,7 +818,7 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
                                             nomNorm.includes((a.fields?.Nom || '').trim().toUpperCase()));
       if (match) {
         resolvedArtisanId = match.id;
-        console.log(`[artisan-devis/import] artisan matché: ${match.fields.Nom}`);
+        logPII(`[artisan-devis/import] artisan matché: ${match.fields.Nom}`);
       }
     }
 
@@ -1085,13 +1117,19 @@ function euros(n) {
 // --- SAV : proxy vers webhook n8n du cockpit central 9·58 ----------------
 // Le cockpit central ouvre les tickets dans Airtable TICKETS_TBL et alimente
 // la zone Pilotage. Auth via header X-958-Secret. Configurable par env vars.
-const SAV_WEBHOOK_URL    = process.env.SAV_WEBHOOK_URL    || 'https://jmg958.app.n8n.cloud/webhook/sav-receiver';
+// RC Pro 2026 : retirer le default hardcodé pour éviter d'exposer l'URL n8n
+// dans le repo public. Si SAV_WEBHOOK_URL absent : le proxy SAV refuse l'envoi.
+const SAV_WEBHOOK_URL    = process.env.SAV_WEBHOOK_URL    || '';
 const SAV_WEBHOOK_SECRET = process.env.SAV_WEBHOOK_SECRET || '';
 const SAV_CLIENT_SLUG    = process.env.SAV_CLIENT_SLUG    || 'tanguy';
 const SAV_COCKPIT_SOURCE = process.env.SAV_COCKPIT_SOURCE || 'Cockpit Tanguy Design';
 const SAV_ABONNEMENT     = process.env.SAV_ABONNEMENT     || 'Build';
 
 app.post('/api/sav/submit', requireAuth, async (req, res) => {
+  // RC Pro 2026 : refuser si URL ou secret webhook manquant (au lieu de fallback hardcodé)
+  if (!SAV_WEBHOOK_URL) {
+    return res.status(500).json({ error: 'SAV_WEBHOOK_URL non configuré côté serveur' });
+  }
   if (!SAV_WEBHOOK_SECRET) {
     return res.status(500).json({ error: 'SAV_WEBHOOK_SECRET non configuré côté serveur' });
   }
