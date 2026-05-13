@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Tanguy Design — Cockpit Chantiers</title>
+<title>Tanguy Design</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -3368,7 +3368,7 @@ function _renderFicheChantier(projetId) {
           </div>` : ''}
 
           <div class="fc-footer no-print" style="margin-top:32px;padding-top:16px;border-top:1px solid var(--border);font-size:11px;color:var(--ink4);text-align:center">
-            Cockpit Tanguy Design — document de travail interne
+            Tanguy Design — document de travail interne
           </div>
         </div>
       </div>
@@ -3405,7 +3405,7 @@ function sendFicheChantier(projetId) {
     ...journalEntries.slice(0, 20).map(e => `  ${e.meta?`[${e.meta}] `:''}${e.text}`),
     journalEntries.length > 20 ? `  … (${journalEntries.length - 20} entrées plus anciennes)` : null,
     ``,
-    `— Cockpit Tanguy Design`
+    `— Tanguy Design`
   ].filter(l => l !== null).join('\n');
 
   const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines)}`;
