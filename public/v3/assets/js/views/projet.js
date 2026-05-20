@@ -168,14 +168,18 @@ function renderFiche(app, data) {
       ${commandes.map(c => {
         const fIds = c.fields?.Fournisseur || [];
         const fNoms = fIds.map(id => fournisseurs.find(f => f.id === id)?.fields?.Nom || id).join(', ');
+        const refCourte = c.fields?.['Référence courte'] || c.fields?.Type || '?';
         return `
-        <div class="card commande-card">
+        <a class="card commande-card commande-link" href="#commande/${encodeURIComponent(c.id)}">
           <div class="commande-head">
-            <div><strong>${esc(c.fields?.['Numéro'] || c.fields?.['numéro'] || '?')}</strong> — ${esc(fNoms)}</div>
+            <div><strong>${esc(c.fields?.['Numéro'] || '?')}</strong>
+              <span class="muted" style="margin-left:6px">${esc(refCourte)}</span>
+              ${fNoms ? ` · ${esc(fNoms)}` : ' · <em class="muted">fournisseur non rattaché</em>'}
+            </div>
             <span class="badge">${esc(c.fields?.Statut || '—')}</span>
           </div>
-          ${c.fields?.Notes ? `<pre class="commande-notes">${esc(c.fields.Notes.slice(0, 400))}${c.fields.Notes.length > 400 ? '…' : ''}</pre>` : ''}
-        </div>`;
+          ${c.fields?.['Modèle choisi'] ? `<div class="muted" style="margin-top:6px;font-size:12px">${esc(c.fields['Modèle choisi'].split('\n')[0])}</div>` : ''}
+        </a>`;
       }).join('')}
     </div>
     ` : ''}
