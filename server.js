@@ -6,9 +6,11 @@ const multer = require('multer');
 // fetch est natif depuis Node 18, requis Node 20+ (cf. package.json engines).
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const pinoHttp = require('pino-http');
 const { parseDevisPdf, parsePlaudTranscript } = require('./services/devis-parser');
 const { parseArtisanDevisPdf } = require('./services/artisan-devis-parser');
 const { generateFicheMission } = require('./services/fiche-mission-generator');
+const logger = require('./services/logger');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,7 +21,7 @@ const SESSION_SECRET_FALLBACK = 'dev-only-change-me';
 if (IS_PROD) {
   const s = process.env.SESSION_SECRET || '';
   if (!s || s === SESSION_SECRET_FALLBACK || s.length < 32) {
-    console.error('❌ SESSION_SECRET manquant ou trop court (min 32 chars). En prod, génère avec: openssl rand -hex 32');
+    logger.fatal('SESSION_SECRET manquant ou trop court (min 32 chars). En prod, génère avec: openssl rand -hex 32');
     process.exit(1);
   }
 }
@@ -103,7 +105,7 @@ function parseUsers(str) {
 let USERS_RAW = process.env.USERS_HASHES || '';
 if (process.env.USERS_HASHES_B64) {
   try { USERS_RAW = Buffer.from(process.env.USERS_HASHES_B64, 'base64').toString('utf8'); }
-  catch (e) { console.error('USERS_HASHES_B64 decode failed:', e.message); }
+  catch (e) { logger.error('USERS_HASHES_B64 decode failed:', e.message); }
 }
 const USERS = parseUsers(USERS_RAW);
 
@@ -128,6 +130,24 @@ function clientIp(req) {
     || req.connection?.remoteAddress
     || 'unknown';
 }
+
+// pino-http : 1 log JSON par requête (id, méthode, url, status, durée).
+// Niveau adaptatif : info pour 2xx/3xx, warn pour 4xx, error pour 5xx.
+// Headers sensibles redactés (cf. services/logger.js).
+app.use(pinoHttp({
+  logger,
+  customLogLevel: (req, res, err) => {
+    if (err || res.statusCode >= 500) return 'error';
+    if (res.statusCode >= 400) return 'warn';
+    return 'info';
+  },
+  customSuccessMessage: (req, res) => `${req.method} ${req.url} → ${res.statusCode}`,
+  customErrorMessage: (req, res, err) => `${req.method} ${req.url} → ${res.statusCode} ${err?.message || ''}`,
+  serializers: {
+    req: (req) => ({ id: req.id, method: req.method, url: req.url, ip: clientIp(req) }),
+    res: (res) => ({ statusCode: res.statusCode }),
+  },
+}));
 
 // Helmet : headers de sécurité standards (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy…)
 // CSP permissive côté inline (le cockpit a tout son JS/CSS inline dans index.html)
@@ -312,16 +332,16 @@ app.post('/api/login', loginLimiter, async (req, res) => {
   const loginLc = String(login).toLowerCase();
   const hash = USERS[loginLc];
   if (!hash) {
-    console.warn(`[auth] login FAIL (unknown user) login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
+    logger.warn(`[auth] login FAIL (unknown user) login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
     return res.status(401).json({ error: 'identifiants invalides' });
   }
   const ok = await bcrypt.compare(password, hash);
   if (!ok) {
-    console.warn(`[auth] login FAIL (bad password) login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
+    logger.warn(`[auth] login FAIL (bad password) login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
     return res.status(401).json({ error: 'identifiants invalides' });
   }
   req.session.user = loginLc;
-  console.info(`[auth] login OK login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
+  logger.info(`[auth] login OK login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
   res.json({ ok: true, user: req.session.user });
 });
 
@@ -412,9 +432,9 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
   }
 
   try {
-    console.log(`[devis/import] parsing ${req.file.originalname} (${req.file.size} bytes)`);
+    logger.info(`[devis/import] parsing ${req.file.originalname} (${req.file.size} bytes)`);
     const parsed = await parseDevisPdf(req.file.buffer);
-    console.log(`[devis/import] ✓ parsed: ${parsed.lignes?.length || 0} lignes, ${parsed.zones?.length || 0} zones`);
+    logger.info(`[devis/import] ✓ parsed: ${parsed.lignes?.length || 0} lignes, ${parsed.zones?.length || 0} zones`);
 
     // 1. Création du Devis (header)
     const devisFields = {
@@ -465,7 +485,7 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
       const match = allClients.find(c => (c.fields?.Nom||'').trim().toUpperCase().replace(/\s+/g,' ') === nomNorm);
       if (match) {
         resolvedClientId = match.id;
-        console.log(`[devis/import] client existant matché: ${match.fields.Nom}`);
+        logger.info(`[devis/import] client existant matché: ${match.fields.Nom}`);
       } else {
         const c = parsed.client;
         const adresseLignes = [c.adresse, [c.cp, c.ville].filter(Boolean).join(' ')].filter(Boolean).join('\n');
@@ -477,7 +497,7 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
         cf.Notes = 'Créé automatiquement via import devis';
         const nc = await atCreate(TABLES.clients.id, cf);
         resolvedClientId = nc.id;
-        console.log(`[devis/import] nouveau client créé: ${c.nom}`);
+        logger.info(`[devis/import] nouveau client créé: ${c.nom}`);
       }
     }
 
@@ -494,7 +514,7 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
       if (parsed.totaux?.total_ht_final) pf['Budget HT'] = parsed.totaux.total_ht_final;
       const np = await atCreate(TABLES.projets.id, pf);
       resolvedProjetId = np.id;
-      console.log(`[devis/import] projet créé: ${ref}`);
+      logger.info(`[devis/import] projet créé: ${ref}`);
     }
 
     if (resolvedProjetId) devisFields['Projet'] = [resolvedProjetId];
@@ -604,7 +624,7 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
       }
     });
   } catch (e) {
-    console.error('[devis/import] error:', e);
+    logger.error('[devis/import] error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -722,7 +742,7 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       detail: commandesCreees
     });
   } catch (e) {
-    console.error('[devis/sign] error:', e);
+    logger.error('[devis/sign] error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -762,7 +782,7 @@ app.post('/api/plaud/parse', requireAuth, async (req, res) => {
     const rec = await atCreate(TABLES['reunions-plaud'].id, fields);
     res.json({ ok: true, record: rec, parsed, niveau: niveauResolu });
   } catch (e) {
-    console.error('[plaud/parse] error:', e);
+    logger.error('[plaud/parse] error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -776,9 +796,9 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
   const artisanId = req.body.artisanId || null; // optionnel — sinon on match par nom d'entreprise
 
   try {
-    console.log(`[artisan-devis/import] parsing ${req.file.originalname} (${req.file.size} bytes)`);
+    logger.info(`[artisan-devis/import] parsing ${req.file.originalname} (${req.file.size} bytes)`);
     const parsed = await parseArtisanDevisPdf(req.file.buffer);
-    console.log(`[artisan-devis/import] ✓ parsed: ${parsed.artisan?.entreprise} / ${euros(parsed.totaux?.total_ht)}`);
+    logger.info(`[artisan-devis/import] ✓ parsed: ${parsed.artisan?.entreprise} / ${euros(parsed.totaux?.total_ht)}`);
 
     // Résolution artisan : si pas fourni, match par nom d'entreprise
     let resolvedArtisanId = artisanId;
@@ -789,7 +809,7 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
                                             nomNorm.includes((a.fields?.Nom || '').trim().toUpperCase()));
       if (match) {
         resolvedArtisanId = match.id;
-        console.log(`[artisan-devis/import] artisan matché: ${match.fields.Nom}`);
+        logger.info(`[artisan-devis/import] artisan matché: ${match.fields.Nom}`);
       }
     }
 
@@ -823,9 +843,9 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
     // Upload du PDF original en attachment
     try {
       await atUploadAttachment(recordId, DA_FIELDS.pdfOriginal, req.file.buffer, req.file.originalname || 'devis-artisan.pdf');
-      console.log(`[artisan-devis/import] PDF attaché au record ${recordId}`);
+      logger.info(`[artisan-devis/import] PDF attaché au record ${recordId}`);
     } catch (e) {
-      console.warn(`[artisan-devis/import] upload PDF échoué (record créé quand même): ${e.message}`);
+      logger.warn(`[artisan-devis/import] upload PDF échoué (record créé quand même): ${e.message}`);
     }
 
     // Auto-ajouter l'artisan à la liste Artisans du projet (si match + projet défini)
@@ -838,11 +858,11 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
           const current = Array.isArray(projetData.fields?.Artisans) ? projetData.fields.Artisans : [];
           if (!current.includes(resolvedArtisanId)) {
             await atPatch(TABLES.projets.id, projetId, { Artisans: [...current, resolvedArtisanId] });
-            console.log(`[artisan-devis/import] artisan ${resolvedArtisanId} ajouté au projet ${projetId}`);
+            logger.info(`[artisan-devis/import] artisan ${resolvedArtisanId} ajouté au projet ${projetId}`);
           }
         }
       } catch (e) {
-        console.warn(`[artisan-devis/import] ajout artisan au projet échoué: ${e.message}`);
+        logger.warn(`[artisan-devis/import] ajout artisan au projet échoué: ${e.message}`);
       }
     }
 
@@ -859,7 +879,7 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
       }
     });
   } catch (e) {
-    console.error('[artisan-devis/import] error:', e);
+    logger.error('[artisan-devis/import] error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -937,7 +957,7 @@ async function generateAndAttachFicheMission(projetId, artisanId) {
     const match = list.find(a => a.filename === filename) || list[list.length - 1];
     ficheUrl = match?.url || null;
   } catch (e) {
-    console.warn(`[fiche-mission] upload projet.Fiches échoué: ${e.message}`);
+    logger.warn(`[fiche-mission] upload projet.Fiches échoué: ${e.message}`);
   }
 
   // 6. Si devis artisan existe : y attacher aussi + passer statut "Fiche envoyée"
@@ -984,7 +1004,7 @@ app.post('/api/fiche-mission', requireAuth, async (req, res) => {
     const result = await generateAndAttachFicheMission(projetId, artisanId);
     res.json(result);
   } catch (e) {
-    console.error('[fiche-mission] error:', e);
+    logger.error('[fiche-mission] error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -1004,7 +1024,7 @@ app.post('/api/artisan-devis/:id/fiche-mission', requireAuth, async (req, res) =
     const result = await generateAndAttachFicheMission(projetId, artisanId);
     res.json(result);
   } catch (e) {
-    console.error('[artisan-devis/fiche-mission] error:', e);
+    logger.error('[artisan-devis/fiche-mission] error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -1028,7 +1048,7 @@ app.post('/api/projets/:id/attachments', requireAuth, uploadAny.single('file'), 
     await atUploadAttachment(projetId, fieldId, req.file.buffer, req.file.originalname, ct);
     res.json({ ok: true, filename: req.file.originalname });
   } catch (e) {
-    console.error('[projets/upload] error:', e);
+    logger.error('[projets/upload] error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -1050,7 +1070,7 @@ app.post('/api/projets/:id/journal', requireAuth, async (req, res) => {
     await atPatch(TABLES.projets.id, projetId, { 'Journal chantier': next });
     res.json({ ok: true, entry });
   } catch (e) {
-    console.error('[projets/journal] error:', e);
+    logger.error('[projets/journal] error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -1074,7 +1094,7 @@ app.delete('/api/projets/:id/attachments', requireAuth, async (req, res) => {
     await atPatch(TABLES.projets.id, projetId, { [field]: next });
     res.json({ ok: true });
   } catch (e) {
-    console.error('[projets/delete-attachment] error:', e);
+    logger.error('[projets/delete-attachment] error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -1123,13 +1143,13 @@ app.post('/api/sav/submit', requireAuth, async (req, res) => {
     });
     if (!r.ok) {
       const txt = await r.text().catch(() => '');
-      console.error(`[sav/submit] n8n ${r.status}: ${txt.slice(0,200)}`);
+      logger.error(`[sav/submit] n8n ${r.status}: ${txt.slice(0,200)}`);
       return res.status(502).json({ error: `Webhook 9·58 indisponible (${r.status})` });
     }
     const data = await r.json().catch(() => ({}));
     res.json({ ok: true, ticket_id: data.ticket_id, notification_id: data.notification_id });
   } catch (e) {
-    console.error('[sav/submit] error:', e.message);
+    logger.error('[sav/submit] error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -1140,6 +1160,11 @@ app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
 app.use('/img', express.static(path.join(__dirname, 'public', 'img')));
 
 app.listen(PORT, () => {
-  console.log(`✅ Tanguy Design — Cockpit v0.3.0 on port ${PORT}`);
-  console.log(`   Users: ${Object.keys(USERS).length} | Airtable: ${BASE_ID ? 'OK' : 'MISSING'} | Claude: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'MISSING'}`);
+  logger.info({
+    port: PORT,
+    users: Object.keys(USERS).length,
+    airtable: !!BASE_ID,
+    claude: !!process.env.ANTHROPIC_API_KEY,
+    env: IS_PROD ? 'production' : 'development',
+  }, `Tanguy Design Cockpit v0.3.0 démarré sur port ${PORT}`);
 });
