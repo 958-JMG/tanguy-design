@@ -4,6 +4,7 @@
 import { renderDashboard } from '../views/dashboard.js';
 import { renderClientsList, renderClientDetail } from '../views/clients.js';
 import { renderProjet } from '../views/projet.js';
+import { renderCommande } from '../views/commande.js';
 import { renderPipeline } from '../views/pipeline.js';
 import { renderCalendar } from '../views/calendar.js';
 import { renderAdmin } from '../views/admin.js';
