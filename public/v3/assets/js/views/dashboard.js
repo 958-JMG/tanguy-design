@@ -3,13 +3,14 @@
 
 import { state } from '../core/state.js';
 import { navigateTo } from '../core/router.js';
+import { icon, hydrateIcons } from '../core/lucide.js';
 
 const PHASES = [
-  { key: 'Découverte',          icon: '👋', pct: 0 },
-  { key: 'Dessin',              icon: '📐', pct: 25 },
-  { key: 'Présentation devis',  icon: '📄', pct: 50 },
-  { key: 'En attente décision', icon: '⏳', pct: 75 },
-  { key: 'Signé',               icon: '✅', pct: 100 },
+  { key: 'Découverte',          icon: 'compass', pct: 0 },
+  { key: 'Dessin',              icon: 'pencil',  pct: 25 },
+  { key: 'Présentation devis',  icon: 'file',    pct: 50 },
+  { key: 'En attente décision', icon: 'clock',   pct: 75 },
+  { key: 'Signé',               icon: 'check',   pct: 100 },
 ];
 
 const euros = n => (n == null || isNaN(n)) ? '—' : Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
@@ -46,7 +47,7 @@ export function renderDashboard(app) {
       const pose = new Date(p['Date pose prévue']);
       const diffJours = Math.round((pose - now) / (1000 * 60 * 60 * 24));
       if (diffJours > 0 && diffJours <= 30) {
-        alertes.push({ severity: 'warn', text: `📦 Pose ${p['Référence']} dans ${diffJours} j` });
+        alertes.push({ severity: 'warn', text: `Pose ${p['Référence']} dans ${diffJours} j` });
       }
     }
   }
@@ -73,11 +74,11 @@ export function renderDashboard(app) {
       </div>
     </div>
 
-    <h2 class="section-title">📊 Pipeline commercial</h2>
+    <h2 class="section-title">Pipeline commercial</h2>
     <div class="funnel">
       ${PHASES.map(p => `
         <button class="funnel-step" data-phase="${p.key}" onclick="window.navigateTo('pipeline')">
-          <div class="funnel-icon">${p.icon}</div>
+          <div class="funnel-icon">${icon(p.icon, 24)}</div>
           <div class="funnel-count">${countByPhase[p.key] || 0}</div>
           <div class="funnel-name">${p.key}</div>
           <div class="funnel-pct">${p.pct}%</div>
@@ -85,19 +86,21 @@ export function renderDashboard(app) {
       `).join('')}
     </div>
     ${!Object.keys(countByPhase).some(k => k && PHASES.find(p => p.key === k))
-      ? '<p class="muted" style="margin-top:8px">⚠️ Migration Airtable v3 non appliquée : compteurs basés sur Statut legacy. Lance <code>node scripts/setup-fields-v3.js --apply</code> pour activer Phase commerciale.</p>'
+      ? `<p class="muted muted-with-icon" style="margin-top:8px">${icon('alert', 14)} Migration Airtable v3 non appliquée : compteurs basés sur Statut legacy. Lance <code>node scripts/setup-fields-v3.js --apply</code> pour activer Phase commerciale.</p>`
       : ''}
 
-    <h2 class="section-title">⚠️ Alertes</h2>
+    <h2 class="section-title">Alertes</h2>
     <div class="card">
       ${alertes.length === 0
         ? '<p class="muted">Pas d\\'alertes prioritaires.</p>'
-        : '<ul style="list-style:none;padding:0;margin:0">' + alertes.map(a => `<li style="padding:4px 0">${a.text}</li>`).join('') + '</ul>'}
+        : '<ul class="alerts-list">' + alertes.map(a => `<li>${icon('alert', 14)} ${a.text}</li>`).join('') + '</ul>'}
     </div>
 
-    <h2 class="section-title">📅 Prochains jalons</h2>
+    <h2 class="section-title">Prochains jalons</h2>
     <div class="card"><p class="muted">À venir — Sprint 3 (intégration calendar drag-drop).</p></div>
   `;
+
+  hydrateIcons(app);
 }
 
 // Mapping legacy fallback pour les projets sans Phase commerciale (avant migration v3)

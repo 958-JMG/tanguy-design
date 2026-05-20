@@ -7,6 +7,10 @@ import { router, navigateTo } from './core/router.js';
 import { state, loadMe } from './core/state.js';
 import { fetchClients, fetchProjets } from './core/api.js';
 import { openSearch } from './core/search.js';
+import { hydrateIcons } from './core/lucide.js';
+
+// Hydrater les icônes de la coquille HTML (data-icon) dès chargement du module
+hydrateIcons(document);
 
 // Exposés en global pour les onclick="" inline du HTML squelette
 window.navigateTo = navigateTo;
@@ -28,7 +32,9 @@ document.addEventListener('keydown', e => {
 function showStatus(msg, isError) {
   const app = document.getElementById('app');
   if (!app) return;
-  app.innerHTML = `<div class="card" style="margin-top:24px"><h2>${isError ? '⚠️ Erreur bootstrap' : 'Statut'}</h2><pre style="white-space:pre-wrap;font-family:'DM Mono',monospace;font-size:12px;color:#3D3935">${msg}</pre></div>`;
+  const title = isError ? 'Erreur bootstrap' : 'Statut';
+  const titleColor = isError ? '#C84B26' : '#1B1A18';
+  app.innerHTML = `<div class="card" style="margin-top:24px"><h2 style="color:${titleColor}">${title}</h2><pre style="white-space:pre-wrap;font-family:'DM Mono',monospace;font-size:12px;color:#3D3935;margin-top:8px">${msg}</pre></div>`;
 }
 
 // Capture globale des erreurs non gérées (sinon elles disparaissent silencieusement)
