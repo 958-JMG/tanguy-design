@@ -5,8 +5,9 @@ export const state = {
   user: null,
   isAdmin: false,
   clients: [],
+  projets: [],         // tous les projets (pour Dashboard / Pipeline / Cmd+K)
   client: null,        // client courant (fiche détaillée)
-  projets: [],         // projets du client courant
+  clientProjets: [],   // projets du client courant
 };
 
 export async function loadMe() {

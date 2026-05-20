@@ -21,11 +21,24 @@ export async function fetchClients() {
   return state.clients;
 }
 
+export async function fetchProjets() {
+  const d = await api('/api/data/projets');
+  state.projets = (d.records || []).map(r => ({ id: r.id, ...r.fields }));
+  return state.projets;
+}
+
 export async function fetchClient(clientId) {
   const d = await api(`/api/clients/${clientId}`);
   state.client = d.client;
-  state.projets = d.projets;
+  state.clientProjets = d.projets;
   return d;
+}
+
+export async function patchClient(clientId, fields) {
+  return api(`/api/data/clients/${clientId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ fields }),
+  });
 }
 
 export async function createProjetForClient(clientId, fields) {
