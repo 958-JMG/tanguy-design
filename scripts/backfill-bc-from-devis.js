@@ -197,23 +197,29 @@ function buildDetailsFromZone(z) {
     const lignesType = allLignes.filter(l => acceptedCategories.includes(l.fields.Catégorie));
 
     // Lignes BC structurées — on nettoie la description du parser Winner :
-    //  - retire TOUS les blocs "L: NNN, H: NNN, P: NNN" (incrustés au milieu sans séparation)
-    //  - retire les blocs "H: NN, H: NN" / "L: NN" répétés
-    //  - sépare "Modèle:" / "Couleurs modifiées" / "Façade redéfinie" sur leurs propres lignes
+    //  - les dimensions L/H/P viennent des champs séparés (rendus en bas de cellule)
+    //  - on supprime DONC tous les "L: NNN", "H: NNN", "P: NNN" et les lignes "Hauteur = NNN,"
+    //    qui dupliquent ces dimensions
+    //  - on insère des sauts de ligne avant les marqueurs structurels Winner
     const lignesStructured = lignesType.map(l => {
       const f = l.fields;
       let desc = String(f.Désignation || '');
       const largeurMm = f['Largeur mm'] || null;
       const hauteurMm = f['Hauteur mm'] || null;
       const profondeurMm = f['Profondeur mm'] || null;
-      // 1. Supprimer TOUS les blocs L: H: P: (les dimensions sont dans les champs séparés)
-      desc = desc.replace(/\s*L\s*:\s*\d+\s*,?\s*H\s*:\s*\d+\s*,?\s*P\s*:\s*\d+/gi, ' ');
-      // 2. Supprimer les blocs "H: NNN" répétés isolés (gorges Winner)
-      desc = desc.replace(/\s*(?:^|\s)(?:[LHP]\s*:\s*\d+\s*,?\s*){1,3}(?=[A-ZÉ]|$)/gi, ' ');
-      // 3. Insérer des sauts de ligne avant les marqueurs structurels Winner
-      desc = desc.replace(/(Modèle:|Couleurs modifiées|Façade redéfinie|Hauteur =|Profondeur =|Largeur =|Direction =|Exécution de façade|Coloris de façade|Finition de gorges|Coloris de côté|Finition d'éléments|Finition étagères)/g, '\n$1');
-      // 4. Compacter les espaces multiples et nettoyer
-      desc = desc.replace(/[ \t]+/g, ' ').replace(/\n\s*/g, '\n').replace(/\n{2,}/g, '\n').trim();
+      // 1. Insérer un espace AVANT chaque token L:/H:/P: (peu importe ce qui précède)
+      //    pour casser les agrégats "FACADEL: 30L: 30" du parser Winner.
+      desc = desc.replace(/(?=[LHP][ \t]*:[ \t]*\d)/g, ' ');
+      // 2. Insérer un saut de ligne AVANT chaque marqueur structurel Winner.
+      desc = desc.replace(/(?=Hauteur\s*=|Profondeur\s*=|Largeur\s*=|Direction\s*=|Modèle:|Couleurs modifiées|Façade redéfinie|Exécution de façade|Coloris de façade|Finition de gorges|Coloris de côté|Finition d'éléments|Finition étagères)/g, '\n');
+      // 3. Supprimer les tokens L:NNN / H:NNN / P:NNN (orphelins ou combinés) — duplicats des dim fields.
+      //    On utilise [ \t]* (pas \s*) pour ne pas manger les \n qu'on vient d'insérer en step #2.
+      desc = desc.replace(/\b[LHP][ \t]*:[ \t]*\d+[ \t]*,?/g, '');
+      // 4. Supprimer les lignes "Hauteur = NNN," / "Profondeur = NNN," / "Largeur = NNN," / "Direction = ..."
+      //    qui dupliquent les dim fields rendus séparément.
+      desc = desc.replace(/\b(?:Hauteur|Profondeur|Largeur|Direction)[ \t]*=[ \t]*[^,\n]+,?/gi, '');
+      // 5. Compacter les espaces multiples et nettoyer.
+      desc = desc.replace(/[ \t]+/g, ' ').replace(/\n[ \t]*/g, '\n').replace(/\n{2,}/g, '\n').trim();
       return {
         pos: String(f.Position || ''),
         code: String(f['Code produit'] || ''),
