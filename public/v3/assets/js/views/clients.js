@@ -1,8 +1,8 @@
 // Vue Clients v3 — liste + fiche détaillée (cœur du pivot client-centric, Sprint 1)
 
 import { state } from '../core/state.js';
-import { fetchClient, createProjetForClient } from '../core/api.js';
-import { navigateTo } from '../core/router.js';
+import { fetchClient, fetchClients, createProjetForClient, patchClient } from '../core/api.js';
+import { navigateTo, router } from '../core/router.js';
 
 const TYPE_ICONS = {
   'Particulier':   '👤',
@@ -108,7 +108,7 @@ export async function renderClientDetail(app, clientId) {
             </div>
           </div>
         </div>
-        <button class="btn btn-ghost" onclick="window.alert('Édition fiche client : à venir Sprint 1.5')">⚙️ Éditer</button>
+        <button class="btn btn-ghost" id="btn-edit-client">⚙️ Éditer</button>
       </div>
 
       <div class="client-grid">
@@ -154,6 +154,7 @@ export async function renderClientDetail(app, clientId) {
     `;
 
     document.getElementById('btn-new-projet').addEventListener('click', () => openModalNouveauProjet(clientId));
+    document.getElementById('btn-edit-client').addEventListener('click', () => openModalEditClient(data.client));
   } catch (e) {
     app.innerHTML = `<div class="card"><h2>Erreur</h2><p class="muted">${esc(e.message)}</p></div>`;
   }
@@ -216,6 +217,76 @@ function openModalNouveauProjet(clientId) {
       navigateTo('clients', { id: clientId });
     } catch (err) {
       alert('Erreur création : ' + err.message);
+    }
+  });
+}
+
+// === Modale "Éditer client" (Sprint 1 suite) ===
+function openModalEditClient(clientRecord) {
+  const c = clientRecord.fields;
+  const modal = document.createElement('div');
+  modal.className = 'modal-bg';
+  modal.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title-edit">
+      <h2 id="modal-title-edit">Éditer ${esc(c.Nom)}</h2>
+      <form id="form-edit-client">
+        <label>Nom
+          <input name="Nom" value="${esc(c.Nom || '')}" required>
+        </label>
+        <label>Type
+          <select name="Type">
+            <option ${c.Type === 'Particulier' ? 'selected' : ''}>Particulier</option>
+            <option ${c.Type === 'Professionnel' ? 'selected' : ''}>Professionnel</option>
+            <option ${c.Type === 'Architecte' ? 'selected' : ''}>Architecte</option>
+          </select>
+        </label>
+        <label>Contact
+          <input name="Contact" value="${esc(c.Contact || '')}">
+        </label>
+        <label>Téléphone
+          <input name="Téléphone" value="${esc(c.Téléphone || '')}">
+        </label>
+        <label>Email
+          <input name="Email" type="email" value="${esc(c.Email || '')}">
+        </label>
+        <label>Adresse
+          <textarea name="Adresse" rows="2">${esc(c.Adresse || '')}</textarea>
+        </label>
+        <label>Source
+          <input name="Source" value="${esc(c.Source || '')}" placeholder="ex : Bouche à oreille, Site web…">
+        </label>
+        <label>Notes
+          <textarea name="Notes" rows="3">${esc(c.Notes || '')}</textarea>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="modal-cancel-edit">Annuler</button>
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  document.getElementById('modal-cancel-edit').onclick = () => modal.remove();
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  document.addEventListener('keydown', function escClose(e) {
+    if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', escClose); }
+  });
+
+  document.getElementById('form-edit-client').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const fields = {};
+    for (const [k, v] of fd.entries()) {
+      fields[k] = v || ''; // garder les chaînes vides pour effacer un champ
+    }
+    try {
+      await patchClient(clientRecord.id, fields);
+      // refresh état global des clients + fiche
+      await fetchClients();
+      modal.remove();
+      router(); // re-render fiche courante
+    } catch (err) {
+      alert('Erreur enregistrement : ' + err.message);
     }
   });
 }

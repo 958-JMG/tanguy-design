@@ -5,7 +5,8 @@
 
 import { router, navigateTo } from './core/router.js';
 import { state, loadMe } from './core/state.js';
-import { fetchClients } from './core/api.js';
+import { fetchClients, fetchProjets } from './core/api.js';
+import { openSearch } from './core/search.js';
 
 // Exposés en global pour les onclick="" inline du HTML squelette
 window.navigateTo = navigateTo;
@@ -13,10 +14,7 @@ window.logout = async () => {
   await fetch('/api/logout', { method: 'POST' });
   location.href = '/login';
 };
-window.openSearch = () => {
-  // TODO Sprint 1 : palette Cmd+K (réutiliser l'implémentation v2)
-  alert('Recherche globale — à venir Sprint 1.5');
-};
+window.openSearch = openSearch;
 
 // Cmd+K shortcut
 document.addEventListener('keydown', e => {
@@ -35,7 +33,7 @@ document.addEventListener('keydown', e => {
       document.documentElement.style.setProperty('--admin-display', 'none');
       document.querySelectorAll('.nav-admin-only').forEach(el => el.style.display = 'none');
     }
-    await fetchClients();
+    await Promise.all([fetchClients(), fetchProjets()]);
     router(); // démarre sur le hash courant ou par défaut
   } catch (e) {
     console.error('Bootstrap échec', e);
