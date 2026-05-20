@@ -256,6 +256,19 @@ async function atFetchFiltered(tableId, filterFormula) {
   return atFetchAll(tableId, q.toString());
 }
 
+// Récupère des records par leurs IDs (chunké par 50 pour respecter la limite URL Airtable).
+// Évite les atFetchAll() complets quand on connait déjà les IDs (typiquement depuis un linked field).
+async function atFetchByIds(tableId, ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += 50) chunks.push(ids.slice(i, i + 50));
+  const results = await Promise.all(chunks.map(c => {
+    const formula = `OR(${c.map(id => `RECORD_ID()='${id}'`).join(',')})`;
+    return atFetchFiltered(tableId, formula);
+  }));
+  return results.flat();
+}
+
 async function atCreate(tableId, fields) {
   const r = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${tableId}`, {
     method: 'POST',
@@ -400,17 +413,16 @@ app.get('/api/devis/:id/detail', requireAuth, async (req, res) => {
     if (!dr.ok) throw new Error('Devis introuvable');
     const devis = await dr.json();
 
-    // Zones / lignes / échéances : on fetch tout et on filtre par l'ID du devis lié
-    // (ARRAYJOIN sur un linked field renvoie la valeur primaire, pas les IDs)
-    const linkedToDevis = (rec) => Array.isArray(rec.fields?.Devis) && rec.fields.Devis.includes(devisId);
-    const [allZones, allLignes, allEcheances] = await Promise.all([
-      atFetchAll(TABLES['zones-devis'].id),
-      atFetchAll(TABLES['lignes-devis'].id),
-      atFetchAll(TABLES['echeances-devis'].id)
+    // Zones / lignes / échéances : on récupère directement par les IDs liés du devis
+    // (les linked fields exposent les record IDs côté parent, plus efficace que atFetchAll+filter).
+    const zoneIds  = devis.fields?.['Zones devis']     || [];
+    const ligneIds = devis.fields?.['Lignes devis']    || [];
+    const echIds   = devis.fields?.['Échéances devis'] || [];
+    const [zones, lignes, echeances] = await Promise.all([
+      atFetchByIds(TABLES['zones-devis'].id, zoneIds),
+      atFetchByIds(TABLES['lignes-devis'].id, ligneIds),
+      atFetchByIds(TABLES['echeances-devis'].id, echIds),
     ]);
-    const zones = allZones.filter(linkedToDevis);
-    const lignes = allLignes.filter(linkedToDevis);
-    const echeances = allEcheances.filter(linkedToDevis);
 
     res.json({ ok: true, devis, zones, lignes, echeances });
   } catch (e) {
@@ -700,9 +712,9 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       } catch(e) { /* fallback silencieux : pas de nom client → format legacy */ }
     }
 
-    // 2. Récup toutes les lignes du devis
-    const allLignes = await atFetchAll(TABLES['lignes-devis'].id);
-    const lignes = allLignes.filter(l => Array.isArray(l.fields?.Devis) && l.fields.Devis.includes(devisId));
+    // 2. Récup les lignes du devis (par IDs liés depuis le devis, évite le scan complet de la table)
+    const ligneIds = dv['Lignes devis'] || [];
+    const lignes = await atFetchByIds(TABLES['lignes-devis'].id, ligneIds);
 
     // 3. Groupement par catégorie mappée + collecte des libellés de lignes pour pré-remplir le contenu
     const totauxParCat = {};
