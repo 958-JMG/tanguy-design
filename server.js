@@ -2,13 +2,17 @@ const express = require('express');
 const session = require('cookie-session');
 const bcrypt = require('bcrypt');
 const path = require('path');
-const fetch = require('node-fetch');
 const multer = require('multer');
+// fetch est natif depuis Node 18, requis Node 20+ (cf. package.json engines).
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const pinoHttp = require('pino-http');
 const { parseDevisPdf, parsePlaudTranscript } = require('./services/devis-parser');
 const { parseArtisanDevisPdf } = require('./services/artisan-devis-parser');
 const { generateFicheMission } = require('./services/fiche-mission-generator');
+const { enrichEcheancesAvecDates } = require('./services/echeances-helper');
+const { canAccess, pickAllowedFields } = require('./services/acl');
+const logger = require('./services/logger');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,7 +21,7 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 // RC Pro 2026 : logs PII (noms clients/artisans) en mode debug seulement.
 // En prod : silencieux pour respecter la minimisation RGPD des logs.
 function logPII(msg) {
-  if (!IS_PROD) console.log(msg);
+  if (!IS_PROD) logger.info(msg);
 }
 
 // --- Session secret : refus de démarrer en prod sans secret robuste ---
@@ -25,7 +29,7 @@ const SESSION_SECRET_FALLBACK = 'dev-only-change-me';
 if (IS_PROD) {
   const s = process.env.SESSION_SECRET || '';
   if (!s || s === SESSION_SECRET_FALLBACK || s.length < 32) {
-    console.error('❌ SESSION_SECRET manquant ou trop court (min 32 chars). En prod, génère avec: openssl rand -hex 32');
+    logger.error('❌ SESSION_SECRET manquant ou trop court (min 32 chars). En prod, génère avec: openssl rand -hex 32');
     process.exit(1);
   }
 }
@@ -109,7 +113,7 @@ function parseUsers(str) {
 let USERS_RAW = process.env.USERS_HASHES || '';
 if (process.env.USERS_HASHES_B64) {
   try { USERS_RAW = Buffer.from(process.env.USERS_HASHES_B64, 'base64').toString('utf8'); }
-  catch (e) { console.error('USERS_HASHES_B64 decode failed:', e.message); }
+  catch (e) { logger.error('USERS_HASHES_B64 decode failed:', e.message); }
 }
 const USERS = parseUsers(USERS_RAW);
 
@@ -135,16 +139,34 @@ function clientIp(req) {
     || 'unknown';
 }
 
+// pino-http : 1 log JSON par requête (id, méthode, url, status, durée).
+// Niveau adaptatif : info pour 2xx/3xx, warn pour 4xx, error pour 5xx.
+// Headers sensibles redactés (cf. services/logger.js).
+app.use(pinoHttp({
+  logger,
+  customLogLevel: (req, res, err) => {
+    if (err || res.statusCode >= 500) return 'error';
+    if (res.statusCode >= 400) return 'warn';
+    return 'info';
+  },
+  customSuccessMessage: (req, res) => `${req.method} ${req.url} → ${res.statusCode}`,
+  customErrorMessage: (req, res, err) => `${req.method} ${req.url} → ${res.statusCode} ${err?.message || ''}`,
+  serializers: {
+    req: (req) => ({ id: req.id, method: req.method, url: req.url, ip: clientIp(req) }),
+    res: (res) => ({ statusCode: res.statusCode }),
+  },
+}));
+
 // Helmet : headers de sécurité standards (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy…)
-// CSP permissive côté inline (le cockpit a tout son JS/CSS inline dans index.html)
+// CSP : Sprint 0.7 — script-src n'a plus besoin de 'unsafe-inline' (JS externe dans /assets/js/main.js).
+// script-src-attr garde 'unsafe-inline' tant que les onclick="..." inline persistent dans index.html.
+// style-src garde 'unsafe-inline' pour les style="..." inline encore présents.
 app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
     directives: {
       'default-src': ["'self'"],
-      'script-src': ["'self'", "'unsafe-inline'"],
-      // script-src-attr : autorise onclick/onsubmit inline (helmet défaut = 'none' ce qui bloquait
-      // tous les handlers inline → login + tout le cockpit cassés après hardening).
+      'script-src': ["'self'"],
       'script-src-attr': ["'unsafe-inline'"],
       'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       'font-src': ["'self'", 'https://fonts.gstatic.com', 'data:'],
@@ -194,14 +216,23 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-// Tables protégées admin-only (lecture/écriture). Le frontend masque déjà ces menus
-// aux non-admins, mais le backend doit aussi refuser pour éviter le bypass curl.
-const ADMIN_ONLY_TABLES = new Set(['stock']);
-function requireAdminIfRestrictedTable(req, res, next) {
-  if (ADMIN_ONLY_TABLES.has(req.params.table)) {
-    return requireAdmin(req, res, next);
+// ACL complète /api/data/:table : cf. services/acl.js (Sprint 0.7).
+// Mapping (table × verb × role) + whitelist des champs modifiables par table.
+// Remplace l'ancien requireAdminIfRestrictedTable qui ne protégeait que `stock`.
+function userRole(req) {
+  return ADMIN_LOGINS.has(req.session?.user) ? 'admin' : '*';
+}
+function requireTableAccess(req, res, verb) {
+  const tableKey = req.params.table;
+  const t = TABLES[tableKey];
+  if (!t) { res.status(404).json({ error: 'unknown table' }); return null; }
+  const role = userRole(req);
+  if (!canAccess(role, tableKey, verb)) {
+    logger.warn({ user: req.session?.user, role, table: tableKey, verb }, 'ACL refus');
+    res.status(role === 'admin' ? 405 : 403).json({ error: role === 'admin' ? `${verb} non autorisé sur ${tableKey}` : 'admin requis' });
+    return null;
   }
-  next();
+  return t;
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
@@ -237,7 +268,7 @@ async function withKeepAlive(req, res, handler) {
     res.end(JSON.stringify(result));
   } catch (e) {
     if (keepAlive) clearInterval(keepAlive);
-    console.error('[withKeepAlive] error:', e.message);
+    logger.error('[withKeepAlive] error:', e.message);
     // headers déjà envoyés → on ne peut plus changer le status, on retourne JSON {error}
     try {
       res.end(JSON.stringify({ error: e.message || 'erreur serveur' }));
@@ -305,6 +336,19 @@ async function atFetchFiltered(tableId, filterFormula) {
   const q = new URLSearchParams();
   q.set('filterByFormula', filterFormula);
   return atFetchAll(tableId, q.toString());
+}
+
+// Récupère des records par leurs IDs (chunké par 50 pour respecter la limite URL Airtable).
+// Évite les atFetchAll() complets quand on connait déjà les IDs (typiquement depuis un linked field).
+async function atFetchByIds(tableId, ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += 50) chunks.push(ids.slice(i, i + 50));
+  const results = await Promise.all(chunks.map(c => {
+    const formula = `OR(${c.map(id => `RECORD_ID()='${id}'`).join(',')})`;
+    return atFetchFiltered(tableId, formula);
+  }));
+  return results.flat();
 }
 
 async function atCreate(tableId, fields) {
@@ -384,16 +428,16 @@ app.post('/api/login', loginLimiter, async (req, res) => {
   const loginLc = String(login).toLowerCase();
   const hash = USERS[loginLc];
   if (!hash) {
-    console.warn(`[auth] login FAIL (unknown user) login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
+    logger.warn(`[auth] login FAIL (unknown user) login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
     return res.status(401).json({ error: 'identifiants invalides' });
   }
   const ok = await bcrypt.compare(password, hash);
   if (!ok) {
-    console.warn(`[auth] login FAIL (bad password) login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
+    logger.warn(`[auth] login FAIL (bad password) login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
     return res.status(401).json({ error: 'identifiants invalides' });
   }
   req.session.user = loginLc;
-  console.info(`[auth] login OK login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
+  logger.info(`[auth] login OK login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
   res.json({ ok: true, user: req.session.user });
 });
 
@@ -404,37 +448,35 @@ app.get('/api/me', (req, res) => {
   res.json({ user: req.session.user, isAdmin: ADMIN_LOGINS.has(req.session.user) });
 });
 
-// --- Data API générique ---
-app.get('/api/data/:table', requireAuth, requireAdminIfRestrictedTable, async (req, res) => {
-  const t = TABLES[req.params.table];
-  if (!t) return res.status(404).json({ error: 'unknown table' });
+// --- Data API générique avec ACL (cf. services/acl.js) ---
+app.get('/api/data/:table', requireAuth, async (req, res) => {
+  const t = requireTableAccess(req, res, 'GET'); if (!t) return;
   try {
     const records = await atFetchAll(t.id);
     res.json({ ok: true, records });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/data/:table', requireAuth, requireAdminIfRestrictedTable, async (req, res) => {
-  const t = TABLES[req.params.table];
-  if (!t) return res.status(404).json({ error: 'unknown table' });
+app.post('/api/data/:table', requireAuth, async (req, res) => {
+  const t = requireTableAccess(req, res, 'POST'); if (!t) return;
   try {
-    const rec = await atCreate(t.id, req.body.fields || {});
+    const fields = pickAllowedFields(req.params.table, req.body.fields);
+    const rec = await atCreate(t.id, fields);
     res.json({ ok: true, record: rec });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.patch('/api/data/:table/:id', requireAuth, requireAdminIfRestrictedTable, async (req, res) => {
-  const t = TABLES[req.params.table];
-  if (!t) return res.status(404).json({ error: 'unknown table' });
+app.patch('/api/data/:table/:id', requireAuth, async (req, res) => {
+  const t = requireTableAccess(req, res, 'PATCH'); if (!t) return;
   try {
-    const rec = await atPatch(t.id, req.params.id, req.body.fields || {});
+    const fields = pickAllowedFields(req.params.table, req.body.fields);
+    const rec = await atPatch(t.id, req.params.id, fields);
     res.json({ ok: true, record: rec });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.delete('/api/data/:table/:id', requireAuth, requireAdminIfRestrictedTable, async (req, res) => {
-  const t = TABLES[req.params.table];
-  if (!t) return res.status(404).json({ error: 'unknown table' });
+app.delete('/api/data/:table/:id', requireAuth, async (req, res) => {
+  const t = requireTableAccess(req, res, 'DELETE'); if (!t) return;
   try {
     const d = await atDelete(t.id, req.params.id);
     res.json({ ok: true, deleted: d });
@@ -451,17 +493,16 @@ app.get('/api/devis/:id/detail', requireAuth, async (req, res) => {
     if (!dr.ok) throw new Error('Devis introuvable');
     const devis = await dr.json();
 
-    // Zones / lignes / échéances : on fetch tout et on filtre par l'ID du devis lié
-    // (ARRAYJOIN sur un linked field renvoie la valeur primaire, pas les IDs)
-    const linkedToDevis = (rec) => Array.isArray(rec.fields?.Devis) && rec.fields.Devis.includes(devisId);
-    const [allZones, allLignes, allEcheances] = await Promise.all([
-      atFetchAll(TABLES['zones-devis'].id),
-      atFetchAll(TABLES['lignes-devis'].id),
-      atFetchAll(TABLES['echeances-devis'].id)
+    // Zones / lignes / échéances : on récupère directement par les IDs liés du devis
+    // (les linked fields exposent les record IDs côté parent, plus efficace que atFetchAll+filter).
+    const zoneIds  = devis.fields?.['Zones devis']     || [];
+    const ligneIds = devis.fields?.['Lignes devis']    || [];
+    const echIds   = devis.fields?.['Échéances devis'] || [];
+    const [zones, lignes, echeances] = await Promise.all([
+      atFetchByIds(TABLES['zones-devis'].id, zoneIds),
+      atFetchByIds(TABLES['lignes-devis'].id, ligneIds),
+      atFetchByIds(TABLES['echeances-devis'].id, echIds),
     ]);
-    const zones = allZones.filter(linkedToDevis);
-    const lignes = allLignes.filter(linkedToDevis);
-    const echeances = allEcheances.filter(linkedToDevis);
 
     res.json({ ok: true, devis, zones, lignes, echeances });
   } catch (e) {
@@ -487,9 +528,9 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
   // analyse le PDF (peut prendre 60-120s avec Sonnet 4.5 vision). Sans ça, Cloudflare
   // coupe à 100s sans byte reçu → HTTP 524.
   await withKeepAlive(req, res, async () => {
-    console.log(`[devis/import] parsing ${req.file.originalname} (${req.file.size} bytes)`);
+    logger.info(`[devis/import] parsing ${req.file.originalname} (${req.file.size} bytes)`);
     const parsed = await parseDevisPdf(req.file.buffer);
-    console.log(`[devis/import] ✓ parsed: ${parsed.lignes?.length || 0} lignes, ${parsed.zones?.length || 0} zones`);
+    logger.info(`[devis/import] ✓ parsed: ${parsed.lignes?.length || 0} lignes, ${parsed.zones?.length || 0} zones`);
 
     // 1. Création du Devis (header)
     const devisFields = {
@@ -569,7 +610,7 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
       if (parsed.totaux?.total_ht_final) pf['Budget HT'] = parsed.totaux.total_ht_final;
       const np = await atCreate(TABLES.projets.id, pf);
       resolvedProjetId = np.id;
-      console.log(`[devis/import] projet créé: ${ref}`);
+      logger.info(`[devis/import] projet créé: ${ref}`);
     }
 
     if (resolvedProjetId) devisFields['Projet'] = [resolvedProjetId];
@@ -651,8 +692,32 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
     }
 
     // 4. Création des Échéances
+    // Les PDF Winner ne contiennent pas de dates absolues — on dérive via libellé + datePose
+    // (fix bug Morales, cf. docs/refonte-v3-2026-05-20/bug-morales-echeances.md).
     if (Array.isArray(parsed.echeances)) {
-      const echeancesBatch = parsed.echeances.map(e => {
+      // Lookup date pose si projet existant (sinon null → fallback date devis)
+      let datePose = null;
+      if (resolvedProjetId) {
+        try {
+          const r = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${resolvedProjetId}`, {
+            headers: { Authorization: `Bearer ${AT_KEY}` }
+          });
+          if (r.ok) {
+            const pRec = await r.json();
+            datePose = pRec?.fields?.['Date pose prévue'] || null;
+          }
+        } catch (e) {
+          logger.warn({ err: e.message, projetId: resolvedProjetId }, 'lookup date pose échec, fallback date devis pour échéances');
+        }
+      }
+
+      const echeancesEnrichies = enrichEcheancesAvecDates(
+        parsed.echeances,
+        parsed.metadata?.date_devis || null,
+        datePose
+      );
+
+      const echeancesBatch = echeancesEnrichies.map(e => {
         const f = {
           'Libellé': e.libelle || '',
           'Devis': [devisId],
@@ -727,9 +792,9 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       } catch(e) { /* fallback silencieux : pas de nom client → format legacy */ }
     }
 
-    // 2. Récup toutes les lignes du devis
-    const allLignes = await atFetchAll(TABLES['lignes-devis'].id);
-    const lignes = allLignes.filter(l => Array.isArray(l.fields?.Devis) && l.fields.Devis.includes(devisId));
+    // 2. Récup les lignes du devis (par IDs liés depuis le devis, évite le scan complet de la table)
+    const ligneIds = dv['Lignes devis'] || [];
+    const lignes = await atFetchByIds(TABLES['lignes-devis'].id, ligneIds);
 
     // 3. Groupement par catégorie mappée + collecte des libellés de lignes pour pré-remplir le contenu
     const totauxParCat = {};
@@ -794,7 +859,7 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       detail: commandesCreees
     });
   } catch (e) {
-    console.error('[devis/sign] error:', e);
+    logger.error('[devis/sign] error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -847,9 +912,9 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
 
   // withKeepAlive — parser un PDF artisan via Claude peut prendre 60-120s
   await withKeepAlive(req, res, async () => {
-    console.log(`[artisan-devis/import] parsing ${req.file.originalname} (${req.file.size} bytes)`);
+    logger.info(`[artisan-devis/import] parsing ${req.file.originalname} (${req.file.size} bytes)`);
     const parsed = await parseArtisanDevisPdf(req.file.buffer);
-    console.log(`[artisan-devis/import] ✓ parsed: ${parsed.artisan?.entreprise} / ${euros(parsed.totaux?.total_ht)}`);
+    logger.info(`[artisan-devis/import] ✓ parsed: ${parsed.artisan?.entreprise} / ${euros(parsed.totaux?.total_ht)}`);
 
     // Résolution artisan : si pas fourni, match par nom d'entreprise
     let resolvedArtisanId = artisanId;
@@ -894,9 +959,9 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
     // Upload du PDF original en attachment
     try {
       await atUploadAttachment(recordId, DA_FIELDS.pdfOriginal, req.file.buffer, req.file.originalname || 'devis-artisan.pdf');
-      console.log(`[artisan-devis/import] PDF attaché au record ${recordId}`);
+      logger.info(`[artisan-devis/import] PDF attaché au record ${recordId}`);
     } catch (e) {
-      console.warn(`[artisan-devis/import] upload PDF échoué (record créé quand même): ${e.message}`);
+      logger.warn(`[artisan-devis/import] upload PDF échoué (record créé quand même): ${e.message}`);
     }
 
     // Auto-ajouter l'artisan à la liste Artisans du projet (si match + projet défini)
@@ -909,11 +974,11 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
           const current = Array.isArray(projetData.fields?.Artisans) ? projetData.fields.Artisans : [];
           if (!current.includes(resolvedArtisanId)) {
             await atPatch(TABLES.projets.id, projetId, { Artisans: [...current, resolvedArtisanId] });
-            console.log(`[artisan-devis/import] artisan ${resolvedArtisanId} ajouté au projet ${projetId}`);
+            logger.info(`[artisan-devis/import] artisan ${resolvedArtisanId} ajouté au projet ${projetId}`);
           }
         }
       } catch (e) {
-        console.warn(`[artisan-devis/import] ajout artisan au projet échoué: ${e.message}`);
+        logger.warn(`[artisan-devis/import] ajout artisan au projet échoué: ${e.message}`);
       }
     }
 
@@ -1005,7 +1070,7 @@ async function generateAndAttachFicheMission(projetId, artisanId) {
     const match = list.find(a => a.filename === filename) || list[list.length - 1];
     ficheUrl = match?.url || null;
   } catch (e) {
-    console.warn(`[fiche-mission] upload projet.Fiches échoué: ${e.message}`);
+    logger.warn(`[fiche-mission] upload projet.Fiches échoué: ${e.message}`);
   }
 
   // 6. Si devis artisan existe : y attacher aussi + passer statut "Fiche envoyée"
@@ -1052,7 +1117,7 @@ app.post('/api/fiche-mission', requireAuth, async (req, res) => {
     const result = await generateAndAttachFicheMission(projetId, artisanId);
     res.json(result);
   } catch (e) {
-    console.error('[fiche-mission] error:', e);
+    logger.error('[fiche-mission] error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -1072,7 +1137,7 @@ app.post('/api/artisan-devis/:id/fiche-mission', requireAuth, async (req, res) =
     const result = await generateAndAttachFicheMission(projetId, artisanId);
     res.json(result);
   } catch (e) {
-    console.error('[artisan-devis/fiche-mission] error:', e);
+    logger.error('[artisan-devis/fiche-mission] error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -1096,7 +1161,7 @@ app.post('/api/projets/:id/attachments', requireAuth, uploadAny.single('file'), 
     await atUploadAttachment(projetId, fieldId, req.file.buffer, req.file.originalname, ct);
     res.json({ ok: true, filename: req.file.originalname });
   } catch (e) {
-    console.error('[projets/upload] error:', e);
+    logger.error('[projets/upload] error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -1118,7 +1183,7 @@ app.post('/api/projets/:id/journal', requireAuth, async (req, res) => {
     await atPatch(TABLES.projets.id, projetId, { 'Journal chantier': next });
     res.json({ ok: true, entry });
   } catch (e) {
-    console.error('[projets/journal] error:', e);
+    logger.error('[projets/journal] error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -1142,7 +1207,46 @@ app.delete('/api/projets/:id/attachments', requireAuth, async (req, res) => {
     await atPatch(TABLES.projets.id, projetId, { [field]: next });
     res.json({ ok: true });
   } catch (e) {
-    console.error('[projets/delete-attachment] error:', e);
+    logger.error('[projets/delete-attachment] error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PATCH date pose prévue du projet + recalcul des dates d'échéance liées (fix bug Morales).
+// Voir docs/refonte-v3-2026-05-20/bug-morales-echeances.md.
+app.patch('/api/projets/:id/date-pose', requireAuth, async (req, res) => {
+  const projetId = req.params.id;
+  const { datePose } = req.body || {};
+  if (!datePose || !/^\d{4}-\d{2}-\d{2}$/.test(datePose)) {
+    return res.status(400).json({ error: 'datePose au format YYYY-MM-DD requis' });
+  }
+  try {
+    await atPatch(TABLES.projets.id, projetId, { 'Date pose prévue': datePose });
+    const filter = `FIND('${projetId}', ARRAYJOIN({Projet}))`;
+    const devisList = await atFetchFiltered(TABLES.devis.id, filter);
+    let recalcCount = 0;
+    for (const d of devisList) {
+      const dateDevis = d.fields['Date devis'] || null;
+      const echIds = d.fields['Échéances devis'] || [];
+      if (!echIds.length) continue;
+      const echRecords = await atFetchByIds(TABLES['echeances-devis'].id, echIds);
+      const echeancesForHelper = echRecords.map(r => ({
+        _id: r.id,
+        libelle: r.fields['Libellé'] || '',
+        date_prevue: null,
+      }));
+      const enriched = enrichEcheancesAvecDates(echeancesForHelper, dateDevis, datePose);
+      for (const e of enriched) {
+        if (e.date_prevue) {
+          await atPatch(TABLES['echeances-devis'].id, e._id, { 'Date prévue': e.date_prevue });
+          recalcCount++;
+        }
+      }
+    }
+    logger.info({ projetId, datePose, recalcCount }, 'date-pose mise à jour + échéances recalculées');
+    res.json({ ok: true, recalcCount });
+  } catch (e) {
+    logger.error({ err: e.message, projetId }, '[projets/date-pose] error');
     res.status(500).json({ error: e.message });
   }
 });
@@ -1197,13 +1301,13 @@ app.post('/api/sav/submit', requireAuth, async (req, res) => {
     });
     if (!r.ok) {
       const txt = await r.text().catch(() => '');
-      console.error(`[sav/submit] n8n ${r.status}: ${txt.slice(0,200)}`);
+      logger.error(`[sav/submit] n8n ${r.status}: ${txt.slice(0,200)}`);
       return res.status(502).json({ error: `Webhook 9·58 indisponible (${r.status})` });
     }
     const data = await r.json().catch(() => ({}));
     res.json({ ok: true, ticket_id: data.ticket_id, notification_id: data.notification_id });
   } catch (e) {
-    console.error('[sav/submit] error:', e.message);
+    logger.error('[sav/submit] error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -1214,6 +1318,6 @@ app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
 app.use('/img', express.static(path.join(__dirname, 'public', 'img')));
 
 app.listen(PORT, () => {
-  console.log(`✅ Tanguy Design — Cockpit v0.3.0 on port ${PORT}`);
-  console.log(`   Users: ${Object.keys(USERS).length} | Airtable: ${BASE_ID ? 'OK' : 'MISSING'} | Claude: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'MISSING'}`);
+  logger.info(`✅ Tanguy Design — Cockpit v0.3.0 on port ${PORT}`);
+  logger.info(`   Users: ${Object.keys(USERS).length} | Airtable: ${BASE_ID ? 'OK' : 'MISSING'} | Claude: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'MISSING'}`);
 });
