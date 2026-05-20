@@ -113,16 +113,6 @@ button:hover{background:var(--gold-light)}
 
   <div class="footer">© Tanguy Design · Auray</div>
 </div>
-<script>
-async function doLogin(e){
-  e.preventDefault();
-  const err=document.getElementById('err');err.style.display='none';
-  const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({login:login.value,password:password.value})});
-  if(r.ok){location.href='/';return false;}
-  const d=await r.json().catch(()=>({}));
-  err.textContent=d.error||'Erreur';err.style.display='block';
-  return false;
-}
-</script>
+<script src="/assets/js/login.js" defer></script>
 </body>
 </html>
