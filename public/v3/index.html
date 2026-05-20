@@ -10,7 +10,8 @@
 <body>
 
 <div class="banner-v3">
-  🚧 v3 preview — pivot client-centric ·
+  <span class="banner-icon" data-icon="construction" data-icon-size="16"></span>
+  v3 preview — pivot client-centric
   <a href="/">retour cockpit v2</a>
 </div>
 
@@ -18,25 +19,30 @@
   <button class="brand" onclick="navigateTo('dashboard')">Tanguy Design</button>
   <nav class="nav-main">
     <button class="nav-item" data-route="dashboard" onclick="navigateTo('dashboard')">
-      <span class="nav-icon">🏠</span><span class="nav-label">Dashboard</span>
+      <span class="nav-icon" data-icon="home"></span><span class="nav-label">Dashboard</span>
     </button>
     <button class="nav-item" data-route="clients" onclick="navigateTo('clients')">
-      <span class="nav-icon">👤</span><span class="nav-label">Clients</span>
+      <span class="nav-icon" data-icon="users"></span><span class="nav-label">Clients</span>
     </button>
     <button class="nav-item" data-route="pipeline" onclick="navigateTo('pipeline')">
-      <span class="nav-icon">📊</span><span class="nav-label">Pipeline</span>
+      <span class="nav-icon" data-icon="chart"></span><span class="nav-label">Pipeline</span>
     </button>
     <button class="nav-item" data-route="calendar" onclick="navigateTo('calendar')">
-      <span class="nav-icon">📅</span><span class="nav-label">Calendar</span>
+      <span class="nav-icon" data-icon="calendar"></span><span class="nav-label">Calendar</span>
     </button>
     <button class="nav-item nav-admin-only" data-route="admin" onclick="navigateTo('admin')">
-      <span class="nav-icon">⚙️</span><span class="nav-label">Admin</span>
+      <span class="nav-icon" data-icon="settings"></span><span class="nav-label">Admin</span>
     </button>
   </nav>
-  <button class="search-btn" onclick="openSearch()" title="Rechercher (Cmd+K)">🔍 <kbd>⌘K</kbd></button>
+  <button class="search-btn" onclick="openSearch()" title="Rechercher (Cmd+K)">
+    <span data-icon="search" data-icon-size="16"></span>
+    <kbd>⌘K</kbd>
+  </button>
   <div class="user-info">
     <span id="user-name">…</span>
-    <button class="logout-btn" onclick="logout()">Sortir</button>
+    <button class="logout-btn" onclick="logout()" title="Se déconnecter">
+      <span data-icon="logOut" data-icon-size="16"></span>
+    </button>
   </div>
 </header>
 
@@ -45,11 +51,11 @@
 </main>
 
 <nav class="nav-bottom">
-  <button class="nav-bottom-item" data-route="dashboard" onclick="navigateTo('dashboard')">🏠<small>Home</small></button>
-  <button class="nav-bottom-item" data-route="clients" onclick="navigateTo('clients')">👤<small>Clients</small></button>
-  <button class="nav-bottom-item" data-route="pipeline" onclick="navigateTo('pipeline')">📊<small>Pipeline</small></button>
-  <button class="nav-bottom-item" data-route="calendar" onclick="navigateTo('calendar')">📅<small>Calendar</small></button>
-  <button class="nav-bottom-item nav-admin-only" data-route="admin" onclick="navigateTo('admin')">⚙️<small>Admin</small></button>
+  <button class="nav-bottom-item" data-route="dashboard" onclick="navigateTo('dashboard')"><span data-icon="home"></span><small>Home</small></button>
+  <button class="nav-bottom-item" data-route="clients" onclick="navigateTo('clients')"><span data-icon="users"></span><small>Clients</small></button>
+  <button class="nav-bottom-item" data-route="pipeline" onclick="navigateTo('pipeline')"><span data-icon="chart"></span><small>Pipeline</small></button>
+  <button class="nav-bottom-item" data-route="calendar" onclick="navigateTo('calendar')"><span data-icon="calendar"></span><small>Calendar</small></button>
+  <button class="nav-bottom-item nav-admin-only" data-route="admin" onclick="navigateTo('admin')"><span data-icon="settings"></span><small>Admin</small></button>
 </nav>
 
 <script type="module" src="/v3/assets/js/main.js"></script>

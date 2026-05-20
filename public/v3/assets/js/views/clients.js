@@ -3,11 +3,12 @@
 import { state } from '../core/state.js';
 import { fetchClient, fetchClients, createProjetForClient, patchClient } from '../core/api.js';
 import { navigateTo, router } from '../core/router.js';
+import { icon, hydrateIcons } from '../core/lucide.js';
 
 const TYPE_ICONS = {
-  'Particulier':   '👤',
-  'Professionnel': '🏢',
-  'Architecte':    '🏛️',
+  'Particulier':   'user',
+  'Professionnel': 'building',
+  'Architecte':    'landmark',
 };
 
 function esc(s) {
@@ -21,11 +22,14 @@ export function renderClientsList(app) {
   app.innerHTML = `
     <div class="page-header">
       <h1 class="page-title">Clients (${clients.length})</h1>
-      <button class="btn btn-primary" onclick="window.alert('Création client : à venir Sprint 1.5')">+ Nouveau client</button>
+      <button class="btn btn-primary" onclick="window.alert('Création client : à venir Sprint 1.5')">${icon('plus', 16)} Nouveau client</button>
     </div>
 
     <div class="filters-bar">
-      <input type="search" id="search-clients" placeholder="🔍 Rechercher nom, email, téléphone…" class="search-input">
+      <div class="search-input-wrap">
+        <span class="search-input-icon">${icon('search', 16)}</span>
+        <input type="search" id="search-clients" placeholder="Rechercher nom, email, téléphone…" class="search-input">
+      </div>
       <div class="filter-chips">
         <button class="chip is-active" data-filter="all">Tous</button>
         <button class="chip" data-filter="Particulier">Particuliers</button>
@@ -56,13 +60,13 @@ export function renderClientsList(app) {
     }
     list.innerHTML = filtered.map(c => `
       <button class="client-card" onclick="window.navigateTo('clients', { id: '${c.id}' })">
-        <div class="client-icon">${TYPE_ICONS[c.Type] || '👤'}</div>
+        <div class="client-icon">${icon(TYPE_ICONS[c.Type] || 'user', 24)}</div>
         <div class="client-info">
           <div class="client-name">${esc(c.Nom || '—')}</div>
           <div class="client-meta">
             <span class="client-type">${esc(c.Type || 'Particulier')}</span>
-            ${c.Téléphone ? `<span>📞 ${esc(c.Téléphone)}</span>` : ''}
-            ${c.Email ? `<span>✉️ ${esc(c.Email)}</span>` : ''}
+            ${c.Téléphone ? `<span class="client-meta-item">${icon('phone', 12)} ${esc(c.Téléphone)}</span>` : ''}
+            ${c.Email ? `<span class="client-meta-item">${icon('mail', 12)} ${esc(c.Email)}</span>` : ''}
           </div>
         </div>
         <div class="client-projets">${(c.Projets || []).length} projet${(c.Projets || []).length > 1 ? 's' : ''}</div>
@@ -99,24 +103,24 @@ export async function renderClientDetail(app, clientId) {
 
       <div class="client-header">
         <div class="client-header-left">
-          <div class="client-header-icon">${TYPE_ICONS[c.Type] || '👤'}</div>
+          <div class="client-header-icon">${icon(TYPE_ICONS[c.Type] || 'user', 36)}</div>
           <div>
             <h1 class="page-title" style="margin:0">${esc(c.Nom)}</h1>
             <div class="muted" style="margin-top:4px">
-              ${esc(c.Type || 'Particulier')}${c['Architecte référent'] ? ' · 📐 via architecte' : ''}
+              ${esc(c.Type || 'Particulier')}${c['Architecte référent'] ? ' · via architecte' : ''}
               ${c.Source ? ` · Source : ${esc(c.Source)}` : ''}
             </div>
           </div>
         </div>
-        <button class="btn btn-ghost" id="btn-edit-client">⚙️ Éditer</button>
+        <button class="btn btn-ghost" id="btn-edit-client">${icon('edit', 16)} Éditer</button>
       </div>
 
       <div class="client-grid">
         <div class="card">
           <h2 class="card-title">Contact</h2>
-          ${c.Téléphone ? `<div class="kv"><span>📞</span> ${esc(c.Téléphone)}</div>` : ''}
-          ${c.Email ? `<div class="kv"><span>✉️</span> <a href="mailto:${esc(c.Email)}">${esc(c.Email)}</a></div>` : ''}
-          ${c.Adresse ? `<div class="kv"><span>📍</span> <span style="white-space:pre-line">${esc(c.Adresse)}</span></div>` : ''}
+          ${c.Téléphone ? `<div class="kv">${icon('phone', 16)} ${esc(c.Téléphone)}</div>` : ''}
+          ${c.Email ? `<div class="kv">${icon('mail', 16)} <a href="mailto:${esc(c.Email)}">${esc(c.Email)}</a></div>` : ''}
+          ${c.Adresse ? `<div class="kv">${icon('mapPin', 16)} <span style="white-space:pre-line">${esc(c.Adresse)}</span></div>` : ''}
         </div>
         ${c.Notes ? `
         <div class="card">
@@ -126,8 +130,8 @@ export async function renderClientDetail(app, clientId) {
       </div>
 
       <div class="section-header">
-        <h2 class="section-title">📋 Projets (${projets.length})</h2>
-        <button class="btn btn-primary" id="btn-new-projet">+ Nouveau projet</button>
+        <h2 class="section-title">Projets (${projets.length})</h2>
+        <button class="btn btn-primary" id="btn-new-projet">${icon('plus', 16)} Nouveau projet</button>
       </div>
 
       <div id="projets-list" class="projets-list">
@@ -139,12 +143,12 @@ export async function renderClientDetail(app, clientId) {
               const chantier = pf['Statut chantier'] || '';
               return `
               <button class="projet-card" onclick="window.alert('Fiche projet v3 : à venir Sprint 1.5')">
-                <div class="projet-ref">📂 ${esc(pf['Référence'] || '(sans référence)')}</div>
+                <div class="projet-ref">${icon('folder', 16)} ${esc(pf['Référence'] || '(sans référence)')}</div>
                 <div class="projet-meta">
                   <span class="badge phase-${esc(phase).toLowerCase().replace(/[^a-z]+/g,'-')}">${esc(phase)}</span>
                   ${chantier ? `<span class="badge chantier">${esc(chantier)}</span>` : ''}
                   ${pf['Budget HT'] ? `<span>${pf['Budget HT'].toLocaleString('fr-FR')} €</span>` : ''}
-                  ${pf['Date pose prévue'] ? `<span>📅 Pose ${esc(pf['Date pose prévue'])}</span>` : ''}
+                  ${pf['Date pose prévue'] ? `<span class="meta-with-icon">${icon('calendar', 12)} Pose ${esc(pf['Date pose prévue'])}</span>` : ''}
                 </div>
               </button>
               `;
@@ -155,6 +159,7 @@ export async function renderClientDetail(app, clientId) {
 
     document.getElementById('btn-new-projet').addEventListener('click', () => openModalNouveauProjet(clientId));
     document.getElementById('btn-edit-client').addEventListener('click', () => openModalEditClient(data.client));
+    hydrateIcons(app);
   } catch (e) {
     app.innerHTML = `<div class="card"><h2>Erreur</h2><p class="muted">${esc(e.message)}</p></div>`;
   }
