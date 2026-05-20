@@ -1,7 +1,7 @@
 // Vue Clients v3 — liste + fiche détaillée (cœur du pivot client-centric, Sprint 1)
 
 import { state } from '../core/state.js';
-import { fetchClient, fetchClients, createProjetForClient, patchClient } from '../core/api.js';
+import { fetchClient, fetchClients, createProjetForClient, patchClient, createClient } from '../core/api.js';
 import { navigateTo, router } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
 import { toast, confirmModal } from '../core/ui.js';
@@ -23,7 +23,7 @@ export function renderClientsList(app) {
   app.innerHTML = `
     <div class="page-header">
       <h1 class="page-title">Clients (${clients.length})</h1>
-      <button class="btn btn-primary" onclick="window.alert('Création client : à venir Sprint 1.5')">${icon('plus', 16)} Nouveau client</button>
+      <button class="btn btn-primary" id="btn-new-client">${icon('plus', 16)} Nouveau client</button>
     </div>
 
     <div class="filters-bar">
@@ -75,6 +75,8 @@ export function renderClientsList(app) {
     `).join('');
   }
   renderList();
+
+  document.getElementById('btn-new-client').addEventListener('click', () => openModalNouveauClient());
 
   document.getElementById('search-clients').addEventListener('input', e => {
     currentSearch = e.target.value;
@@ -238,6 +240,65 @@ function openModalNouveauProjet(clientId) {
       navigateTo('clients', { id: clientId });
     } catch (err) {
       toast('Erreur création : ' + err.message, 'error', 5000);
+    }
+  });
+}
+
+// === Modale "Nouveau client" ===
+function openModalNouveauClient() {
+  const modal = document.createElement('div');
+  modal.className = 'modal-bg';
+  modal.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title-new-client">
+      <h2 id="modal-title-new-client">Nouveau client</h2>
+      <form id="form-new-client">
+        <label>Nom <input name="Nom" required placeholder="ex : DUPONT Jean-Paul"></label>
+        <label>Type
+          <select name="Type">
+            <option>Particulier</option>
+            <option>Professionnel</option>
+            <option>Architecte</option>
+          </select>
+        </label>
+        <label>Contact (prénom + nom du référent si pro/architecte)
+          <input name="Contact" placeholder="optionnel">
+        </label>
+        <label>Téléphone <input name="Téléphone" placeholder="06..."></label>
+        <label>Email <input name="Email" type="email" placeholder="...@..."></label>
+        <label>Adresse <textarea name="Adresse" rows="2" placeholder="Rue, CP Ville"></textarea></label>
+        <label>Source
+          <input name="Source" placeholder="ex : Bouche à oreille, Site web, Salon...">
+        </label>
+        <label>Notes <textarea name="Notes" rows="3" placeholder="Préférences, contexte, infos utiles"></textarea></label>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="cancel-new-client">Annuler</button>
+          <button type="submit" class="btn btn-primary">Créer client</button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  document.getElementById('cancel-new-client').onclick = () => modal.remove();
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  document.addEventListener('keydown', function k(e) {
+    if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', k); }
+  });
+
+  document.getElementById('form-new-client').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const fields = {};
+    for (const [k, v] of fd.entries()) if (v) fields[k] = v;
+    fields['Date création'] = new Date().toISOString().slice(0, 10);
+    try {
+      const r = await createClient(fields);
+      await fetchClients();
+      modal.remove();
+      toast(`Client « ${fields.Nom} » créé`, 'success');
+      // Navigate vers la fiche du nouveau client
+      navigateTo('clients', { id: r.record.id });
+    } catch (err) {
+      toast('Erreur création client : ' + err.message, 'error', 5000);
     }
   });
 }
