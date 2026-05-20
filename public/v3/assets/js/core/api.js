@@ -77,9 +77,33 @@ export async function deleteTache(tacheId) {
   return api(`/api/data/taches/${tacheId}`, { method: 'DELETE' });
 }
 
-export async function appendJournalEntry(projetId, texte, auteur) {
+export async function appendJournalEntry(projetId, text) {
+  // Server attend `text`, l'auteur est dérivé de req.session.user côté back.
   return api(`/api/projets/${projetId}/journal`, {
     method: 'POST',
-    body: JSON.stringify({ texte, auteur }),
+    body: JSON.stringify({ text }),
+  });
+}
+
+export async function uploadAttachment(projetId, field, file) {
+  const fd = new FormData();
+  fd.append('field', field);
+  fd.append('file', file);
+  const r = await fetch(`/api/projets/${projetId}/attachments`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    body: fd,
+  });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e.error || r.statusText);
+  }
+  return r.json();
+}
+
+export async function deleteAttachment(projetId, field, attachmentId) {
+  return api(`/api/projets/${projetId}/attachments`, {
+    method: 'DELETE',
+    body: JSON.stringify({ field, attachmentId }),
   });
 }

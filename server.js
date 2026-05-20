@@ -462,6 +462,53 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'tanguy-design', ts: new Date().toISOString() });
 });
 
+// --- Admin : tableau marges par projet (Sprint 5) ---
+// Pour chaque projet : CA HT, coût fournisseurs (commandes), coût artisans (devis-artisans),
+// rétro-commission 5% sur artisans contractuels, marge € + %.
+app.get('/api/admin/marges', requireAuth, async (req, res) => {
+  if (!ADMIN_LOGINS.has(req.session?.user)) return res.status(403).json({ error: 'admin requis' });
+  try {
+    const [projets, commandes, devisArtisans, artisans, clients] = await Promise.all([
+      atFetchAll(TABLES.projets.id),
+      atFetchAll(TABLES.commandes.id),
+      atFetchAll(TABLES['devis-artisans'].id),
+      atFetchAll(TABLES.artisans.id),
+      atFetchAll(TABLES.clients.id),
+    ]);
+    const clientById = new Map(clients.map(c => [c.id, c]));
+    const artisanById = new Map(artisans.map(a => [a.id, a]));
+
+    const rows = projets.map(p => {
+      const f = p.fields || {};
+      const projetCmds = commandes.filter(c => (c.fields?.Projet || []).includes(p.id));
+      const projetDA = devisArtisans.filter(d => (d.fields?.Projet || []).includes(p.id));
+      const caHT = f['Budget HT'] || 0;
+      const coutFourn = projetCmds.reduce((s, c) => s + (c.fields?.['Montant HT'] || 0), 0);
+      const coutArtisans = projetDA.reduce((s, d) => s + (d.fields?.['Montant HT'] || 0), 0);
+      const retro = projetDA.filter(d => {
+        const aId = (d.fields?.Artisan || [])[0];
+        return aId && artisanById.get(aId)?.fields?.Contractuel;
+      }).reduce((s, d) => s + (d.fields?.['Montant HT'] || 0) * 0.05, 0);
+      const margeAbs = caHT - coutFourn - coutArtisans + retro;
+      const margePct = caHT > 0 ? (margeAbs / caHT) * 100 : null;
+      const clientNom = clientById.get((f.Client || [])[0])?.fields?.Nom || '?';
+      return {
+        id: p.id,
+        reference: f.Référence,
+        client: clientNom,
+        phase: f['Phase commerciale'] || f.Statut,
+        chantier: f['Statut chantier'] || '',
+        caHT, coutFourn, coutArtisans, retro,
+        margeAbs, margePct,
+      };
+    });
+    res.json({ ok: true, rows });
+  } catch (e) {
+    logger.error({ err: e.message }, '[admin/marges] error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // --- Admin : IA suggestions cockpit (Sprint 4 P2) ---
 // Analyse l'état du cockpit (projets en cours, alertes, marges, blockages) et demande à
 // Claude (claude-sonnet-4-5) une synthèse + 5 suggestions actionnables. Admin only.
