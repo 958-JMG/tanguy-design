@@ -204,8 +204,25 @@ Retourne UNIQUEMENT un JSON strict avec cette structure :
   "points_douleur": "liste markdown des points de douleur avec impact : [Titre]\\n\\ndescription\\n\\nImpact: ...",
   "attentes": "liste markdown des attentes client structurées par thème",
   "autres_informations": "informations annexes importantes",
-  "taches_identifiees": "liste markdown des actions/tâches à effectuer par Tanguy Design"
+  "taches_identifiees": "liste markdown des actions/tâches à effectuer par Tanguy Design",
+  "prochaines_actions": [
+    {
+      "type": "rdv_presentation_devis | envoi_dossier | dessin_projet | relance_client | visite_chantier | autre",
+      "titre": "intitulé court (ex: Présenter le devis aux Junker)",
+      "date_souhaitee": "YYYY-MM-DD ou null si non mentionnée",
+      "assignee_suggere": "Virginie | Solène | Sébastien | Marine ou null",
+      "notes": "contexte ou précisions"
+    }
+  ]
 }
+
+Pour "prochaines_actions" :
+- Extrait UNIQUEMENT les actions ENGAGÉES explicitement (avec date précisée ou délai mentionné par le client/Tanguy)
+- "Présenter le devis le mardi 12 juin" → type=rdv_presentation_devis, date_souhaitee=2026-06-12
+- "Envoyer le dossier de présentation dans la semaine" → type=envoi_dossier, date_souhaitee=date+7j
+- "Dessiner le projet sur Winner" → type=dessin_projet, date_souhaitee=null
+- Si AUCUNE action explicite : retourne tableau vide []
+- assignee_suggere : déduis du contexte (qui s'est engagé). Solène pour dessin, Virginie pour commercial/admin, Sébastien pour chantier.
 
 Transcription à analyser :
 ---
