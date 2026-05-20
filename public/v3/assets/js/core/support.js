@@ -2,6 +2,7 @@
 // POST /api/support/feedback qui log structuré (JMG suit dans Scaleway Logs Browser).
 
 import { icon } from './lucide.js';
+import { toast, confirmModal } from './ui.js';
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
@@ -64,7 +65,7 @@ export function openSupport() {
       document.body.appendChild(toast);
       setTimeout(() => toast.remove(), 3000);
     } catch (err) {
-      alert('Erreur envoi : ' + err.message);
+      toast('Erreur envoi : ' + err.message, 'error', 5000);
     }
   });
 }

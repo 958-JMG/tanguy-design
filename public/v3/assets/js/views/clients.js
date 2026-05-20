@@ -4,6 +4,7 @@ import { state } from '../core/state.js';
 import { fetchClient, fetchClients, createProjetForClient, patchClient } from '../core/api.js';
 import { navigateTo, router } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
+import { toast, confirmModal } from '../core/ui.js';
 
 const TYPE_ICONS = {
   'Particulier':   'user',
@@ -236,7 +237,7 @@ function openModalNouveauProjet(clientId) {
       // Refresh fiche client
       navigateTo('clients', { id: clientId });
     } catch (err) {
-      alert('Erreur création : ' + err.message);
+      toast('Erreur création : ' + err.message, 'error', 5000);
     }
   });
 }
@@ -306,7 +307,7 @@ function openModalEditClient(clientRecord) {
       modal.remove();
       router(); // re-render fiche courante
     } catch (err) {
-      alert('Erreur enregistrement : ' + err.message);
+      toast('Erreur enregistrement : ' + err.message, 'error', 5000);
     }
   });
 }

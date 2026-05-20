@@ -342,6 +342,45 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
 
+/* === Toasts === */
+.toast-container {
+  position: fixed;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex; flex-direction: column-reverse; gap: 8px;
+  z-index: 2000;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  background: var(--ink1);
+  color: var(--paper);
+  padding: 12px 20px;
+  border-radius: var(--r-md);
+  font-size: 14px;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.2s, transform 0.2s;
+  max-width: 480px;
+}
+.toast.toast-show { opacity: 1; transform: translateY(0); }
+.toast-success { background: var(--green); }
+.toast-error   { background: var(--accent); }
+.toast-info    { background: var(--ink1); }
+
+@media (min-width: 761px) {
+  .toast-container { bottom: 30px; }
+}
+
+/* Bouton danger */
+.btn-danger { background: var(--accent); color: white; }
+.btn-danger:hover { background: #a83b1d; }
+
+/* Modal confirm */
+.modal-confirm { max-width: 420px; }
+
 /* === Bouton support flottant === */
 .support-btn {
   position: fixed;

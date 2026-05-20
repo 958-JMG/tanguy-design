@@ -282,7 +282,7 @@ function renderFiche(app, data) {
         await patchTache(tacheId, { Statut: newStatut });
         t.fields.Statut = newStatut;
         router();
-      } catch (err) { alert('Erreur : ' + err.message); }
+      } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
     });
     row.querySelector('.tache-edit')?.addEventListener('click', e => {
       e.stopPropagation();
@@ -292,7 +292,7 @@ function renderFiche(app, data) {
       e.stopPropagation();
       if (!confirm(`Supprimer la tâche « ${t.fields?.Titre || '?'} » ?`)) return;
       try { await deleteTache(tacheId); router(); }
-      catch (err) { alert('Erreur : ' + err.message); }
+      catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
     });
   });
 }
@@ -386,7 +386,7 @@ function openModalEditProjet(projet) {
       fields[k] = k === 'Budget HT' ? Number(v) : v;
     }
     try { await patchProjet(projet.id, fields); close(); router(); }
-    catch (err) { alert('Erreur : ' + err.message); }
+    catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
   });
 }
 
@@ -438,7 +438,7 @@ function openModalTache(tache, projet, client) {
       if (isNew) await createTache(fields);
       else await patchTache(tache.id, fields);
       close(); router();
-    } catch (err) { alert('Erreur : ' + err.message); }
+    } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
   });
 }
 
@@ -464,7 +464,7 @@ function openModalJournal(projet) {
     try {
       await appendJournalEntry(projet.id, fd.get('texte'), fd.get('auteur'));
       close(); router();
-    } catch (err) { alert('Erreur : ' + err.message); }
+    } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
   });
 }
 
@@ -475,6 +475,6 @@ async function archiveProjet(projet, newChantier) {
     await patchProjet(projet.id, { 'Statut chantier': newChantier || 'Pré-pose' });
     router();
   } catch (e) {
-    alert(`Erreur ${label} : ${e.message}`);
+    toast(`Erreur ${label} : ${e.message}`, 'error', 5000);
   }
 }
