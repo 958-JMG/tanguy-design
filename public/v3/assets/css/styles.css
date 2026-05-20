@@ -73,11 +73,20 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
   height: 56px;
 }
 .brand {
-  font-family: 'DM Serif Display', serif;
-  font-size: 20px;
-  color: var(--ink1);
-  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border-radius: var(--r-sm);
 }
+.brand-logo {
+  height: 36px;
+  width: auto;
+  display: block;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  transition: opacity 0.12s;
+}
+.brand:hover .brand-logo { opacity: 0.85; }
 .nav-main {
   display: flex;
   gap: 4px;
@@ -327,6 +336,60 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent;
 }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+/* === Pipeline view === */
+.conversion-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 16px;
+  margin-bottom: 24px;
+  align-items: center;
+  justify-content: space-between;
+}
+.conv-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink2);
+  flex-wrap: wrap;
+}
+.conv-from, .conv-to { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.conv-arrow { color: var(--ink3); font-size: 14px; white-space: nowrap; padding: 0 6px; }
+.conv-arrow strong { color: var(--accent); font-weight: 600; }
+
+.pipeline-table {
+  width: 100%;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  border-collapse: collapse;
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+.pipeline-table th, .pipeline-table td {
+  padding: 12px 14px;
+  text-align: left;
+  font-size: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.pipeline-table thead { background: var(--paper); }
+.pipeline-table th {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink3);
+  font-weight: 500;
+}
+.pipeline-table tr:last-child td { border-bottom: none; }
+.pipeline-table tr:hover { background: var(--paper); }
+.pipeline-table tr.is-active { background: var(--accent-lo); }
+.pipeline-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
 
 /* === Palette Cmd+K === */
 .cmdk-bg {
