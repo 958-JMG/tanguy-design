@@ -1,58 +1,119 @@
-// Vue Projet v3 (Sprint 1) — fiche basique avec édition Phase/Chantier/dates/budget
-// Les détails riches (stepper, tâches, commandes, devis, journal) sont reportés à Sprint 2/3.
+// Vue Projet v3 (Sprint 2) — fiche complète avec stepper + bilan + zones éditables.
+// Pattern porté de v2 (computeParcours + zones) mais modulaire ES + Lucide icons.
 
 import { state } from '../core/state.js';
 import { navigateTo, router } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
+import {
+  fetchProjetDetail, patchProjet, patchTache, createTache, deleteTache, appendJournalEntry
+} from '../core/api.js';
+
+// === Stepper 12 étapes (porté v2) ===
+const STEPS = [
+  { key: 'decouverte',  label: 'Découverte',     icon: 'compass' },
+  { key: 'devis',       label: 'Devis présenté', icon: 'file' },
+  { key: 'signature',   label: 'Signature',      icon: 'check' },
+  { key: 'acompte',     label: 'Acompte 30 %',   icon: 'mail' },
+  { key: 'plans_tech',  label: 'Plans tech.',    icon: 'pencil' },
+  { key: 'commandes',   label: 'Commandes',      icon: 'archive' },
+  { key: 'reception',   label: 'Réception',      icon: 'check' },
+  { key: 'pose',        label: 'Pose',           icon: 'hammer' },
+  { key: 'pv',          label: 'PV réception',   icon: 'file' },
+  { key: 'solde',       label: 'Facture solde',  icon: 'mail' },
+  { key: 'avis',        label: 'Avis client',    icon: 'check' },
+  { key: 'sav',         label: 'SAV',            icon: 'wrench' },
+];
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 }
 function euros(n) {
   if (n == null || isNaN(n)) return '—';
-  return Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) + ' €';
+  return Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
 }
 
-async function patchProjet(projetId, fields) {
-  const r = await fetch(`/api/data/projets/${projetId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fields }),
+function computeParcours(projet, taches, devis, commandes) {
+  const pf = projet.fields || {};
+  const phase = pf['Phase commerciale'] || '';
+  const chantier = pf['Statut chantier'] || '';
+  const statutLegacy = (pf['Statut'] || '').toLowerCase();
+
+  // Helpers status calcul (porté v2)
+  const hasR1 = (state.projets || []).length > 0; // toujours OK pour data fictive
+  const devisSigne = devis.some(d => d.fields?.Statut === 'Signé');
+  const taskDone = (titrePart) => taches.some(t => {
+    const titre = (t.fields?.Titre || '').toLowerCase();
+    return titre.includes(titrePart.toLowerCase()) && t.fields?.Statut === 'Terminée';
   });
-  if (!r.ok) {
-    const e = await r.json().catch(() => ({}));
-    throw new Error(e.error || r.status);
-  }
-  return r.json();
+  const planTechCount = (pf['Plan technique'] || []).length;
+  const datePose = pf['Date pose prévue'];
+
+  return STEPS.map(s => {
+    let state_ = 'pending';
+    switch (s.key) {
+      case 'decouverte': state_ = pf['Date découverte'] || hasR1 ? 'done' : 'pending'; break;
+      case 'devis':      state_ = devis.length > 0 ? 'done' : 'pending'; break;
+      case 'signature':  state_ = devisSigne ? 'done' : 'pending'; break;
+      case 'acompte':    state_ = taskDone('acompte') ? 'done' : (devisSigne ? 'cur' : 'pending'); break;
+      case 'plans_tech': state_ = planTechCount > 0 ? 'done' : (devisSigne ? 'cur' : 'pending'); break;
+      case 'commandes':  state_ = commandes.length > 0 ? 'done' : (devisSigne ? 'cur' : 'pending'); break;
+      case 'reception':  state_ = chantier === 'Pose en cours' || chantier === 'Terminé' ? 'done' : 'pending'; break;
+      case 'pose':       state_ = chantier === 'Pose en cours' ? 'cur' : (chantier === 'Terminé' ? 'done' : (datePose && new Date(datePose) < new Date() ? 'cur' : 'pending')); break;
+      case 'pv':         state_ = taskDone('pv') || taskDone('réception') ? 'done' : 'pending'; break;
+      case 'solde':      state_ = taskDone('solde') ? 'done' : 'pending'; break;
+      case 'avis':       state_ = taskDone('avis') ? 'done' : 'pending'; break;
+      case 'sav':        state_ = chantier === 'SAV' ? 'cur' : 'pending'; break;
+    }
+    return { ...s, state: state_ };
+  });
 }
 
-export function renderProjet(app, projetId) {
-  const p = (state.projets || []).find(x => x.id === projetId);
-  if (!p) {
-    app.innerHTML = `<div class="card"><h2>Projet introuvable</h2><p class="muted">L'identifiant ${esc(projetId)} ne correspond à aucun projet en mémoire. Essaie de retourner aux clients et de rouvrir.</p></div>`;
-    return;
+// === Render principal ===
+export async function renderProjet(app, projetId) {
+  app.innerHTML = `<div class="loading">Chargement fiche projet…</div>`;
+  try {
+    const data = await fetchProjetDetail(projetId);
+    renderFiche(app, data);
+  } catch (e) {
+    app.innerHTML = `<div class="card"><h2>Erreur</h2><p class="muted">${esc(e.message)}</p></div>`;
   }
+}
 
-  const clientId = (p.Client || [])[0];
-  const client = clientId ? state.clients.find(c => c.id === clientId) : null;
-  const phase = p['Phase commerciale'] || p.Statut || '—';
-  const chantier = p['Statut chantier'] || '';
+function renderFiche(app, data) {
+  const { projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans } = data;
+  const pf = projet.fields || {};
+  const phase = pf['Phase commerciale'] || pf.Statut || '—';
+  const chantier = pf['Statut chantier'] || '';
+  const stepper = computeParcours(projet, taches, devis, commandes);
+
+  // Bilan financier prévi
+  const caHT = pf['Budget HT'] || 0;
+  const coutFourn = commandes.reduce((s, c) => s + (c.fields?.['Montant HT'] || 0), 0);
+  const coutArtisans = devisArtisans.reduce((s, d) => s + (d.fields?.['Montant HT'] || 0), 0);
+  const retro = devisArtisans.filter(d => {
+    const aId = (d.fields?.Artisan || [])[0];
+    const a = aId ? artisans.find(x => x.id === aId) : null;
+    return a?.fields?.Contractuel;
+  }).reduce((s, d) => s + (d.fields?.['Montant HT'] || 0) * 0.05, 0);
+  const margeAbs = caHT - coutFourn - coutArtisans + retro;
+  const margePct = caHT > 0 ? (margeAbs / caHT) * 100 : null;
 
   app.innerHTML = `
     <nav class="breadcrumb">
       <a href="#clients">Clients</a> &rsaquo;
-      ${client ? `<a href="#clients/${encodeURIComponent(client.id)}">${esc(client.Nom)}</a> &rsaquo;` : ''}
-      <strong>${esc(p.Référence || '(sans référence)')}</strong>
+      ${client ? `<a href="#clients/${encodeURIComponent(client.id)}">${esc(client.fields?.Nom)}</a> &rsaquo;` : ''}
+      <strong>${esc(pf.Référence || '(sans référence)')}</strong>
     </nav>
 
     <div class="client-header">
       <div class="client-header-left">
         <div class="client-header-icon">${icon('folder', 36)}</div>
         <div>
-          <h1 class="page-title" style="margin:0">${esc(p.Référence || '(sans référence)')}</h1>
+          <h1 class="page-title" style="margin:0">${esc(pf.Référence || '(sans référence)')}</h1>
           <div class="muted" style="margin-top:4px">
-            ${client ? `Client : <strong>${esc(client.Nom)}</strong>` : 'Pas de client lié'}
-            ${p['Date découverte'] ? ` · Découvert ${esc(p['Date découverte'])}` : ''}
+            ${client ? `Client : <strong>${esc(client.fields?.Nom)}</strong>` : 'Pas de client lié'}
+            · Phase : <strong>${esc(phase)}</strong>
+            ${chantier ? ` · Chantier : <strong>${esc(chantier)}</strong>` : ''}
           </div>
         </div>
       </div>
@@ -64,123 +125,258 @@ export function renderProjet(app, projetId) {
       </div>
     </div>
 
-    <div class="client-grid">
-      <div class="card">
-        <h2 class="card-title">État</h2>
-        <div class="kv">${icon('compass', 16)} Phase commerciale : <strong>${esc(phase)}</strong></div>
-        ${chantier ? `<div class="kv">${icon('hammer', 16)} Statut chantier : <strong>${esc(chantier)}</strong></div>` : ''}
-        ${p['Date pose prévue']
-          ? `<div class="kv">${icon('calendar', 16)} Pose prévue : <strong>${esc(p['Date pose prévue'])}${p['Date pose fin'] ? ' → ' + esc(p['Date pose fin']) : ''}</strong></div>`
-          : ''}
-      </div>
-      <div class="card">
-        <h2 class="card-title">Finances prévisionnelles</h2>
-        <div class="kv">Budget HT : <strong>${euros(p['Budget HT'])}</strong></div>
-        ${p['Marge prévisionnelle'] != null
-          ? `<div class="kv">Marge prévi : <strong>${(p['Marge prévisionnelle'] > 1 ? p['Marge prévisionnelle'] : p['Marge prévisionnelle'] * 100).toFixed(1)} %</strong></div>`
-          : ''}
+    <!-- Stepper 12 étapes -->
+    <h2 class="section-title">Parcours chantier</h2>
+    <div class="stepper">
+      ${stepper.map(s => `
+        <div class="step step-${s.state}" title="${esc(s.label)}">
+          <div class="step-icon">${icon(s.icon, 18)}</div>
+          <div class="step-label">${esc(s.label)}</div>
+        </div>
+      `).join('')}
+    </div>
+
+    <!-- Bilan financier -->
+    <h2 class="section-title">Bilan financier prévisionnel</h2>
+    <div class="kpi-row" style="margin-bottom:24px">
+      <div class="kpi-card"><div class="kpi-value">${euros(caHT)}</div><div class="kpi-label">CA HT</div></div>
+      <div class="kpi-card"><div class="kpi-value">${euros(coutFourn)}</div><div class="kpi-label">Fournisseurs</div></div>
+      <div class="kpi-card"><div class="kpi-value">${euros(coutArtisans - retro)}</div><div class="kpi-label">Artisans (− 5 % rétro)</div></div>
+      <div class="kpi-card"${margeAbs < 0 ? ' style="background:var(--accent-lo)"' : ''}>
+        <div class="kpi-value">${euros(margeAbs)}</div>
+        <div class="kpi-label">Marge ${margePct != null ? '(' + margePct.toFixed(1) + ' %)' : ''}</div>
       </div>
     </div>
 
-    ${p.Description ? `
-    <h2 class="section-title">Description</h2>
-    <div class="card"><p style="white-space:pre-line">${esc(p.Description)}</p></div>
+    <!-- Tâches -->
+    <div class="section-header">
+      <h2 class="section-title">Tâches (${taches.length})</h2>
+      <button class="btn btn-primary btn-sm" id="btn-new-tache">${icon('plus', 14)} Nouvelle tâche</button>
+    </div>
+    <div class="taches-list">
+      ${taches.length === 0
+        ? `<div class="card"><p class="muted">Pas de tâche pour ce projet.</p></div>`
+        : taches.map(t => renderTacheRow(t)).join('')}
+    </div>
+
+    <!-- Commandes -->
+    ${commandes.length > 0 ? `
+    <h2 class="section-title">Commandes fournisseurs (${commandes.length})</h2>
+    <div class="commandes-list">
+      ${commandes.map(c => {
+        const fIds = c.fields?.Fournisseur || [];
+        const fNoms = fIds.map(id => fournisseurs.find(f => f.id === id)?.fields?.Nom || id).join(', ');
+        return `
+        <div class="card commande-card">
+          <div class="commande-head">
+            <div><strong>${esc(c.fields?.['Numéro'] || c.fields?.['numéro'] || '?')}</strong> — ${esc(fNoms)}</div>
+            <span class="badge">${esc(c.fields?.Statut || '—')}</span>
+          </div>
+          ${c.fields?.Notes ? `<pre class="commande-notes">${esc(c.fields.Notes.slice(0, 400))}${c.fields.Notes.length > 400 ? '…' : ''}</pre>` : ''}
+        </div>`;
+      }).join('')}
+    </div>
     ` : ''}
 
-    ${p['Journal chantier'] ? `
-    <h2 class="section-title">Journal chantier</h2>
-    <div class="card"><pre class="journal" style="white-space:pre-wrap;font-family:'DM Mono',monospace;font-size:12px">${esc(p['Journal chantier'])}</pre></div>
+    <!-- Devis Tanguy -->
+    ${devis.length > 0 ? `
+    <h2 class="section-title">Devis Tanguy (${devis.length})</h2>
+    <div class="commandes-list">
+      ${devis.map(d => `
+        <div class="card commande-card">
+          <div class="commande-head">
+            <div><strong>${esc(d.fields?.['Numéro devis'] || '?')}</strong>
+              <span class="badge">${esc(d.fields?.['Type devis'] || 'Principal')}</span>
+              <span class="badge">${esc(d.fields?.Statut || '—')}</span>
+            </div>
+            <div><strong>${euros(d.fields?.['Total TTC'])}</strong> TTC</div>
+          </div>
+          ${d.fields?.['Date devis'] ? `<div class="muted">Daté du ${esc(d.fields['Date devis'])}</div>` : ''}
+        </div>
+      `).join('')}
+    </div>
     ` : ''}
 
-    <h2 class="section-title">À venir Sprint 2/3</h2>
+    <!-- Devis Artisans -->
+    ${devisArtisans.length > 0 ? `
+    <h2 class="section-title">Devis artisans (${devisArtisans.length})</h2>
+    <div class="commandes-list">
+      ${devisArtisans.map(d => {
+        const aId = (d.fields?.Artisan || [])[0];
+        const a = aId ? artisans.find(x => x.id === aId) : null;
+        const aNom = a?.fields?.Nom || '?';
+        const contractuel = a?.fields?.Contractuel ? ' · contractuel (− 5 %)' : '';
+        return `
+        <div class="card commande-card">
+          <div class="commande-head">
+            <div><strong>${esc(aNom)}</strong><span class="muted">${esc(contractuel)}</span></div>
+            <div><strong>${euros(d.fields?.['Montant HT'])}</strong> HT</div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    ` : ''}
+
+    <!-- Réunions Plaud R1/R2 -->
+    ${reunionsPlaud.length > 0 ? `
+    <h2 class="section-title">Réunions Plaud (${reunionsPlaud.length})</h2>
+    <div class="commandes-list">
+      ${reunionsPlaud.map(r => `
+        <div class="card">
+          <div class="commande-head">
+            <div><strong>${esc(r.fields?.Niveau || '?')}</strong> ${esc(r.fields?.['Type réunion'] || '')}
+              ${r.fields?.['Date heure'] ? `<span class="muted">${esc(r.fields['Date heure'])}</span>` : ''}
+            </div>
+          </div>
+          ${r.fields?.Synthèse ? `<details><summary>Synthèse</summary><p style="white-space:pre-line;margin-top:8px">${esc(r.fields.Synthèse)}</p></details>` : ''}
+          ${r.fields?.Attentes ? `<details><summary>Attentes</summary><p style="white-space:pre-line;margin-top:8px">${esc(r.fields.Attentes)}</p></details>` : ''}
+          ${r.fields?.['Tâches identifiées'] ? `<details><summary>Tâches identifiées</summary><p style="white-space:pre-line;margin-top:8px">${esc(r.fields['Tâches identifiées'])}</p></details>` : ''}
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
+
+    <!-- Journal chantier -->
+    <div class="section-header">
+      <h2 class="section-title">Journal chantier</h2>
+      <button class="btn btn-ghost btn-sm" id="btn-add-journal">${icon('plus', 14)} Ajouter entrée</button>
+    </div>
     <div class="card">
-      <p class="muted muted-with-icon">${icon('construction', 14)}
-        Détails riches de la fiche projet (stepper 12 étapes, tâches éditables,
-        commandes fournisseurs, devis Tanguy/artisans, attachments 4 onglets, R1/R2 Plaud,
-        drag-drop pose sur calendar) à venir dans les Sprints 2-3.
-        En attendant, la <a href="/">version v2</a> reste disponible avec tout le détail.
-      </p>
+      ${pf['Journal chantier']
+        ? `<pre class="journal" style="white-space:pre-wrap;font-family:'DM Mono',monospace;font-size:12px">${esc(pf['Journal chantier'])}</pre>`
+        : `<p class="muted">Pas encore d'entrée. Cliquez sur « Ajouter entrée » pour démarrer.</p>`}
     </div>
+
+    <!-- Attachments -->
+    <h2 class="section-title">Documents</h2>
+    <div class="attachments-grid">
+      ${renderAttachmentsCard('Plan 3D', pf['Plan 3D'])}
+      ${renderAttachmentsCard('Plan technique', pf['Plan technique'])}
+      ${renderAttachmentsCard('Images', pf['Images'])}
+      ${renderAttachmentsCard('Documents projet', pf['Documents projet'])}
+    </div>
+    <p class="muted muted-with-icon" style="margin-top:8px">${icon('construction', 14)}
+      Upload de fichiers à venir Sprint 4 (validation magic bytes + types). En attendant,
+      utilise la <a href="/">version v2</a> pour ajouter des documents.
+    </p>
   `;
 
   hydrateIcons(app);
 
-  document.getElementById('btn-edit-projet')?.addEventListener('click', () => openModalEditProjet(p));
-  document.getElementById('btn-archive')?.addEventListener('click', () => archiveProjet(p, 'Archivé'));
-  document.getElementById('btn-unarchive')?.addEventListener('click', () => archiveProjet(p, ''));
+  // === Bindings ===
+  document.getElementById('btn-edit-projet')?.addEventListener('click', () => openModalEditProjet(projet));
+  document.getElementById('btn-archive')?.addEventListener('click', () => archiveProjet(projet, 'Archivé'));
+  document.getElementById('btn-unarchive')?.addEventListener('click', () => archiveProjet(projet, ''));
+  document.getElementById('btn-new-tache')?.addEventListener('click', () => openModalTache(null, projet, client));
+  document.getElementById('btn-add-journal')?.addEventListener('click', () => openModalJournal(projet));
+
+  // Tâches : checkbox + click row → édition
+  document.querySelectorAll('[data-tache-id]').forEach(row => {
+    const tacheId = row.dataset.tacheId;
+    const t = taches.find(x => x.id === tacheId);
+    if (!t) return;
+    row.querySelector('.tache-check')?.addEventListener('click', async e => {
+      e.stopPropagation();
+      const newStatut = t.fields?.Statut === 'Terminée' ? 'À faire' : 'Terminée';
+      try {
+        await patchTache(tacheId, { Statut: newStatut });
+        t.fields.Statut = newStatut;
+        router();
+      } catch (err) { alert('Erreur : ' + err.message); }
+    });
+    row.querySelector('.tache-edit')?.addEventListener('click', e => {
+      e.stopPropagation();
+      openModalTache(t, projet, client);
+    });
+    row.querySelector('.tache-delete')?.addEventListener('click', async e => {
+      e.stopPropagation();
+      if (!confirm(`Supprimer la tâche « ${t.fields?.Titre || '?'} » ?`)) return;
+      try { await deleteTache(tacheId); router(); }
+      catch (err) { alert('Erreur : ' + err.message); }
+    });
+  });
 }
 
-async function archiveProjet(p, newChantier) {
-  const label = newChantier === 'Archivé' ? 'archiver' : 'désarchiver';
-  if (!confirm(`Voulez-vous ${label} le projet « ${p.Référence || p.id} » ?`)) return;
-  try {
-    const fields = newChantier
-      ? { 'Statut chantier': newChantier }
-      : { 'Statut chantier': 'Pré-pose' }; // valeur par défaut sortie d'archive
-    await patchProjet(p.id, fields);
-    // Mettre à jour state local
-    p['Statut chantier'] = fields['Statut chantier'];
-    router();
-  } catch (e) {
-    alert(`Erreur ${label} : ${e.message}`);
-  }
-}
-
-function openModalEditProjet(p) {
-  const modal = document.createElement('div');
-  modal.className = 'modal-bg';
-  modal.innerHTML = `
-    <div class="modal" role="dialog" aria-modal="true">
-      <h2>Éditer projet</h2>
-      <form id="form-edit-projet">
-        <label>Référence
-          <input name="Référence" value="${esc(p.Référence || '')}" required>
-        </label>
-        <label>Phase commerciale
-          <select name="Phase commerciale">
-            <option ${p['Phase commerciale'] === 'Découverte' ? 'selected' : ''}>Découverte</option>
-            <option ${p['Phase commerciale'] === 'Dessin' ? 'selected' : ''}>Dessin</option>
-            <option ${p['Phase commerciale'] === 'Présentation devis' ? 'selected' : ''}>Présentation devis</option>
-            <option ${p['Phase commerciale'] === 'En attente décision' ? 'selected' : ''}>En attente décision</option>
-            <option ${p['Phase commerciale'] === 'Signé' ? 'selected' : ''}>Signé</option>
-          </select>
-        </label>
-        <label>Statut chantier (uniquement si Signé)
-          <select name="Statut chantier">
-            <option value="">—</option>
-            <option ${p['Statut chantier'] === 'Pré-pose' ? 'selected' : ''}>Pré-pose</option>
-            <option ${p['Statut chantier'] === 'Pose en cours' ? 'selected' : ''}>Pose en cours</option>
-            <option ${p['Statut chantier'] === 'Terminé' ? 'selected' : ''}>Terminé</option>
-            <option ${p['Statut chantier'] === 'SAV' ? 'selected' : ''}>SAV</option>
-            <option ${p['Statut chantier'] === 'Archivé' ? 'selected' : ''}>Archivé</option>
-          </select>
-        </label>
-        <label>Budget HT (€)
-          <input name="Budget HT" type="number" step="0.01" value="${p['Budget HT'] || ''}">
-        </label>
-        <label>Date pose prévue
-          <input name="Date pose prévue" type="date" value="${p['Date pose prévue'] || ''}">
-        </label>
-        <label>Date pose fin
-          <input name="Date pose fin" type="date" value="${p['Date pose fin'] || ''}">
-        </label>
-        <label>Description
-          <textarea name="Description" rows="3">${esc(p.Description || '')}</textarea>
-        </label>
-        <div class="modal-actions">
-          <button type="button" class="btn btn-ghost" id="modal-cancel">Annuler</button>
-          <button type="submit" class="btn btn-primary">Enregistrer</button>
+function renderTacheRow(t) {
+  const f = t.fields || {};
+  const done = f.Statut === 'Terminée';
+  return `
+    <div class="tache-row" data-tache-id="${t.id}">
+      <button class="tache-check" aria-label="${done ? 'Marquer à faire' : 'Marquer terminée'}">
+        ${done ? icon('check', 18) : '<span class="tache-check-empty"></span>'}
+      </button>
+      <div class="tache-content ${done ? 'is-done' : ''}">
+        <div class="tache-title">${esc(f.Titre || '?')}</div>
+        <div class="tache-meta">
+          ${f['Assignée à'] ? `<span>${icon('user', 12)} ${esc(f['Assignée à'])}</span>` : ''}
+          ${f.Priorité ? `<span class="badge phase-${esc(f.Priorité).toLowerCase()}">${esc(f.Priorité)}</span>` : ''}
+          ${f.Échéance ? `<span>${icon('calendar', 12)} ${esc(f.Échéance)}</span>` : ''}
         </div>
-      </form>
+      </div>
+      <div class="tache-actions">
+        <button class="tache-edit" aria-label="Éditer">${icon('edit', 14)}</button>
+        <button class="tache-delete" aria-label="Supprimer">${icon('trash', 14)}</button>
+      </div>
     </div>
   `;
-  document.body.appendChild(modal);
-  document.getElementById('modal-cancel').onclick = () => modal.remove();
-  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
-  document.addEventListener('keydown', function escClose(e) {
-    if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', escClose); }
-  });
+}
 
+function renderAttachmentsCard(label, attachments) {
+  const count = (attachments || []).length;
+  return `
+    <div class="card attachment-card">
+      <h3 class="card-title">${esc(label)}</h3>
+      <div class="kpi-value" style="font-size:24px">${count}</div>
+      <div class="muted" style="font-size:12px">fichier${count > 1 ? 's' : ''}</div>
+      ${count > 0 ? `<ul class="attachments-files">
+        ${(attachments || []).slice(0, 5).map(a => `<li><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.filename)}</a></li>`).join('')}
+        ${count > 5 ? `<li class="muted">+ ${count - 5} autre(s)…</li>` : ''}
+      </ul>` : ''}
+    </div>
+  `;
+}
+
+// === Modales ===
+function modalShell(title, content) {
+  const modal = document.createElement('div');
+  modal.className = 'modal-bg';
+  modal.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><h2>${esc(title)}</h2>${content}</div>`;
+  document.body.appendChild(modal);
+  const close = () => modal.remove();
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  document.addEventListener('keydown', function k(e) {
+    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', k); }
+  });
+  return { modal, close };
+}
+
+function openModalEditProjet(projet) {
+  const p = projet.fields || {};
+  const { modal, close } = modalShell('Éditer projet', `
+    <form id="form-edit-projet">
+      <label>Référence <input name="Référence" value="${esc(p.Référence || '')}" required></label>
+      <label>Phase commerciale
+        <select name="Phase commerciale">
+          ${['Découverte','Dessin','Présentation devis','En attente décision','Signé'].map(v => `<option ${p['Phase commerciale'] === v ? 'selected' : ''}>${v}</option>`).join('')}
+        </select>
+      </label>
+      <label>Statut chantier
+        <select name="Statut chantier">
+          <option value="">—</option>
+          ${['Pré-pose','Pose en cours','Terminé','SAV','Archivé'].map(v => `<option ${p['Statut chantier'] === v ? 'selected' : ''}>${v}</option>`).join('')}
+        </select>
+      </label>
+      <label>Budget HT (€) <input name="Budget HT" type="number" step="0.01" value="${p['Budget HT'] || ''}"></label>
+      <label>Date pose prévue <input name="Date pose prévue" type="date" value="${p['Date pose prévue'] || ''}"></label>
+      <label>Date pose fin <input name="Date pose fin" type="date" value="${p['Date pose fin'] || ''}"></label>
+      <label>Description <textarea name="Description" rows="3">${esc(p.Description || '')}</textarea></label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancel">Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('cancel').onclick = close;
   document.getElementById('form-edit-projet').addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -189,14 +385,96 @@ function openModalEditProjet(p) {
       if (v === '' && k !== 'Statut chantier') continue;
       fields[k] = k === 'Budget HT' ? Number(v) : v;
     }
-    try {
-      await patchProjet(p.id, fields);
-      // Mettre à jour state local
-      Object.assign(p, fields);
-      modal.remove();
-      router();
-    } catch (err) {
-      alert('Erreur enregistrement : ' + err.message);
-    }
+    try { await patchProjet(projet.id, fields); close(); router(); }
+    catch (err) { alert('Erreur : ' + err.message); }
   });
+}
+
+function openModalTache(tache, projet, client) {
+  const t = tache?.fields || {};
+  const clientNom = client?.fields?.Nom || '';
+  const isNew = !tache;
+  const { modal, close } = modalShell(isNew ? 'Nouvelle tâche' : 'Éditer tâche', `
+    <form id="form-tache">
+      <label>Titre
+        <input name="Titre" value="${esc(t.Titre || '')}" required placeholder="${clientNom ? '[' + esc(clientNom) + '] / ' : ''}…">
+      </label>
+      <label>Assignée à
+        <select name="Assignée à">
+          <option value="">—</option>
+          ${['Virginie','Solène','Sébastien','Marine'].map(v => `<option ${t['Assignée à'] === v ? 'selected' : ''}>${v}</option>`).join('')}
+        </select>
+      </label>
+      <label>Priorité
+        <select name="Priorité">
+          ${['Haute','Moyenne','Basse'].map(v => `<option ${t.Priorité === v ? 'selected' : ''}>${v}</option>`).join('')}
+        </select>
+      </label>
+      <label>Statut
+        <select name="Statut">
+          ${['À faire','En cours','Terminée'].map(v => `<option ${t.Statut === v ? 'selected' : ''}>${v}</option>`).join('')}
+        </select>
+      </label>
+      <label>Échéance <input name="Échéance" type="date" value="${t.Échéance || ''}"></label>
+      <label>Description <textarea name="Description" rows="3">${esc(t.Description || '')}</textarea></label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancel">Annuler</button>
+        <button type="submit" class="btn btn-primary">${isNew ? 'Créer' : 'Enregistrer'}</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('cancel').onclick = close;
+  document.getElementById('form-tache').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const fields = {};
+    for (const [k, v] of fd.entries()) if (v) fields[k] = v;
+    // Préfixe auto client si Titre nu (et création seule)
+    if (isNew && clientNom && fields.Titre && !fields.Titre.includes('[')) {
+      fields.Titre = `[${clientNom}] / ${fields.Titre}`;
+    }
+    if (isNew) fields.Projet = [projet.id];
+    try {
+      if (isNew) await createTache(fields);
+      else await patchTache(tache.id, fields);
+      close(); router();
+    } catch (err) { alert('Erreur : ' + err.message); }
+  });
+}
+
+function openModalJournal(projet) {
+  const { modal, close } = modalShell('Ajouter une entrée journal', `
+    <form id="form-journal">
+      <label>Texte de l'entrée
+        <textarea name="texte" rows="5" required placeholder="Ex : Réunion chantier OK avec Sébastien…"></textarea>
+      </label>
+      <label>Auteur (optionnel)
+        <input name="auteur" value="${esc(state.user || '')}">
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancel">Annuler</button>
+        <button type="submit" class="btn btn-primary">Ajouter</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('cancel').onclick = close;
+  document.getElementById('form-journal').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await appendJournalEntry(projet.id, fd.get('texte'), fd.get('auteur'));
+      close(); router();
+    } catch (err) { alert('Erreur : ' + err.message); }
+  });
+}
+
+async function archiveProjet(projet, newChantier) {
+  const label = newChantier === 'Archivé' ? 'archiver' : 'désarchiver';
+  if (!confirm(`Voulez-vous ${label} ce projet ?`)) return;
+  try {
+    await patchProjet(projet.id, { 'Statut chantier': newChantier || 'Pré-pose' });
+    router();
+  } catch (e) {
+    alert(`Erreur ${label} : ${e.message}`);
+  }
 }

@@ -342,6 +342,91 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
 
+/* === Stepper fiche projet === */
+.stepper {
+  display: flex; gap: 4px;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 16px;
+  margin-bottom: 24px;
+  overflow-x: auto;
+}
+.step {
+  flex: 1; min-width: 80px;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 6px;
+  padding: 8px 4px;
+  border-radius: var(--r-sm);
+  text-align: center;
+}
+.step-icon { color: var(--ink3); }
+.step-label { font-size: 11px; color: var(--ink3); line-height: 1.2; }
+.step.step-done .step-icon { color: var(--green); }
+.step.step-done .step-label { color: var(--ink1); font-weight: 500; }
+.step.step-cur { background: var(--accent-lo); }
+.step.step-cur .step-icon { color: var(--accent); }
+.step.step-cur .step-label { color: var(--accent); font-weight: 600; }
+.step.step-pending { opacity: 0.6; }
+
+/* === Tâches === */
+.taches-list { display: grid; gap: 6px; margin-bottom: 24px; }
+.tache-row {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  transition: border-color 0.12s;
+}
+.tache-row:hover { border-color: var(--accent); }
+.tache-check {
+  width: 24px; height: 24px;
+  border: 2px solid var(--line2);
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--green);
+}
+.tache-check:hover { border-color: var(--accent); }
+.tache-check-empty { width: 12px; height: 12px; }
+.tache-content.is-done .tache-title { text-decoration: line-through; color: var(--ink3); }
+.tache-title { font-size: 14px; font-weight: 500; }
+.tache-meta { display: flex; gap: 10px; font-size: 12px; color: var(--ink3); margin-top: 4px; flex-wrap: wrap; align-items: center; }
+.tache-meta span { display: inline-flex; align-items: center; gap: 4px; }
+.tache-actions { display: flex; gap: 4px; }
+.tache-actions button { padding: 6px; color: var(--ink3); border-radius: var(--r-sm); }
+.tache-actions button:hover { color: var(--accent); background: var(--paper); }
+
+/* === Commandes / Devis cards === */
+.commandes-list { display: grid; gap: 8px; margin-bottom: 24px; }
+.commande-card { padding: 14px 18px; }
+.commande-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.commande-head .badge { margin-left: 6px; }
+.commande-notes {
+  margin-top: 10px; padding: 10px;
+  background: var(--paper); border-radius: var(--r-sm);
+  font-family: 'DM Mono', monospace; font-size: 11px;
+  white-space: pre-wrap; color: var(--ink2);
+}
+
+/* === Journal === */
+.journal { color: var(--ink2); line-height: 1.5; }
+
+/* === Attachments grid === */
+.attachments-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.attachment-card { text-align: center; }
+.attachments-files { list-style: none; padding: 0; margin-top: 12px; text-align: left; font-size: 12px; }
+.attachments-files li { padding: 3px 0; }
+.attachments-files a { color: var(--info); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; display: block; }
+
+/* Badges priorité (réutilise les phase- classes) */
+.badge.phase-haute { background: var(--accent-lo); color: var(--accent); }
+.badge.phase-moyenne { background: var(--gold-lo); color: var(--gold); }
+.badge.phase-basse { background: var(--line); color: var(--ink2); }
+
 /* === Pipeline view === */
 .conversion-row {
   display: flex;

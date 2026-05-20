@@ -47,3 +47,39 @@ export async function createProjetForClient(clientId, fields) {
     body: JSON.stringify({ fields }),
   });
 }
+
+export async function fetchProjetDetail(projetId) {
+  return api(`/api/projets/${projetId}`);
+}
+
+export async function patchProjet(projetId, fields) {
+  return api(`/api/data/projets/${projetId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ fields }),
+  });
+}
+
+export async function patchTache(tacheId, fields) {
+  return api(`/api/data/taches/${tacheId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ fields }),
+  });
+}
+
+export async function createTache(fields) {
+  return api(`/api/data/taches`, {
+    method: 'POST',
+    body: JSON.stringify({ fields }),
+  });
+}
+
+export async function deleteTache(tacheId) {
+  return api(`/api/data/taches/${tacheId}`, { method: 'DELETE' });
+}
+
+export async function appendJournalEntry(projetId, texte, auteur) {
+  return api(`/api/projets/${projetId}/journal`, {
+    method: 'POST',
+    body: JSON.stringify({ texte, auteur }),
+  });
+}
