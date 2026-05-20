@@ -135,23 +135,38 @@ function renderSearchResults(){
     const match = (txt) => { const lo=(txt||'').toLowerCase(); return tokens.every(t=>lo.includes(t)); };
     DATA.clients.forEach(c => {
       const blob = [c.Nom,c.Contact,c.Email,c.Téléphone,c.Adresse].filter(Boolean).join(' ');
-      if (match(blob)) results.push({type:'Client',label:c.Nom,sub:[c.Contact,c.Téléphone].filter(Boolean).join(' · '),action:`closeSearch();openClientDetail('${c.id}')`});
+      if (match(blob)) results.push({type:'Client',label:c.Nom,sub:[c.Contact,c.Téléphone].filter(Boolean).join(' · '),dest:'client',id:c.id});
     });
     DATA.projets.forEach(p => {
-      if (match([p.Référence,p.Description,p.Statut].filter(Boolean).join(' '))) results.push({type:'Projet',label:p.Référence,sub:p.Statut+' · '+euros(p['Budget HT']),action:`closeSearch();switchTab('projets');openProjetDetail('${p.id}')`});
+      if (match([p.Référence,p.Description,p.Statut].filter(Boolean).join(' '))) results.push({type:'Projet',label:p.Référence,sub:p.Statut+' · '+euros(p['Budget HT']),dest:'projet',id:p.id});
     });
     DATA.devis.forEach(d => {
-      if (match([d['Numéro devis'],d.Milieu,d.Statut].filter(Boolean).join(' '))) results.push({type:'Devis',label:d['Numéro devis']||'—',sub:(d.Milieu||'')+' · '+euros(d['Total TTC']),action:`closeSearch();switchTab('devis');openDevisDetail('${d.id}')`});
+      if (match([d['Numéro devis'],d.Milieu,d.Statut].filter(Boolean).join(' '))) results.push({type:'Devis',label:d['Numéro devis']||'—',sub:(d.Milieu||'')+' · '+euros(d['Total TTC']),dest:'devis',id:d.id});
     });
     DATA.taches.forEach(t => {
-      if (match([t.Titre,t['Assignée à'],t.Statut].filter(Boolean).join(' '))) results.push({type:'Tâche',label:t.Titre,sub:[t['Assignée à'],t.Statut,t.Échéance].filter(Boolean).join(' · '),action:`closeSearch();switchTab('taches')`});
+      if (match([t.Titre,t['Assignée à'],t.Statut].filter(Boolean).join(' '))) results.push({type:'Tâche',label:t.Titre,sub:[t['Assignée à'],t.Statut,t.Échéance].filter(Boolean).join(' · '),dest:'taches'});
     });
   }
   SEARCH_RESULTS = results.slice(0,30);
   SEARCH_IDX = 0;
   document.getElementById('cmdk-results').innerHTML = SEARCH_RESULTS.length
-    ? SEARCH_RESULTS.map((r,i)=>`<div class="cmdk-item${i===0?' on':''}" onmouseover="setCmdIdx(${i})" onclick="${r.action}"><span class="cmdk-type">${r.type}</span><span class="cmdk-label">${esc(r.label)}</span><span class="cmdk-sub">${esc(r.sub||'')}</span></div>`).join('')
+    ? SEARCH_RESULTS.map((r,i)=>`<div class="cmdk-item${i===0?' on':''}" onmouseover="setCmdIdx(${i})" onclick="executeSearchResult(${i})"><span class="cmdk-type">${r.type}</span><span class="cmdk-label">${esc(r.label)}</span><span class="cmdk-sub">${esc(r.sub||'')}</span></div>`).join('')
     : (q.length>=1 ? '<div class="cmdk-empty">Aucun résultat</div>' : '<div class="cmdk-empty">Tape pour rechercher dans tout le cockpit…</div>');
+}
+
+// Dispatcher pur : remplace l'ancien eval() (cf. ADR Sprint 0.7 P0-3).
+// Les actions de recherche sont maintenant des objets { dest, id } structurés,
+// pas des strings de code à interpréter.
+function executeSearchResult(idx) {
+  const r = SEARCH_RESULTS[idx];
+  if (!r) return;
+  closeSearch();
+  switch (r.dest) {
+    case 'client': openClientDetail(r.id); break;
+    case 'projet': switchTab('projets'); openProjetDetail(r.id); break;
+    case 'devis':  switchTab('devis');   openDevisDetail(r.id);  break;
+    case 'taches': switchTab('taches'); break;
+  }
 }
 function setCmdIdx(i){
   SEARCH_IDX = i;
@@ -165,7 +180,7 @@ document.addEventListener('keydown', e => {
   if (e.key==='Escape') { closeSearch(); }
   if (e.key==='ArrowDown') { e.preventDefault(); setCmdIdx(Math.min(SEARCH_IDX+1,SEARCH_RESULTS.length-1)); }
   if (e.key==='ArrowUp') { e.preventDefault(); setCmdIdx(Math.max(SEARCH_IDX-1,0)); }
-  if (e.key==='Enter' && SEARCH_RESULTS[SEARCH_IDX]) { e.preventDefault(); eval(SEARCH_RESULTS[SEARCH_IDX].action); }
+  if (e.key==='Enter' && SEARCH_RESULTS[SEARCH_IDX]) { e.preventDefault(); executeSearchResult(SEARCH_IDX); }
 });
 
 // ============ AUTH ============

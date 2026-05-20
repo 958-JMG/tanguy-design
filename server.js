@@ -152,15 +152,16 @@ app.use(pinoHttp({
 }));
 
 // Helmet : headers de sécurité standards (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy…)
-// CSP permissive côté inline (le cockpit a tout son JS/CSS inline dans index.html)
+// CSP : depuis Sprint 0.7 (extraction <script> → /assets/js/main.js), script-src n'a plus besoin
+// de 'unsafe-inline'. script-src-attr reste sur 'unsafe-inline' tant que les onclick="..." inline
+// persistent dans index.html (refacto progressif des handlers à venir dans le découpage ES modules).
+// style-src garde 'unsafe-inline' pour les 48 style="..." inline encore présents.
 app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
     directives: {
       'default-src': ["'self'"],
-      'script-src': ["'self'", "'unsafe-inline'"],
-      // script-src-attr : autorise onclick/onsubmit inline (helmet défaut = 'none' ce qui bloquait
-      // tous les handlers inline → login + tout le cockpit cassés après hardening).
+      'script-src': ["'self'"],
       'script-src-attr': ["'unsafe-inline'"],
       'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       'font-src': ["'self'", 'https://fonts.gstatic.com', 'data:'],
