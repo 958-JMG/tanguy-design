@@ -483,6 +483,74 @@ app.delete('/api/data/:table/:id', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// --- CLIENT : fiche détaillée (client + projets liés agrégés) ---
+// Sprint 1 — endpoint dédié pour la fiche client (pivot client-centric).
+app.get('/api/clients/:id', requireAuth, async (req, res) => {
+  const clientId = req.params.id;
+  try {
+    // Fiche client (lookup direct)
+    const cr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.clients.id}/${clientId}`, {
+      headers: { Authorization: `Bearer ${AT_KEY}` },
+    });
+    if (!cr.ok) {
+      if (cr.status === 404) return res.status(404).json({ error: 'Client introuvable' });
+      throw new Error(`client lookup: ${cr.status}`);
+    }
+    const client = await cr.json();
+
+    // Projets liés (via le champ inverse depuis le client)
+    const projetIds = client.fields?.Projets || [];
+    const projets = await atFetchByIds(TABLES.projets.id, projetIds);
+
+    // Clients rattachés (cas architecte : champ inverse "Clients liés")
+    const clientsLies = client.fields?.['Clients liés'] || [];
+
+    // Agrégats simples pour la fiche
+    const stats = {
+      nbProjets: projets.length,
+      nbProjetsEnCours: projets.filter(p => (p.fields['Statut chantier'] || '') !== 'Archivé' && (p.fields['Statut chantier'] || '') !== 'Terminé').length,
+      caTotal: projets.reduce((sum, p) => sum + (p.fields['Budget HT'] || 0), 0),
+    };
+
+    res.json({ ok: true, client, projets, clientsLies, stats });
+  } catch (e) {
+    logger.error({ err: e.message, clientId }, '[clients/:id] error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- CLIENT : liste des projets d'un client ---
+app.get('/api/clients/:id/projets', requireAuth, async (req, res) => {
+  const clientId = req.params.id;
+  try {
+    const filter = `FIND('${clientId}', ARRAYJOIN({Client}))`;
+    const projets = await atFetchFiltered(TABLES.projets.id, filter);
+    res.json({ ok: true, projets });
+  } catch (e) {
+    logger.error({ err: e.message, clientId }, '[clients/:id/projets] error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- CLIENT : créer un projet rattaché à un client existant ---
+// Force le linking client → projet, complète avec phase commerciale "Découverte" par défaut.
+app.post('/api/clients/:id/projets', requireAuth, async (req, res) => {
+  const clientId = req.params.id;
+  try {
+    const body = req.body || {};
+    const fields = pickAllowedFields('projets', body.fields || {});
+    fields['Client'] = [clientId];
+    if (!fields['Phase commerciale']) fields['Phase commerciale'] = 'Découverte';
+    if (!fields['Date découverte']) fields['Date découverte'] = new Date().toISOString().slice(0, 10);
+    const rec = await atCreate(TABLES.projets.id, fields);
+    logger.info({ clientId, projetId: rec.id, ref: rec.fields?.['Référence'] }, 'projet créé rattaché à client');
+    res.json({ ok: true, record: rec });
+  } catch (e) {
+    logger.error({ err: e.message, clientId }, '[clients/:id/projets POST] error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // --- DEVIS : détail complet (devis + zones + lignes + échéances) ---
 app.get('/api/devis/:id/detail', requireAuth, async (req, res) => {
   const devisId = req.params.id;
