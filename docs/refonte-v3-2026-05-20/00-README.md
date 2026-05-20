@@ -36,6 +36,7 @@ Trois lignes de force :
 | [05-plan-implementation.md](05-plan-implementation.md) | Plan d'implémentation phasé en 6 sprints + estimation effort + démo `/v3/` isolée avant cutover | Dev / planning |
 | [06-code-review-architecture.md](06-code-review-architecture.md) | **Revue senior code + archi + sécu** (tech-lead + security-reviewer) — Sprint 0.7 ajouté en prep refacto + 2 P0 bloquants | Dev / archi |
 | [07-sprint-2-3-4-realise.md](07-sprint-2-3-4-realise.md) | **Bilan final** Sprints 2-4 livrés (fiche projet riche, BC tableau, Plaud auto, Calendar drag-drop, sécu P1+P2) | Dev / pilotage |
+| [GUIDE-UTILISATEUR-V3.md](GUIDE-UTILISATEUR-V3.md) | **Guide pour Tanguy + Virginie** : parcours type, différences v2/v3, admin, sécurité, limites actuelles | Utilisateurs |
 | [bug-morales-echeances.md](bug-morales-echeances.md) | Investigation bug parsing échéances : cause racine + fix proposé Sprint 4 | Dev |
 
 ---
