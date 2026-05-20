@@ -146,7 +146,7 @@ export function renderPipeline(app, filterPhase = null) {
             alerts.push({ p, age: a, ph, cNom });
           }
         }
-        if (alerts.length === 0) return '<p class="muted">Pas d\\u2019alertes pipeline aujourd\\u2019hui.</p>';
+        if (alerts.length === 0) return `<p class="muted">Pas d'alertes pipeline aujourd'hui.</p>`;
         alerts.sort((x, y) => y.age - x.age);
         return `<ul class="alerts-list">${alerts.slice(0, 10).map(a => `<li>${icon('alert', 14)} <strong>${esc(a.cNom)}</strong> — ${esc(a.p.Référence || '')} bloqué ${a.age} j en <em>${esc(a.ph)}</em></li>`).join('')}</ul>`;
       })()}

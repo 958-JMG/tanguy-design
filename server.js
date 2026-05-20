@@ -551,6 +551,55 @@ app.post('/api/clients/:id/projets', requireAuth, async (req, res) => {
   }
 });
 
+// --- PROJET : détail complet (projet + tâches + commandes + devis + Plaud + attachments) ---
+// Sprint 2 — agrégat pour fiche projet riche v3 (1 round-trip au lieu de N).
+app.get('/api/projets/:id', requireAuth, async (req, res) => {
+  const projetId = req.params.id;
+  try {
+    const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`, {
+      headers: { Authorization: `Bearer ${AT_KEY}` }
+    });
+    if (!pr.ok) {
+      if (pr.status === 404) return res.status(404).json({ error: 'Projet introuvable' });
+      throw new Error(`projet lookup: ${pr.status}`);
+    }
+    const projet = await pr.json();
+
+    const tacheIds  = projet.fields?.['Tâches']     || [];
+    const cmdIds    = projet.fields?.['Commandes']  || [];
+    const devisIds  = projet.fields?.['Devis']      || [];
+    const plaudIds  = projet.fields?.['Réunions Plaud'] || projet.fields?.['Réunions plaud'] || [];
+    const daIds     = projet.fields?.['Devis artisans'] || [];
+
+    const [taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans] = await Promise.all([
+      atFetchByIds(TABLES.taches.id, tacheIds),
+      atFetchByIds(TABLES.commandes.id, cmdIds),
+      atFetchByIds(TABLES.devis.id, devisIds),
+      atFetchByIds(TABLES['reunions-plaud'].id, plaudIds),
+      atFetchByIds(TABLES['devis-artisans'].id, daIds),
+      atFetchAll(TABLES.fournisseurs.id),
+      atFetchAll(TABLES.artisans.id),
+    ]);
+
+    // Lookup client (1er linked)
+    const clientId = (projet.fields?.Client || [])[0];
+    let client = null;
+    if (clientId) {
+      try {
+        const cr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.clients.id}/${clientId}`, {
+          headers: { Authorization: `Bearer ${AT_KEY}` }
+        });
+        if (cr.ok) client = await cr.json();
+      } catch (e) { /* fallback silencieux */ }
+    }
+
+    res.json({ ok: true, projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans });
+  } catch (e) {
+    logger.error({ err: e.message, projetId }, '[projets/:id] error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // --- DEVIS : détail complet (devis + zones + lignes + échéances) ---
 app.get('/api/devis/:id/detail', requireAuth, async (req, res) => {
   const devisId = req.params.id;
