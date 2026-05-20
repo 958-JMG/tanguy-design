@@ -10,6 +10,7 @@ const pinoHttp = require('pino-http');
 const { parseDevisPdf, parsePlaudTranscript } = require('./services/devis-parser');
 const { parseArtisanDevisPdf } = require('./services/artisan-devis-parser');
 const { generateFicheMission } = require('./services/fiche-mission-generator');
+const { enrichEcheancesAvecDates } = require('./services/echeances-helper');
 const logger = require('./services/logger');
 
 const app = express();
@@ -596,8 +597,32 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
     }
 
     // 4. Création des Échéances
+    // Les PDF Winner ne contiennent pas de dates absolues — on dérive via libellé + datePose
+    // (fix bug Morales, cf. docs/refonte-v3-2026-05-20/bug-morales-echeances.md).
     if (Array.isArray(parsed.echeances)) {
-      const echeancesBatch = parsed.echeances.map(e => {
+      // Lookup date pose si projet existant (sinon null → fallback date devis)
+      let datePose = null;
+      if (resolvedProjetId) {
+        try {
+          const r = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${resolvedProjetId}`, {
+            headers: { Authorization: `Bearer ${AT_KEY}` }
+          });
+          if (r.ok) {
+            const pRec = await r.json();
+            datePose = pRec?.fields?.['Date pose prévue'] || null;
+          }
+        } catch (e) {
+          logger.warn({ err: e.message, projetId: resolvedProjetId }, 'lookup date pose échec, fallback date devis pour échéances');
+        }
+      }
+
+      const echeancesEnrichies = enrichEcheancesAvecDates(
+        parsed.echeances,
+        parsed.metadata?.date_devis || null,
+        datePose
+      );
+
+      const echeancesBatch = echeancesEnrichies.map(e => {
         const f = {
           'Libellé': e.libelle || '',
           'Devis': [devisId],
@@ -1095,6 +1120,52 @@ app.delete('/api/projets/:id/attachments', requireAuth, async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     logger.error('[projets/delete-attachment] error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PATCH date pose prévue du projet + recalcul des dates d'échéance liées (fix bug Morales).
+// Voir docs/refonte-v3-2026-05-20/bug-morales-echeances.md.
+app.patch('/api/projets/:id/date-pose', requireAuth, async (req, res) => {
+  const projetId = req.params.id;
+  const { datePose } = req.body || {};
+  if (!datePose || !/^\d{4}-\d{2}-\d{2}$/.test(datePose)) {
+    return res.status(400).json({ error: 'datePose au format YYYY-MM-DD requis' });
+  }
+  try {
+    // 1. Update du projet
+    await atPatch(TABLES.projets.id, projetId, { 'Date pose prévue': datePose });
+
+    // 2. Recalcul des dates d'échéance liées (sur les devis de ce projet)
+    const filter = `FIND('${projetId}', ARRAYJOIN({Projet}))`;
+    const devisList = await atFetchFiltered(TABLES.devis.id, filter);
+    let recalcCount = 0;
+    for (const d of devisList) {
+      const dateDevis = d.fields['Date devis'] || null;
+      const echIds = d.fields['Échéances devis'] || [];
+      if (!echIds.length) continue;
+      const echRecords = await atFetchFiltered(
+        TABLES['echeances-devis'].id,
+        `FIND('${d.id}', ARRAYJOIN({Devis}))`
+      );
+      // Reformater pour helper (libelle / date_prevue)
+      const echeancesForHelper = echRecords.map(r => ({
+        _id: r.id,
+        libelle: r.fields['Libellé'] || '',
+        date_prevue: null, // toujours recalculer ici (override)
+      }));
+      const enriched = enrichEcheancesAvecDates(echeancesForHelper, dateDevis, datePose);
+      for (const e of enriched) {
+        if (e.date_prevue) {
+          await atPatch(TABLES['echeances-devis'].id, e._id, { 'Date prévue': e.date_prevue });
+          recalcCount++;
+        }
+      }
+    }
+    logger.info({ projetId, datePose, recalcCount }, 'date-pose mise à jour + échéances recalculées');
+    res.json({ ok: true, recalcCount });
+  } catch (e) {
+    logger.error({ err: e.message, projetId }, '[projets/date-pose] error');
     res.status(500).json({ error: e.message });
   }
 });
