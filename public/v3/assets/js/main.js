@@ -24,24 +24,37 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// Helper pour afficher un statut visible (sans F12)
+function showStatus(msg, isError) {
+  const app = document.getElementById('app');
+  if (!app) return;
+  app.innerHTML = `<div class="card" style="margin-top:24px"><h2>${isError ? '⚠️ Erreur bootstrap' : 'Statut'}</h2><pre style="white-space:pre-wrap;font-family:'DM Mono',monospace;font-size:12px;color:#3D3935">${msg}</pre></div>`;
+}
+
+// Capture globale des erreurs non gérées (sinon elles disparaissent silencieusement)
+window.addEventListener('error', e => showStatus('Erreur JS : ' + (e.error?.stack || e.message || e), true));
+window.addEventListener('unhandledrejection', e => showStatus('Promise rejetée : ' + (e.reason?.stack || e.reason?.message || e.reason), true));
+
 // Bootstrap : charge user + clients, puis route initial
 (async () => {
   try {
+    showStatus('Authentification…', false);
     await loadMe();
     document.getElementById('user-name').textContent = state.user || '?';
     if (!state.isAdmin) {
       document.documentElement.style.setProperty('--admin-display', 'none');
       document.querySelectorAll('.nav-admin-only').forEach(el => el.style.display = 'none');
     }
-    await Promise.all([fetchClients(), fetchProjets()]);
+    showStatus(`Connecté en tant que ${state.user}. Chargement clients + projets…`, false);
+    const [clients, projets] = await Promise.all([fetchClients(), fetchProjets()]);
+    showStatus(`Données chargées : ${clients.length} clients, ${projets.length} projets. Rendu…`, false);
     router(); // démarre sur le hash courant ou par défaut
   } catch (e) {
-    console.error('Bootstrap échec', e);
     if (e.message === 'unauthenticated') {
       location.href = '/login';
-    } else {
-      document.getElementById('app').innerHTML = `<div class="card"><h2>Erreur</h2><p class="muted">${e.message}</p></div>`;
+      return;
     }
+    showStatus('Bootstrap échec : ' + (e.stack || e.message || e), true);
   }
 })();
 
