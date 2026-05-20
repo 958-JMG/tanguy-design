@@ -169,7 +169,11 @@ async function planClients(schema) {
         kind: 'patch-enum',
         label: 'Type → +Architecte',
         run: () => patchField(TABLES.clients, typeField.id, {
-          options: { choices: [...choices.map(c => ({ name: c.name })), { name: 'Architecte' }] }
+          // Airtable exige les ids des choices existants pour les préserver (sinon il croit qu'on les supprime)
+          options: { choices: [
+            ...choices.map(c => ({ id: c.id, name: c.name, ...(c.color ? { color: c.color } : {}) })),
+            { name: 'Architecte', color: 'purpleLight2' }
+          ]}
         }),
       });
     }
@@ -335,8 +339,16 @@ async function backfillProjets() {
     console.log('\n🚀 Application des changements de schéma…');
     for (const a of [...clientsActions, ...projetsActions]) {
       console.log(`  → ${a.label}`);
-      await a.run();
-      console.log(`    ✓`);
+      try {
+        await a.run();
+        console.log(`    ✓`);
+      } catch (e) {
+        if (a.kind === 'patch-enum') {
+          console.warn(`    ⚠️ ${e.message} — skip (à ajouter manuellement dans Airtable UI : Type → +Architecte)`);
+        } else {
+          throw e;
+        }
+      }
     }
   }
 

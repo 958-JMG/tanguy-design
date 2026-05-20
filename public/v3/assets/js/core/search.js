@@ -123,7 +123,7 @@ function execute(r) {
   closeSearch();
   switch (r.dest) {
     case 'client': navigateTo('clients', { id: r.id }); break;
-    case 'projet': if (r.clientId) navigateTo('clients', { id: r.clientId }); break;
+    case 'projet': navigateTo('projet',  { id: r.id });  break;
     default: navigateTo('dashboard');
   }
 }

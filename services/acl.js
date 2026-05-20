@@ -33,8 +33,8 @@ const TABLE_ACL = {
 };
 
 const FIELD_WHITELIST = {
-  clients:             ['Nom', 'Type', 'Source', 'Email', 'Téléphone', 'Adresse', 'Contact', 'Notes', 'Date contact'],
-  projets:             ['Référence', 'Client', 'Statut', 'Budget HT', 'Marge prévisionnelle', 'Date découverte', 'Date pose prévue', 'Description', 'Journal chantier'],
+  clients:             ['Nom', 'Type', 'Source', 'Email', 'Téléphone', 'Adresse', 'Contact', 'Notes', 'Date contact', 'Date création', 'Architecte référent'],
+  projets:             ['Référence', 'Client', 'Statut', 'Phase commerciale', 'Statut chantier', 'Budget HT', 'Marge prévisionnelle', 'Date découverte', 'Date pose prévue', 'Date pose fin', 'Description', 'Journal chantier'],
   taches:              ['Titre', 'Statut', 'Assignée à', 'Priorité', 'Échéance', 'Description', 'Projet', 'Type'],
   'reunions-plaud':    ['Titre', 'Date heure', 'Lieu', 'Client nom', 'Type réunion', 'Niveau', 'Synthèse', 'Contexte', 'Points de douleur', 'Attentes', 'Autres informations', 'Tâches identifiées', 'Transcription', 'Projet'],
   sav:                 ['Titre', 'Description', 'Statut', 'Priorité', 'Date', 'Projet', 'Client'],
