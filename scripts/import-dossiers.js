@@ -26,7 +26,7 @@ if (!process.env.AIRTABLE_KEY) {
   }
 }
 
-const fetchFn = globalThis.fetch || require('node-fetch');
+const fetchFn = globalThis.fetch;
 
 const args = process.argv.slice(2);
 const EXECUTE = args.includes('--execute');

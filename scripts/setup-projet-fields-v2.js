@@ -38,7 +38,7 @@ if (!process.env.AIRTABLE_KEY) {
     });
   }
 }
-const fetchFn = globalThis.fetch || require('node-fetch');
+const fetchFn = globalThis.fetch;
 
 const BASE_ID = process.env.AIRTABLE_BASE_ID;
 const AT_KEY = process.env.AIRTABLE_KEY;

@@ -15,7 +15,7 @@ if (!process.env.AIRTABLE_KEY) {
     const m = l.match(/^([A-Z_0-9]+)=(.*)$/); if (m) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
   });
 }
-const fetchFn = globalThis.fetch || require('node-fetch');
+const fetchFn = globalThis.fetch;
 const B = process.env.AIRTABLE_BASE_ID, K = process.env.AIRTABLE_KEY;
 
 const TABLES = {

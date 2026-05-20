@@ -2,8 +2,8 @@ const express = require('express');
 const session = require('cookie-session');
 const bcrypt = require('bcrypt');
 const path = require('path');
-const fetch = require('node-fetch');
 const multer = require('multer');
+// fetch est natif depuis Node 18, requis Node 20+ (cf. package.json engines).
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { parseDevisPdf, parsePlaudTranscript } = require('./services/devis-parser');

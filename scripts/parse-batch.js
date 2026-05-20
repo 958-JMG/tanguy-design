@@ -32,7 +32,7 @@ if (!process.env.AIRTABLE_KEY) {
     });
   }
 }
-const fetchFn = globalThis.fetch || require('node-fetch');
+const fetchFn = globalThis.fetch;
 const { parseDevisPdf } = require('../services/devis-parser');
 const { parseArtisanDevisPdf } = require('../services/artisan-devis-parser');
 

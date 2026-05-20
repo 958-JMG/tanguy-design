@@ -21,7 +21,7 @@ if (!process.env.AIRTABLE_KEY) {
   const p = path.join(__dirname, '..', '.env');
   if (fs.existsSync(p)) fs.readFileSync(p, 'utf8').split('\n').forEach(l => { const m = l.match(/^([A-Z_0-9]+)=(.*)$/); if (m) process.env[m[1]] = m[2].replace(/^["']|["']$/g, ''); });
 }
-const fetchFn = globalThis.fetch || require('node-fetch');
+const fetchFn = globalThis.fetch;
 const EXECUTE = process.argv.includes('--execute');
 const B = process.env.AIRTABLE_BASE_ID, K = process.env.AIRTABLE_KEY;
 
