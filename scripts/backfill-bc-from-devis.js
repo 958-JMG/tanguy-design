@@ -27,6 +27,7 @@ const B = process.env.AIRTABLE_BASE_ID, K = process.env.AIRTABLE_KEY;
 if (!B || !K) { console.error('AIRTABLE_BASE_ID + AIRTABLE_KEY requis'); process.exit(1); }
 
 const APPLY = process.argv.includes('--apply');
+const FORCE = process.argv.includes('--force');
 
 const TABLES = {
   commandes:     'tblDynhnhLXb4Ibs2',
@@ -159,8 +160,8 @@ function buildDetailsFromZone(z) {
   const projetById = new Map(projets.map(p => [p.id, p]));
   const clientById = new Map(clients.map(c => [c.id, c]));
 
-  // Sélectionne les commandes à backfiller : sans Lignes BC OU sans Contremarque
-  const aBackfiller = commandes.filter(c => !c.fields['Lignes BC']);
+  // Sélectionne les commandes à backfiller : sans Lignes BC (ou toutes si --force)
+  const aBackfiller = FORCE ? commandes : commandes.filter(c => !c.fields['Lignes BC']);
   console.log(`Commandes à backfiller : ${aBackfiller.length}\n`);
 
   let okCount = 0, skipCount = 0;
@@ -195,20 +196,29 @@ function buildDetailsFromZone(z) {
     const allLignes = lignesByDevisId.get(d.id) || [];
     const lignesType = allLignes.filter(l => acceptedCategories.includes(l.fields.Catégorie));
 
-    // Lignes BC structurées
+    // Lignes BC structurées — on nettoie la description en extrayant les blocs L:/H:/P:
+    // qui sont collés à la fin par le parser Winner, et on les place sur leur propre ligne.
     const lignesStructured = lignesType.map(l => {
       const f = l.fields;
+      let desc = String(f.Désignation || '');
+      const largeurMm = f['Largeur mm'] || null;
+      const hauteurMm = f['Hauteur mm'] || null;
+      const profondeurMm = f['Profondeur mm'] || null;
+      // Retire le bloc "L: NNN, H: NNN, P: NNN" final s'il est présent (Winner le double dans la désignation)
+      desc = desc.replace(/\s*L\s*:\s*\d+\s*,?\s*H\s*:\s*\d+\s*,?\s*P\s*:\s*\d+\s*$/i, '').trim();
+      // Si Modèle override / Couleurs modifiées / etc. sont collés à la fin, on les sépare
+      desc = desc.replace(/(Modèle:\s)/g, '\n$1');
       return {
         pos: String(f.Position || ''),
         code: String(f['Code produit'] || ''),
-        description: String(f.Désignation || ''),
+        description: desc,
         sens: String(f.Sens || ''),
         coteVisible: String(f['Côté visible'] || ''),
         quantite: f.Quantité != null ? Number(f.Quantité) : null,
         unite: String(f.Unité || ''),
-        largeurMm: f['Largeur mm'] || null,
-        hauteurMm: f['Hauteur mm'] || null,
-        profondeurMm: f['Profondeur mm'] || null,
+        largeurMm,
+        hauteurMm,
+        profondeurMm,
         notes: String(f.Notes || ''),
       };
     });

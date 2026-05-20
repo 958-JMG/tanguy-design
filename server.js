@@ -1724,11 +1724,17 @@ function renderBcHtml({ commande, fournisseur, lignes }) {
   const numero = commande['Numéro'] || '';
   const numDevis = numero.match(/\d+\/\d+\/\d+/)?.[0] || '';
 
-  // La description Airtable est multiline — on garde les sauts de ligne via <br>.
-  // Les dimensions L/H/P sont déjà dans la description (extraites du devis Winner), pas besoin de doubler.
+  // Format Winner : ligne 1 = Code en gras, ligne 2 = Description, ligne 3 = dimensions L/H/P,
+  // ligne 4 = notes (italique rouge si présentes).
   const lignesHtml = (Array.isArray(lignes) && lignes.length > 0)
     ? lignes.map(l => {
         const descHtml = l.description ? esc(l.description).replace(/\n/g, '<br>') : '';
+        // Dimensions sur leur propre ligne si disponibles
+        const dims = [];
+        if (l.largeurMm)    dims.push(`L: ${l.largeurMm}`);
+        if (l.hauteurMm)    dims.push(`H: ${l.hauteurMm}`);
+        if (l.profondeurMm) dims.push(`P: ${l.profondeurMm}`);
+        const dimsHtml = dims.length ? '<br>' + esc(dims.join(', ')) : '';
         const notesHtml = l.notes ? '<br><em style="color:#c44">' + esc(l.notes).replace(/\n/g, '<br>') + '</em>' : '';
         const qteTxt = l.quantite != null
           ? l.quantite.toLocaleString('fr-FR', { minimumFractionDigits: 4 }) + (l.unite ? ' ' + l.unite : '')
@@ -1736,7 +1742,7 @@ function renderBcHtml({ commande, fournisseur, lignes }) {
         return `
       <tr>
         <td>${esc(l.pos)}</td>
-        <td><strong>${esc(l.code || '')}</strong>${descHtml ? '<br>' + descHtml : ''}${notesHtml}</td>
+        <td><strong>${esc(l.code || '')}</strong>${descHtml ? '<br>' + descHtml : ''}${dimsHtml}${notesHtml}</td>
         <td style="text-align:center">${esc(l.sens || '')}</td>
         <td style="text-align:center">${esc(l.coteVisible || '')}</td>
         <td style="text-align:right">${esc(qteTxt)}</td>
