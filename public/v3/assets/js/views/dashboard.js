@@ -92,8 +92,8 @@ export function renderDashboard(app) {
     <h2 class="section-title">Alertes</h2>
     <div class="card">
       ${alertes.length === 0
-        ? '<p class="muted">Pas d\\'alertes prioritaires.</p>'
-        : '<ul class="alerts-list">' + alertes.map(a => `<li>${icon('alert', 14)} ${a.text}</li>`).join('') + '</ul>'}
+        ? `<p class="muted">Pas d'alertes prioritaires.</p>`
+        : `<ul class="alerts-list">${alertes.map(a => `<li>${icon('alert', 14)} ${a.text}</li>`).join('')}</ul>`}
     </div>
 
     <h2 class="section-title">Prochains jalons</h2>
