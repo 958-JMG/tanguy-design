@@ -18,12 +18,18 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
 
+// RC Pro 2026 : logs PII (noms clients/artisans) en mode debug seulement.
+// En prod : silencieux pour respecter la minimisation RGPD des logs.
+function logPII(msg) {
+  if (!IS_PROD) logger.info(msg);
+}
+
 // --- Session secret : refus de démarrer en prod sans secret robuste ---
 const SESSION_SECRET_FALLBACK = 'dev-only-change-me';
 if (IS_PROD) {
   const s = process.env.SESSION_SECRET || '';
   if (!s || s === SESSION_SECRET_FALLBACK || s.length < 32) {
-    logger.fatal('SESSION_SECRET manquant ou trop court (min 32 chars). En prod, génère avec: openssl rand -hex 32');
+    logger.error('❌ SESSION_SECRET manquant ou trop court (min 32 chars). En prod, génère avec: openssl rand -hex 32');
     process.exit(1);
   }
 }
@@ -152,10 +158,9 @@ app.use(pinoHttp({
 }));
 
 // Helmet : headers de sécurité standards (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy…)
-// CSP : depuis Sprint 0.7 (extraction <script> → /assets/js/main.js), script-src n'a plus besoin
-// de 'unsafe-inline'. script-src-attr reste sur 'unsafe-inline' tant que les onclick="..." inline
-// persistent dans index.html (refacto progressif des handlers à venir dans le découpage ES modules).
-// style-src garde 'unsafe-inline' pour les 48 style="..." inline encore présents.
+// CSP : Sprint 0.7 — script-src n'a plus besoin de 'unsafe-inline' (JS externe dans /assets/js/main.js).
+// script-src-attr garde 'unsafe-inline' tant que les onclick="..." inline persistent dans index.html.
+// style-src garde 'unsafe-inline' pour les style="..." inline encore présents.
 app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
@@ -180,13 +185,13 @@ app.use(helmet({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// sameSite=strict : mitigation CSRF (cf. ADR-002).
-// L'app n'est jamais accédée via lien externe — un user qui arrive via mail/signet doit re-login.
-// Le webhook SAV sortant (proxy /api/sav-webhook) n'est pas affecté (appel serveur→n8n, pas inverse).
 app.use(session({
   name: 'tanguy.sid',
   keys: [process.env.SESSION_SECRET || SESSION_SECRET_FALLBACK],
   httpOnly: true,
+  // RC Pro 2026 : sameSite='strict' (vs 'lax') bloque les CSRF cross-site, y compris navigations top-level.
+  // Trade-off UX : un user qui clique sur un lien externe vers tanguydesign.958.fr en étant déjà loggué
+  // verra une page non-authentifiée (cookie pas envoyé sur la 1re requête). Acceptable ici (cockpit interne).
   sameSite: 'strict',
   secure: IS_PROD, // HTTPS only en prod
   maxAge: 1000 * 60 * 60 * 24 * 30
@@ -196,6 +201,81 @@ function requireAuth(req, res, next) {
   if (req.session && req.session.user) return next();
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'not authenticated' });
   return res.redirect('/login');
+}
+
+// RC Pro 2026 : refuse l'accès si user n'est pas dans ADMIN_LOGINS (Stock, Marges, etc.)
+// Le menu Admin frontend était masqué via window.ME_ADMIN mais l'API restait ouverte
+// à tout user authentifié (bypass trivial via curl). Ajout d'un check serveur.
+function requireAdmin(req, res, next) {
+  if (!req.session || !req.session.user) {
+    return res.status(401).json({ error: 'not authenticated' });
+  }
+  if (!ADMIN_LOGINS.has(req.session.user)) {
+    return res.status(403).json({ error: 'admin only' });
+  }
+  next();
+}
+
+// ACL complète /api/data/:table : cf. services/acl.js (Sprint 0.7).
+// Mapping (table × verb × role) + whitelist des champs modifiables par table.
+// Remplace l'ancien requireAdminIfRestrictedTable qui ne protégeait que `stock`.
+function userRole(req) {
+  return ADMIN_LOGINS.has(req.session?.user) ? 'admin' : '*';
+}
+function requireTableAccess(req, res, verb) {
+  const tableKey = req.params.table;
+  const t = TABLES[tableKey];
+  if (!t) { res.status(404).json({ error: 'unknown table' }); return null; }
+  const role = userRole(req);
+  if (!canAccess(role, tableKey, verb)) {
+    logger.warn({ user: req.session?.user, role, table: tableKey, verb }, 'ACL refus');
+    res.status(role === 'admin' ? 405 : 403).json({ error: role === 'admin' ? `${verb} non autorisé sur ${tableKey}` : 'admin requis' });
+    return null;
+  }
+  return t;
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
+// withKeepAlive — wrapper pour les routes qui appellent Claude (PDF parsing, Plaud)
+// ────────────────────────────────────────────────────────────────────────────────
+// Cloudflare timeout = 100s sans byte reçu de l'origine. Sonnet 4.5 + vision PDF
+// peut prendre 60-120s → CF coupe avec HTTP 524 alors que le backend est encore
+// en train d'attendre Anthropic.
+//
+// Solution : envoyer 1 byte (un espace, compatible JSON.parse côté client) toutes
+// les 20s pour que CF reset son timer "no data received". Le client final reçoit
+// du whitespace au début + le JSON à la fin → JSON.parse gère bien.
+//
+// Compromise : si l'origine échoue APRÈS le 1er byte envoyé, on ne peut plus
+// retourner un status 4xx/5xx → le response sera 200 avec {error: ...}. Le
+// frontend doit donc check à la fois r.ok ET d.error (déjà mis à jour).
+async function withKeepAlive(req, res, handler) {
+  // Disable buffering pour qu'Express envoie chaque write au client immédiatement
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no'); // nginx & équivalent
+  res.write(' '); // flush initial → CF voit le 1er byte
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  let keepAlive = setInterval(() => {
+    try { res.write(' '); } catch (_) {}
+  }, 20000); // toutes les 20s (< 100s CF timeout)
+
+  try {
+    const result = await handler();
+    clearInterval(keepAlive);
+    keepAlive = null;
+    res.end(JSON.stringify(result));
+  } catch (e) {
+    if (keepAlive) clearInterval(keepAlive);
+    logger.error('[withKeepAlive] error:', e.message);
+    // headers déjà envoyés → on ne peut plus changer le status, on retourne JSON {error}
+    try {
+      res.end(JSON.stringify({ error: e.message || 'erreur serveur' }));
+    } catch (_) {
+      // socket peut-être fermé, abandonner silencieusement
+    }
+  }
 }
 
 // keyGenerator commun aux rate-limiters : utilise la vraie IP client (CF-Connecting-IP prioritaire)
@@ -368,28 +448,7 @@ app.get('/api/me', (req, res) => {
   res.json({ user: req.session.user, isAdmin: ADMIN_LOGINS.has(req.session.user) });
 });
 
-// --- Data API générique avec ACL (cf. services/acl.js et ADR Sprint 0.7 P0-2) ---
-// Le proxy /api/data/:table autorisait n'importe quel user authentifié à faire CRUD
-// sur n'importe quelle table avec n'importe quel champ. Risque concret : un collab
-// non-admin pouvait modifier Rétro-commission d'un artisan ou Marge d'un projet.
-
-function userRole(req) {
-  return ADMIN_LOGINS.has(req.session?.user) ? 'admin' : '*';
-}
-
-function requireTableAccess(req, res, verb) {
-  const tableKey = req.params.table;
-  const t = TABLES[tableKey];
-  if (!t) { res.status(404).json({ error: 'unknown table' }); return null; }
-  const role = userRole(req);
-  if (!canAccess(role, tableKey, verb)) {
-    logger.warn({ user: req.session?.user, role, table: tableKey, verb }, 'ACL refus');
-    res.status(role === 'admin' ? 405 : 403).json({ error: role === 'admin' ? `${verb} non autorisé sur ${tableKey}` : 'admin requis' });
-    return null;
-  }
-  return t;
-}
-
+// --- Data API générique avec ACL (cf. services/acl.js) ---
 app.get('/api/data/:table', requireAuth, async (req, res) => {
   const t = requireTableAccess(req, res, 'GET'); if (!t) return;
   try {
@@ -465,7 +524,10 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
     return res.status(400).json({ error: 'Devis additif : projetId requis (le projet doit déjà exister)' });
   }
 
-  try {
+  // RC Pro 2026 — withKeepAlive : envoie 1 byte toutes les 20s pendant que Claude
+  // analyse le PDF (peut prendre 60-120s avec Sonnet 4.5 vision). Sans ça, Cloudflare
+  // coupe à 100s sans byte reçu → HTTP 524.
+  await withKeepAlive(req, res, async () => {
     logger.info(`[devis/import] parsing ${req.file.originalname} (${req.file.size} bytes)`);
     const parsed = await parseDevisPdf(req.file.buffer);
     logger.info(`[devis/import] ✓ parsed: ${parsed.lignes?.length || 0} lignes, ${parsed.zones?.length || 0} zones`);
@@ -519,7 +581,7 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
       const match = allClients.find(c => (c.fields?.Nom||'').trim().toUpperCase().replace(/\s+/g,' ') === nomNorm);
       if (match) {
         resolvedClientId = match.id;
-        logger.info(`[devis/import] client existant matché: ${match.fields.Nom}`);
+        logPII(`[devis/import] client existant matché: ${match.fields.Nom}`);
       } else {
         const c = parsed.client;
         const adresseLignes = [c.adresse, [c.cp, c.ville].filter(Boolean).join(' ')].filter(Boolean).join('\n');
@@ -531,7 +593,7 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
         cf.Notes = 'Créé automatiquement via import devis';
         const nc = await atCreate(TABLES.clients.id, cf);
         resolvedClientId = nc.id;
-        logger.info(`[devis/import] nouveau client créé: ${c.nom}`);
+        logPII(`[devis/import] nouveau client créé: ${c.nom}`);
       }
     }
 
@@ -670,7 +732,7 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
       if (echeancesBatch.length) await atCreateBatch(TABLES['echeances-devis'].id, echeancesBatch);
     }
 
-    res.json({
+    return {
       ok: true,
       devisId,
       parsed_summary: {
@@ -680,11 +742,8 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
         zones: parsed.zones?.length || 0,
         echeances: parsed.echeances?.length || 0
       }
-    });
-  } catch (e) {
-    logger.error('[devis/import] error:', e);
-    res.status(500).json({ error: e.message });
-  }
+    };
+  });
 });
 
 // --- DEVIS : signature → génération commandes fournisseurs + tâches ---
@@ -811,7 +870,8 @@ app.post('/api/plaud/parse', requireAuth, async (req, res) => {
   if (!transcript) return res.status(400).json({ error: 'transcript requis' });
   if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY non configurée' });
 
-  try {
+  // withKeepAlive — Claude parse Plaud peut prendre 30-60s → idem fix devis/import
+  await withKeepAlive(req, res, async () => {
     const parsed = await parsePlaudTranscript(transcript);
     // Si niveau non fourni : R1 si Type réunion = Découverte/Présentation devis, R2 sinon.
     const typeR = type_reunion || 'Découverte';
@@ -838,11 +898,8 @@ app.post('/api/plaud/parse', requireAuth, async (req, res) => {
     Object.keys(fields).forEach(k => { if (fields[k] === null || fields[k] === '') delete fields[k]; });
 
     const rec = await atCreate(TABLES['reunions-plaud'].id, fields);
-    res.json({ ok: true, record: rec, parsed, niveau: niveauResolu });
-  } catch (e) {
-    logger.error('[plaud/parse] error:', e);
-    res.status(500).json({ error: e.message });
-  }
+    return { ok: true, record: rec, parsed, niveau: niveauResolu };
+  });
 });
 
 // --- DEVIS ARTISAN : import PDF + parsing + création record ---
@@ -853,7 +910,8 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
   const projetId = req.body.projetId || null;
   const artisanId = req.body.artisanId || null; // optionnel — sinon on match par nom d'entreprise
 
-  try {
+  // withKeepAlive — parser un PDF artisan via Claude peut prendre 60-120s
+  await withKeepAlive(req, res, async () => {
     logger.info(`[artisan-devis/import] parsing ${req.file.originalname} (${req.file.size} bytes)`);
     const parsed = await parseArtisanDevisPdf(req.file.buffer);
     logger.info(`[artisan-devis/import] ✓ parsed: ${parsed.artisan?.entreprise} / ${euros(parsed.totaux?.total_ht)}`);
@@ -867,7 +925,7 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
                                             nomNorm.includes((a.fields?.Nom || '').trim().toUpperCase()));
       if (match) {
         resolvedArtisanId = match.id;
-        logger.info(`[artisan-devis/import] artisan matché: ${match.fields.Nom}`);
+        logPII(`[artisan-devis/import] artisan matché: ${match.fields.Nom}`);
       }
     }
 
@@ -924,7 +982,7 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
       }
     }
 
-    res.json({
+    return {
       ok: true,
       recordId,
       artisan_matched: !!resolvedArtisanId,
@@ -935,11 +993,8 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
         montant_ttc: montantTTC,
         retrocommission: retrocom
       }
-    });
-  } catch (e) {
-    logger.error('[artisan-devis/import] error:', e);
-    res.status(500).json({ error: e.message });
-  }
+    };
+  });
 });
 
 // --- Génération Fiche de mission : logique mutualisée ---
@@ -1166,10 +1221,7 @@ app.patch('/api/projets/:id/date-pose', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'datePose au format YYYY-MM-DD requis' });
   }
   try {
-    // 1. Update du projet
     await atPatch(TABLES.projets.id, projetId, { 'Date pose prévue': datePose });
-
-    // 2. Recalcul des dates d'échéance liées (sur les devis de ce projet)
     const filter = `FIND('${projetId}', ARRAYJOIN({Projet}))`;
     const devisList = await atFetchFiltered(TABLES.devis.id, filter);
     let recalcCount = 0;
@@ -1177,15 +1229,11 @@ app.patch('/api/projets/:id/date-pose', requireAuth, async (req, res) => {
       const dateDevis = d.fields['Date devis'] || null;
       const echIds = d.fields['Échéances devis'] || [];
       if (!echIds.length) continue;
-      const echRecords = await atFetchFiltered(
-        TABLES['echeances-devis'].id,
-        `FIND('${d.id}', ARRAYJOIN({Devis}))`
-      );
-      // Reformater pour helper (libelle / date_prevue)
+      const echRecords = await atFetchByIds(TABLES['echeances-devis'].id, echIds);
       const echeancesForHelper = echRecords.map(r => ({
         _id: r.id,
         libelle: r.fields['Libellé'] || '',
-        date_prevue: null, // toujours recalculer ici (override)
+        date_prevue: null,
       }));
       const enriched = enrichEcheancesAvecDates(echeancesForHelper, dateDevis, datePose);
       for (const e of enriched) {
@@ -1212,13 +1260,19 @@ function euros(n) {
 // --- SAV : proxy vers webhook n8n du cockpit central 9·58 ----------------
 // Le cockpit central ouvre les tickets dans Airtable TICKETS_TBL et alimente
 // la zone Pilotage. Auth via header X-958-Secret. Configurable par env vars.
-const SAV_WEBHOOK_URL    = process.env.SAV_WEBHOOK_URL    || 'https://jmg958.app.n8n.cloud/webhook/sav-receiver';
+// RC Pro 2026 : retirer le default hardcodé pour éviter d'exposer l'URL n8n
+// dans le repo public. Si SAV_WEBHOOK_URL absent : le proxy SAV refuse l'envoi.
+const SAV_WEBHOOK_URL    = process.env.SAV_WEBHOOK_URL    || '';
 const SAV_WEBHOOK_SECRET = process.env.SAV_WEBHOOK_SECRET || '';
 const SAV_CLIENT_SLUG    = process.env.SAV_CLIENT_SLUG    || 'tanguy';
 const SAV_COCKPIT_SOURCE = process.env.SAV_COCKPIT_SOURCE || 'Cockpit Tanguy Design';
 const SAV_ABONNEMENT     = process.env.SAV_ABONNEMENT     || 'Build';
 
 app.post('/api/sav/submit', requireAuth, async (req, res) => {
+  // RC Pro 2026 : refuser si URL ou secret webhook manquant (au lieu de fallback hardcodé)
+  if (!SAV_WEBHOOK_URL) {
+    return res.status(500).json({ error: 'SAV_WEBHOOK_URL non configuré côté serveur' });
+  }
   if (!SAV_WEBHOOK_SECRET) {
     return res.status(500).json({ error: 'SAV_WEBHOOK_SECRET non configuré côté serveur' });
   }
@@ -1264,11 +1318,6 @@ app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
 app.use('/img', express.static(path.join(__dirname, 'public', 'img')));
 
 app.listen(PORT, () => {
-  logger.info({
-    port: PORT,
-    users: Object.keys(USERS).length,
-    airtable: !!BASE_ID,
-    claude: !!process.env.ANTHROPIC_API_KEY,
-    env: IS_PROD ? 'production' : 'development',
-  }, `Tanguy Design Cockpit v0.3.0 démarré sur port ${PORT}`);
+  logger.info(`✅ Tanguy Design — Cockpit v0.3.0 on port ${PORT}`);
+  logger.info(`   Users: ${Object.keys(USERS).length} | Airtable: ${BASE_ID ? 'OK' : 'MISSING'} | Claude: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'MISSING'}`);
 });

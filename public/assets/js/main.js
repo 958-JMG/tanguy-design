@@ -155,8 +155,6 @@ function renderSearchResults(){
 }
 
 // Dispatcher pur : remplace l'ancien eval() (cf. ADR Sprint 0.7 P0-3).
-// Les actions de recherche sont maintenant des objets { dest, id } structurés,
-// pas des strings de code à interpréter.
 function executeSearchResult(idx) {
   const r = SEARCH_RESULTS[idx];
   if (!r) return;
@@ -252,6 +250,60 @@ async function loadAll(){
     setSync('error','erreur');
   }
 }
+
+// ============ POLLING GLOBAL (accueil + autres onglets) ============
+// 2026-05-12 — Refresh auto toutes les 30s tant que l'app est ouverte ET visible.
+// Pause si :
+//   - onglet en arrière-plan (économise CPU + API Airtable)
+//   - édition projet en cours (PROJET_EDIT)
+//   - modale d'édition ouverte (tâche / commande / commande-mail)
+//   - polling projet en cours (déjà géré par startProjetPolling, on n'écrase pas)
+// Pas de cumul : si PROJET_POLLING_TIMER tourne (fiche projet ouverte), c'est lui qui refresh.
+const GLOBAL_POLL_MS = 30000;
+let GLOBAL_POLL_TIMER = null;
+let GLOBAL_POLL_BUSY = false;
+function startGlobalPolling(){
+  if (GLOBAL_POLL_TIMER) return;
+  GLOBAL_POLL_TIMER = setInterval(async () => {
+    try {
+      if (document.hidden) return;
+      if (GLOBAL_POLL_BUSY) return;
+      // Pas la peine de doubler : si on est sur la fiche projet, PROJET_POLLING_TIMER fait le job.
+      const projetView = document.getElementById('projet-detail-view');
+      if (projetView && projetView.style.display !== 'none') return;
+      // Si l'user est en train d'éditer/saisir quelque part, on ne touche pas.
+      if (typeof PROJET_EDIT !== 'undefined' && PROJET_EDIT) return;
+      if (document.getElementById('task-edit-host')) return;
+      if (document.getElementById('cmd-detail-host')) return;
+      if (document.getElementById('cmd-mail-host')) return;
+      // Si un champ texte/textarea/input editable a le focus, on attend (l'user tape).
+      const ae = document.activeElement;
+      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) {
+        // Sauf checkboxes/radios qui ne sont pas du texte en cours de saisie
+        if (!['checkbox','radio','submit','button'].includes(ae.type)) return;
+      }
+      GLOBAL_POLL_BUSY = true;
+      try { await loadAll(); } finally { GLOBAL_POLL_BUSY = false; }
+    } catch (e) { /* silencieux */ }
+  }, GLOBAL_POLL_MS);
+}
+function stopGlobalPolling(){
+  if (GLOBAL_POLL_TIMER) { clearInterval(GLOBAL_POLL_TIMER); GLOBAL_POLL_TIMER = null; }
+}
+// Refresh immédiat au retour de l'onglet (mieux qu'attendre 30s).
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  // Si polling projet géré ailleurs, on laisse faire (lui a son propre visibilitychange).
+  const projetView = document.getElementById('projet-detail-view');
+  if (projetView && projetView.style.display !== 'none') return;
+  if (GLOBAL_POLL_BUSY) return;
+  if (typeof PROJET_EDIT !== 'undefined' && PROJET_EDIT) return;
+  if (document.getElementById('task-edit-host')) return;
+  if (document.getElementById('cmd-detail-host')) return;
+  if (document.getElementById('cmd-mail-host')) return;
+  GLOBAL_POLL_BUSY = true;
+  loadAll().finally(() => { GLOBAL_POLL_BUSY = false; });
+});
 
 // ============ RENDER ============
 function renderAll(){
@@ -742,6 +794,13 @@ function openCommandeDetail(cmdId){
             <div style="font-size:10px;color:var(--ink4);margin-top:4px">Pré-rempli auto à la signature du devis. Édite ici ce qui sera réellement commandé au fournisseur.</div>
           </div>
           ${next ? `<div style="margin-top:6px"><button type="button" class="cmd-qa-btn active" onclick="commandeQuickAdvance('${c.id}','${next}',true)">⚡ Marquer « ${next} » en 1 clic</button></div>` : ''}
+          <div style="margin-top:10px;border-top:1px dashed var(--border);padding-top:10px">
+            <div style="font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Envoyer au fournisseur</div>
+            <button type="button" class="abtn primary" onclick="openEmailFournisseurFromCommande('${c.id}')" style="width:100%">
+              ✉️ Préparer l'email au fournisseur
+            </button>
+            <div style="font-size:10px;color:var(--ink4);margin-top:4px;line-height:1.4">Ouvre ton client mail (Mail / Gmail / Outlook) avec sujet + corps pré-remplis. Tu modifies ce que tu veux et tu envoies depuis ta boîte habituelle. À ton retour ici, tu pourras passer la commande en « Envoyée » d'un clic.</div>
+          </div>
         </div>
         <div class="modal-foot" style="display:flex;justify-content:space-between;gap:8px;padding:14px 20px;border-top:1px solid var(--border)">
           <button type="button" class="abtn" style="color:#c25656;border-color:#e0a8a8" onclick="deleteCommande('${c.id}')">🗑 Supprimer la commande</button>
@@ -812,7 +871,165 @@ async function commandeQuickAdvance(cmdId, newStatut, closeAfter) {
     toastSuccess(`${c.Numéro||'Commande'} marquée « ${newStatut} »`);
     if (closeAfter) closeCommandeDetail();
     await loadAll();
+    // Bidirectionnel : si une fiche projet liée est ouverte, refresh stepper
+    if (Array.isArray(c.Projet) && c.Projet[0]) {
+      const projetView = document.getElementById('projet-detail-view');
+      if (projetView && projetView.style.display !== 'none' && typeof renderProjetDetail === 'function') {
+        const p = DATA.projets.find(x => x.id === c.Projet[0]);
+        if (p) renderProjetDetail(p);
+      }
+    }
   } catch(e) { toastError('Erreur : '+e.message); }
+}
+
+// ============ ENVOI EMAIL FOURNISSEUR (mailto:) ============
+// 2026-05-12 — Approche simple/robuste/souverain :
+// - Pas de SMTP/Resend/Brevo/n8n. On ouvre `mailto:` → client mail de l'utilisateur (Mail/Gmail/Outlook).
+// - L'email part de la boîte habituelle du user (donc tracé, SPF/DKIM côté Tanguy, archivé côté envoyeur).
+// - Pré-remplit To (Email commande fournisseur match Type), Subject, Body (Notes + projet + total).
+// - Au retour de l'app : propose de passer la commande en "Envoyée".
+
+function findFournisseurForCommande(c) {
+  // 1) Priorité : champ Fournisseur (link) si présent et résolvable
+  if (Array.isArray(c.Fournisseur) && c.Fournisseur[0]) {
+    const f = DATA.fournisseurs.find(x => x.id === c.Fournisseur[0]);
+    if (f) return f;
+  }
+  // 2) Fallback : match par Type (Cuisine, Électroménager, Plan de travail, Sanitaire, Accessoires, Autre)
+  if (c.Type) {
+    const matches = DATA.fournisseurs.filter(f => (f.Type||'').toLowerCase() === c.Type.toLowerCase());
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) return matches[0]; // premier match — l'user pourra édit
+  }
+  return null;
+}
+
+function openEmailFournisseurFromCommande(cmdId) {
+  const c = DATA.commandes.find(x => x.id === cmdId); if (!c) return;
+  const projetId = Array.isArray(c.Projet) ? c.Projet[0] : null;
+  const projet = projetId ? DATA.projets.find(p => p.id === projetId) : null;
+  const fourn = findFournisseurForCommande(c);
+  const fournEmail = fourn?.['Email commande'] || '';
+  const fournNom = fourn?.Nom || '';
+  // Suggestions de fournisseurs (même type) pour permettre changement rapide.
+  const matchesType = c.Type ? DATA.fournisseurs.filter(f => (f.Type||'').toLowerCase() === (c.Type||'').toLowerCase()) : [];
+
+  const refCmd = c.Numéro || cmdId;
+  const refProjet = projet?.Référence || '';
+  const subject = `Commande ${refCmd}${refProjet ? ' — chantier ' + refProjet : ''} — Tanguy Design`;
+  const total = euros(c['Montant HT']) + ' HT';
+  const livraison = c['Date livraison prévue'] ? `\nDate de livraison souhaitée : ${c['Date livraison prévue']}` : '';
+  const notes = (c.Notes || '').trim();
+  const bodyDefault = `Bonjour${fournNom ? ' ' + fournNom : ''},
+
+Merci de prendre en charge la commande ci-dessous :
+
+Référence : ${refCmd}
+${refProjet ? 'Chantier : ' + refProjet + '\n' : ''}Montant : ${total}${livraison}
+
+Détail :
+${notes || '— à compléter —'}
+
+Merci de bien vouloir nous confirmer la prise en charge et la date de livraison prévue.
+
+Cordialement,
+${(window.ME||'').charAt(0).toUpperCase() + (window.ME||'').slice(1) || 'Tanguy Design'}
+Tanguy Design — Vannes
+tanguydesign.fr`;
+
+  // Mini-modale d'édition avant l'envoi (pour pouvoir corriger To/Subject/Body avant d'ouvrir le client mail).
+  const html = `
+    <div class="modal-bg on" id="cmd-mail-bg" onclick="if(event.target===this)closeEmailFournisseur()">
+      <div class="modal-card" style="max-width:640px">
+        <div class="modal-head">
+          <div class="modal-title">✉️ Email fournisseur — ${esc(refCmd)}</div>
+          <button class="modal-close" onclick="closeEmailFournisseur()">×</button>
+        </div>
+        <div class="modal-body">
+          ${!fournEmail ? `<div style="background:#fff4e6;border:1px solid #f4c279;padding:8px 12px;border-radius:4px;margin-bottom:12px;font-size:12px;color:#7a4a00">
+            ⚠ Aucun email fournisseur trouvé pour le type "${esc(c.Type||'—')}".
+            ${matchesType.length === 0 && c.Type ? `<br>→ Ajoute un fournisseur de type "${esc(c.Type)}" dans la table Fournisseurs avec son "Email commande".` : ''}
+            ${matchesType.length > 0 ? `<br>→ Le fournisseur "${esc(matchesType[0].Nom||'')}" n'a pas d'« Email commande » renseigné.` : ''}
+          </div>` : ''}
+          <div class="form-row"><label>Destinataire(s)</label>
+            <input id="cmf-to" type="email" multiple value="${esc(fournEmail)}" placeholder="email@fournisseur.fr" style="width:100%">
+            ${matchesType.length > 1 ? `<div style="font-size:10px;color:var(--ink4);margin-top:4px">${matchesType.length} fournisseurs de type "${esc(c.Type||'—')}". Tu peux cliquer pour pré-remplir :
+              ${matchesType.map(f => `<button type="button" class="abtn" style="font-size:10px;padding:2px 6px;margin:2px" onclick="document.getElementById('cmf-to').value='${esc(f['Email commande']||'')}'">${esc(f.Nom||'')}${f['Email commande']?'':' (sans email)'}</button>`).join('')}
+            </div>` : ''}
+          </div>
+          <div class="form-row"><label>Sujet</label>
+            <input id="cmf-subject" type="text" value="${esc(subject)}" style="width:100%">
+          </div>
+          <div class="form-row"><label>Corps du mail</label>
+            <textarea id="cmf-body" rows="14" style="font-family:'DM Mono',monospace;font-size:12px;line-height:1.5;width:100%">${esc(bodyDefault)}</textarea>
+          </div>
+          <div style="font-size:11px;color:var(--ink3);background:var(--paper);padding:8px;border-radius:4px;line-height:1.5">
+            <strong>📬 Ce qui va se passer :</strong> ton client mail (Apple Mail, Gmail web, Outlook…) va s'ouvrir avec ces infos pré-remplies. Tu finalises, tu joins les pièces (BC PDF, plans), tu envoies depuis ta boîte habituelle. À ton retour ici, tu peux passer la commande en « Envoyée ».
+          </div>
+        </div>
+        <div class="modal-foot" style="display:flex;justify-content:space-between;gap:8px;padding:14px 20px;border-top:1px solid var(--border)">
+          <button type="button" class="abtn" onclick="closeEmailFournisseur()">Annuler</button>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="abtn" onclick="copyEmailFournisseurBody()">📋 Copier le corps</button>
+            <button type="button" class="abtn primary" onclick="sendEmailFournisseurMailto('${c.id}')">✉️ Ouvrir mon client mail</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  const host = document.createElement('div');
+  host.id = 'cmd-mail-host';
+  host.innerHTML = html;
+  document.body.appendChild(host);
+  setTimeout(() => document.getElementById('cmf-body')?.focus(), 100);
+}
+
+function closeEmailFournisseur() { document.getElementById('cmd-mail-host')?.remove(); }
+
+function copyEmailFournisseurBody() {
+  const body = document.getElementById('cmf-body')?.value || '';
+  navigator.clipboard.writeText(body).then(
+    () => toastSuccess('Corps du mail copié dans le presse-papier'),
+    () => toastError('Copie impossible — sélectionne et copie manuellement')
+  );
+}
+
+function sendEmailFournisseurMailto(cmdId) {
+  const to = (document.getElementById('cmf-to')?.value || '').trim();
+  const subject = (document.getElementById('cmf-subject')?.value || '').trim();
+  const body = document.getElementById('cmf-body')?.value || '';
+  if (!to) {
+    if (!confirm('Aucun destinataire renseigné. Ouvrir quand même le client mail (tu pourras saisir l\'adresse) ?')) return;
+  }
+  // mailto: spec : encodeURIComponent pour respecter le RFC 6068.
+  const url = 'mailto:' + encodeURIComponent(to)
+    + '?subject=' + encodeURIComponent(subject)
+    + '&body=' + encodeURIComponent(body);
+  // Ouvre le client mail système (n'ouvre PAS un nouvel onglet web sauf si l'OS l'a configuré ainsi).
+  window.location.href = url;
+  closeEmailFournisseur();
+  // Petit délai puis proposer le changement de statut.
+  setTimeout(() => {
+    const c = DATA.commandes.find(x => x.id === cmdId);
+    if (!c) return;
+    if (c.Statut === 'Créée') {
+      if (confirm(`Email préparé pour « ${c.Numéro||cmdId} ».\n\nUne fois envoyé depuis ton client mail, passer la commande en « Envoyée » ?`)) {
+        fetch('/api/data/commandes/'+cmdId, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{Statut:'Envoyée'}})})
+          .then(r => r.ok ? loadAll() : null)
+          .then(() => {
+            toastSuccess('Commande passée en « Envoyée »');
+            // Refresh fiche projet si ouverte
+            if (Array.isArray(c.Projet) && c.Projet[0]) {
+              const view = document.getElementById('projet-detail-view');
+              if (view && view.style.display !== 'none') {
+                const p = DATA.projets.find(x => x.id === c.Projet[0]);
+                if (p) renderProjetDetail(p);
+              }
+            }
+          })
+          .catch(e => toastError('Erreur : ' + (e.message||'inconnue')));
+      }
+    }
+  }, 1500);
 }
 
 function taskCard(t){
@@ -878,13 +1095,62 @@ function openProjetDetail(projetId){
   renderProjetDetail(p);
   document.getElementById('projets-list-view').style.display = 'none';
   document.getElementById('projet-detail-view').style.display = 'block';
+  startProjetPolling();
 }
 function closeProjetDetail(){
   document.getElementById('projet-detail-view').style.display = 'none';
   document.getElementById('projets-list-view').style.display = 'block';
+  stopProjetPolling();
 }
 function toggleProjetEdit(on){ PROJET_EDIT = on; const p = DATA.projets.find(x=>x.id===CURRENT_PROJET_ID); if(p)renderProjetDetail(p); }
 let CURRENT_PROJET_ID = null;
+
+// ============ POLLING MULTI-USER PAGE PROJET ============
+// 2026-05-12 : JMG signale que si Sébastien (kanban) termine une tâche, JMG ne le voit pas
+// sur sa fiche projet ouverte. Polling auto toutes les 20s tant que la fiche est ouverte
+// et visible (pause si onglet en arrière-plan ou édition en cours pour ne pas écraser).
+const PROJET_POLL_INTERVAL_MS = 20000;
+let PROJET_POLLING_TIMER = null;
+let PROJET_POLLING_BUSY = false;
+function startProjetPolling(){
+  if (PROJET_POLLING_TIMER) return;
+  PROJET_POLLING_TIMER = setInterval(async () => {
+    try {
+      if (document.hidden) return;
+      const view = document.getElementById('projet-detail-view');
+      if (!view || view.style.display === 'none') return;
+      if (!CURRENT_PROJET_ID) return;
+      if (PROJET_EDIT) return;             // ne pas écraser édition projet en cours
+      if (document.getElementById('task-edit-host')) return; // modale tâche ouverte
+      if (PROJET_POLLING_BUSY) return;
+      PROJET_POLLING_BUSY = true;
+      try {
+        await loadAll();
+        const p = DATA.projets.find(x => x.id === CURRENT_PROJET_ID);
+        if (p) renderProjetDetail(p);
+      } finally { PROJET_POLLING_BUSY = false; }
+    } catch (e) { /* silencieux, on retentera dans 20s */ }
+  }, PROJET_POLL_INTERVAL_MS);
+}
+function stopProjetPolling(){
+  if (PROJET_POLLING_TIMER) { clearInterval(PROJET_POLLING_TIMER); PROJET_POLLING_TIMER = null; }
+}
+// Refresh immédiat quand on revient sur l'onglet (mieux que d'attendre 20s).
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  const view = document.getElementById('projet-detail-view');
+  if (!view || view.style.display === 'none') return;
+  if (!CURRENT_PROJET_ID || PROJET_EDIT || PROJET_POLLING_BUSY) return;
+  if (document.getElementById('task-edit-host')) return;
+  PROJET_POLLING_BUSY = true;
+  (async () => {
+    try {
+      await loadAll();
+      const p = DATA.projets.find(x => x.id === CURRENT_PROJET_ID);
+      if (p) renderProjetDetail(p);
+    } catch(_) {} finally { PROJET_POLLING_BUSY = false; }
+  })();
+});
 
 // ============ PARCOURS CHANTIER (stepper) ============
 // Calcule l'état des 11 étapes du parcours idéal client à partir des données projet.
@@ -1172,6 +1438,189 @@ function scrollToAttachments(fieldName) {
   if (el) { el.scrollIntoView({behavior:'smooth', block:'center'}); el.style.animation = 'ps-pulse 1.5s ease-in-out 2'; setTimeout(()=>el.style.animation='', 3500); }
 }
 
+// ============ PROCHAINES ACTIONS (widget contextuel) ============
+// 2026-05-12 — Détermine 1 à 4 actions concrètes et cliquables que l'utilisateur DOIT faire
+// pour avancer le projet, en lisant l'état du stepper. Chaque action = label + onclick handler.
+function prochainesActionsHTML(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies) {
+  const actions = [];
+  const todayIso = new Date().toISOString().slice(0,10);
+
+  const devisBrouillons = devisLies.filter(d => d.Statut === 'Brouillon');
+  const devisEnvoyes = devisLies.filter(d => d.Statut === 'Envoyé');
+  const devisSignes = devisLies.filter(d => d.Statut === 'Signé');
+  const tachesAFaire = tachesLiees.filter(t => t.Statut !== 'Terminée');
+  const tachesAcompteOuvertes = tachesAFaire.filter(t => /acompte|facture acompte/i.test(t.Titre||''));
+  const tachesSoldeOuvertes = tachesAFaire.filter(t => /facture solde|facture client|solde/i.test(t.Titre||''));
+  const tachesPVOuvertes = tachesAFaire.filter(t => /pv|réception|reception/i.test(t.Titre||''));
+  const tachesAvisOuvertes = tachesAFaire.filter(t => /avis|review|google/i.test(t.Titre||''));
+  const tachesEnRetard = tachesAFaire.filter(t => t.Échéance && t.Échéance < todayIso);
+
+  const planTechFiles = (p['Plan technique']||[]).length;
+  const cmdsCreees = commandesLiees.filter(c => c.Statut === 'Créée');
+  const cmdsSansDate = commandesLiees.filter(c => !c['Date livraison prévue'] && !['Livrée','Posée'].includes(c.Statut));
+  const cmdsLivrees = commandesLiees.filter(c => c.Statut === 'Livrée');
+  const datePoseSet = !!p['Date pose prévue'];
+  const cmdsPosees = commandesLiees.filter(c => c.Statut === 'Posée');
+  const aucunDevis = devisLies.length === 0;
+  const aucunClient = !p.Client || (Array.isArray(p.Client) && p.Client.length === 0);
+
+  // Action 1 : pas de client lié → ouvre mode édition + focus select Client
+  if (aucunClient) {
+    actions.push({
+      icon: '👤', urgency: 'high', label: 'Lier ce projet à un client',
+      hint: "Aucun client n'est rattaché. Sélectionne-en un dans la liste, ou crée-en un nouveau.",
+      btn: 'Lier un client', onclick: `toggleProjetEdit(true);setTimeout(()=>{const s=document.querySelector('#projet-detail-view [data-pf=\\'Client\\']');if(s){s.focus();s.scrollIntoView({behavior:'smooth',block:'center'})}},250)`
+    });
+  }
+
+  // Action 2 : pas de devis → import Winner
+  if (!aucunClient && aucunDevis) {
+    actions.push({
+      icon: '📄', urgency: 'high', label: 'Importer le premier devis Winner',
+      hint: 'Aucun devis pour ce projet. Importe le PDF Winner pour générer auto les zones, lignes et échéances.',
+      btn: 'Importer un PDF Winner', onclick: `closeProjetDetail();switchTab('devis');setTimeout(()=>document.getElementById('devis-pdf-input').click(),100)`
+    });
+  }
+
+  // Action 3 : devis Brouillon → envoyer au client
+  if (devisBrouillons.length > 0 && devisEnvoyes.length === 0 && devisSignes.length === 0) {
+    const d = devisBrouillons[0];
+    actions.push({
+      icon: '📤', urgency: 'med', label: `Envoyer le devis ${d['Numéro devis']||''} au client`,
+      hint: 'Le devis est en brouillon. Passe-le en « Envoyé » quand tu l\'as transmis au client.',
+      btn: 'Ouvrir le devis', onclick: `openDevisDetail('${d.id}')`
+    });
+  }
+
+  // Action 4 : devis Envoyé → relance ou signature
+  if (devisEnvoyes.length > 0 && devisSignes.length === 0) {
+    const d = devisEnvoyes[0];
+    actions.push({
+      icon: '✍️', urgency: 'med', label: `Faire signer le devis ${d['Numéro devis']||''} (BC)`,
+      hint: 'Le devis a été envoyé. Une fois signé par le client, marque-le en « Signé » : ça génère auto les commandes fournisseurs + tâches.',
+      btn: 'Ouvrir le devis', onclick: `openDevisDetail('${d.id}')`
+    });
+  }
+
+  // Action 5 : devis Signé → acompte
+  if (devisSignes.length > 0 && tachesAcompteOuvertes.length > 0) {
+    const t = tachesAcompteOuvertes[0];
+    actions.push({
+      icon: '💶', urgency: 'high', label: 'Émettre la facture d\'acompte 30%',
+      hint: `Tâche "${t.Titre}" assignée à ${t['Assignée à']||'—'}. Marque-la terminée une fois la facture envoyée.`,
+      btn: 'Ouvrir la tâche', onclick: `openTaskEdit('${t.id}')`
+    });
+  }
+
+  // Action 6 : devis Signé + pas de plans techniques → uploader
+  if (devisSignes.length > 0 && planTechFiles === 0) {
+    actions.push({
+      icon: '📐', urgency: 'med', label: 'Uploader les plans techniques',
+      hint: 'Les plans techniques (cotes, archi, autocad) sont essentiels pour la pose. Upload-les pour avancer le projet.',
+      btn: 'Aller à Documents', onclick: `document.getElementById('zone-attach')?.scrollIntoView({behavior:'smooth'});setTimeout(()=>switchAttachTab(1),300)`
+    });
+  }
+
+  // Action 7 : commandes Créées → envoyer aux fournisseurs (1 action par cmd Créée)
+  if (cmdsCreees.length > 0) {
+    cmdsCreees.slice(0, 3).forEach(c => {
+      actions.push({
+        icon: '📦', urgency: 'med', label: `Envoyer la commande ${c.Numéro||''} au fournisseur`,
+        hint: `${euros(c['Montant HT'])} HT · type ${c.Type||'—'}. Ouvre la commande puis clique sur "Préparer l'email au fournisseur".`,
+        btn: '✉️ Préparer l\'email', onclick: `openCommandeDetail('${c.id}')`
+      });
+    });
+  }
+
+  // Action 8 : commandes sans date livraison → relancer
+  if (cmdsSansDate.length > 0 && cmdsCreees.length === 0) {
+    const c = cmdsSansDate[0];
+    actions.push({
+      icon: '📅', urgency: 'med', label: `Confirmer la date livraison de ${c.Numéro||''}`,
+      hint: 'La commande est envoyée mais pas de date livraison confirmée. Relance le fournisseur.',
+      btn: 'Ouvrir la commande', onclick: `openCommandeDetail('${c.id}')`
+    });
+  }
+
+  // Action 9 : commandes livrées + pas de date pose → planifier
+  if (cmdsLivrees.length > 0 && !datePoseSet) {
+    actions.push({
+      icon: '🔨', urgency: 'med', label: 'Planifier la date de pose',
+      hint: 'Les commandes sont arrivées. Définis la date de pose dans la fiche projet.',
+      btn: 'Modifier le projet', onclick: `toggleProjetEdit(true);setTimeout(()=>document.querySelector('[data-pf=\"Date pose prévue\"]')?.focus(),200)`
+    });
+  }
+
+  // Action 10 : Pose réalisée → PV
+  if (cmdsPosees.length > 0 && tachesPVOuvertes.length > 0) {
+    const t = tachesPVOuvertes[0];
+    actions.push({
+      icon: '📋', urgency: 'med', label: 'Faire signer le PV de réception',
+      hint: 'La pose est terminée. Fais signer le PV de réception client puis marque la tâche terminée.',
+      btn: 'Ouvrir la tâche', onclick: `openTaskEdit('${t.id}')`
+    });
+  }
+
+  // Action 11 : facture solde
+  if (tachesSoldeOuvertes.length > 0 && cmdsPosees.length > 0) {
+    const t = tachesSoldeOuvertes[0];
+    actions.push({
+      icon: '🧾', urgency: 'med', label: 'Émettre la facture de solde',
+      hint: `Tâche "${t.Titre}" — solde dû par le client après pose.`,
+      btn: 'Ouvrir la tâche', onclick: `openTaskEdit('${t.id}')`
+    });
+  }
+
+  // Action 12 : avis Google
+  if (tachesAvisOuvertes.length > 0 && (cmdsPosees.length > 0 || p.Statut === 'Terminé')) {
+    const t = tachesAvisOuvertes[0];
+    actions.push({
+      icon: '⭐', urgency: 'low', label: 'Solliciter l\'avis Google du client',
+      hint: 'Chantier terminé. C\'est le moment de demander un avis Google pour ton SEO.',
+      btn: 'Ouvrir la tâche', onclick: `openTaskEdit('${t.id}')`
+    });
+  }
+
+  // Action transverse : tâches en retard (toujours visible si présent)
+  if (tachesEnRetard.length > 0) {
+    actions.unshift({
+      icon: '⚠', urgency: 'high', label: `${tachesEnRetard.length} tâche${tachesEnRetard.length>1?'s':''} en retard`,
+      hint: 'Une ou plusieurs échéances sont dépassées. Aller voir les tâches du projet.',
+      btn: 'Voir les tâches', onclick: `document.getElementById('zone-taches')?.scrollIntoView({behavior:'smooth'})`
+    });
+  }
+
+  // Si aucune action : projet idle/terminé
+  if (actions.length === 0) {
+    return `<div class="next-actions next-actions-empty">
+      <div class="na-title">🎯 Prochaines actions</div>
+      <div class="na-empty">Tout est à jour sur ce projet — rien d'urgent à faire.${p.Statut === 'Terminé' ? ' Chantier terminé ✓' : ''}</div>
+    </div>`;
+  }
+
+  // Garde max 4 actions (les plus urgentes en haut)
+  const sorted = actions.sort((a,b) => {
+    const order = {high:0, med:1, low:2};
+    return (order[a.urgency]||9) - (order[b.urgency]||9);
+  }).slice(0, 4);
+
+  return `<div class="next-actions">
+    <div class="na-title">🎯 Prochaines actions <span class="na-count">${actions.length}${actions.length > 4 ? ' (top 4)' : ''}</span></div>
+    <div class="na-list">
+      ${sorted.map(a => `
+        <div class="na-item na-${a.urgency}">
+          <div class="na-icon">${a.icon}</div>
+          <div class="na-content">
+            <div class="na-label">${esc(a.label)}</div>
+            <div class="na-hint">${esc(a.hint)}</div>
+          </div>
+          <button type="button" class="na-btn" onclick="${a.onclick}">${a.btn}</button>
+        </div>
+      `).join('')}
+    </div>
+  </div>`;
+}
+
 // ============ BILAN FINANCIER PRÉVISIONNEL ============
 // CA = devis Envoyé/Signé · Coûts auto = commandes fournisseurs + devis artisans HT
 // Rétro-commission 5% Tanguy = 5% du HT artisans (réduit le coût pour Tanguy)
@@ -1332,9 +1781,27 @@ function renderProjetDetail(p){
 
           <div id="zone-stepper">${parcoursStepperHTML(computeParcours(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies), p)}</div>
 
+          <div id="zone-next-actions">${prochainesActionsHTML(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies)}</div>
+
           <div id="zone-bilan">${bilanFinancierHTML(p, devisLies, commandesLiees, devisArtisansLies)}</div>
 
           <h2 id="zone-info" class="zone-title">Informations</h2>
+          ${editing ? (() => {
+            // 2026-05-12 : permet de rattacher un client en mode édition (widget "Lier ce projet à un client").
+            const clientCurrentId = Array.isArray(p.Client) ? (p.Client[0]||'') : '';
+            const clientsSorted = [...DATA.clients].sort((a,b)=>(a.Nom||'').localeCompare(b.Nom||''));
+            return `<div class="form-row" style="margin-bottom:14px">
+              <label class="proj-lbl">Client rattaché</label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <select class="edit-inp" data-pf="Client" data-pf-type="link" style="flex:1;min-width:200px">
+                  <option value="">— Aucun client lié —</option>
+                  ${clientsSorted.map(c => `<option value="${c.id}" ${clientCurrentId===c.id?'selected':''}>${esc(c.Nom||'—')}${c.Téléphone?' · '+esc(c.Téléphone):''}</option>`).join('')}
+                </select>
+                <button type="button" class="abtn" onclick="openClientDetail(null)" title="Créer un nouveau client (sauvegarde puis re-sélectionne)">+ Nouveau client</button>
+              </div>
+              <div style="font-size:10px;color:var(--ink4);margin-top:4px">Si tu crées un nouveau client, sauvegarde-le puis reviens ici pour le sélectionner dans la liste.</div>
+            </div>`;
+          })() : ''}
           <div class="proj-grid">
             <div><span class="proj-lbl">Référence</span>${editing?fld('Référence',p.Référence):'<strong>'+esc(p.Référence||'—')+'</strong>'}</div>
             <div><span class="proj-lbl">Statut</span>${editing?`<select class="edit-inp" data-pf="Statut">${statuts.map(s=>`<option ${p.Statut===s?'selected':''}>${s}</option>`).join('')}</select>`:'<strong>'+esc(p.Statut||'—')+'</strong>'}</div>
@@ -1474,15 +1941,31 @@ function renderProjetDetail(p){
             </div>`;
           }).join('')}</div>` : emptyCTA('Aucun devis artisan', 'Upload un PDF de devis artisan pour le rattacher au chantier et calculer la rétro-commission 5 %.', null, null)}
 
-          <h2 id="zone-taches" class="zone-title" style="margin-top:24px">Tâches (${tachesLiees.length})</h2>
+          <h2 id="zone-taches" class="zone-title" style="margin-top:24px;display:flex;align-items:center;justify-content:space-between">
+            <span>Tâches (${tachesLiees.length})</span>
+            <button class="abtn" type="button" onclick="openTaskEditForProjet('${p.id}')" title="Créer une tâche rattachée à ce projet">+ Nouvelle tâche</button>
+          </h2>
           ${tachesLiees.length ? `<div class="proj-list">${tachesLiees.map(t=>{
             const pc = {'Haute':'b-red','Moyenne':'b-amber','Basse':'b-gray'}[t.Priorité]||'b-gray';
             const sc = {'À faire':'b-gray','En cours':'b-amber','Terminée':'b-green'}[t.Statut]||'b-gray';
-            return `<div class="proj-row">
-              <div><strong>${esc(t.Titre||'—')}</strong> <span class="badge ${pc}">${esc(t.Priorité||'')}</span> <span class="badge ${sc}">${esc(t.Statut||'')}</span></div>
-              <div style="font-size:11px;color:var(--ink2)">${esc(t['Assignée à']||'')} · ${esc(t.Échéance||'')}</div>
+            const today = new Date().toISOString().slice(0,10);
+            const enRetard = t.Statut !== 'Terminée' && t.Échéance && t.Échéance < today;
+            const nextStatut = {'À faire':'En cours','En cours':'Terminée','Terminée':'À faire'}[t.Statut||'À faire'];
+            const nextLabel = {'À faire':'Démarrer','En cours':'Terminer','Terminée':'Réactiver'}[t.Statut||'À faire'];
+            return `<div class="proj-row" style="cursor:pointer" onclick="if(!event.target.closest('.tache-action-btn'))openTaskEdit('${t.id}')" title="Cliquer pour ouvrir / modifier la tâche">
+              <div style="flex:1;min-width:0">
+                <strong>${esc(t.Titre||'—')}</strong>
+                <span class="badge ${pc}">${esc(t.Priorité||'')}</span>
+                <span class="badge ${sc}">${esc(t.Statut||'')}</span>
+                ${enRetard ? '<span class="badge-urg" title="Échéance dépassée">⚠ En retard</span>' : ''}
+                <div style="font-size:11px;color:var(--ink2);margin-top:2px">${esc(t['Assignée à']||'—')} · ${esc(t.Échéance||'sans échéance')}</div>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+                <button type="button" class="tache-action-btn" onclick="event.stopPropagation();cycleTacheStatut('${t.id}')" title="Passer à : ${nextStatut}" style="font-size:11px;padding:3px 8px;border:1px solid var(--border);background:var(--paper);border-radius:4px;cursor:pointer">${esc(nextLabel)}</button>
+                <button type="button" class="tache-action-btn" onclick="event.stopPropagation();deleteTacheFromProjet('${t.id}')" title="Supprimer la tâche" style="font-size:11px;padding:3px 6px;border:1px solid #d8a8a8;background:none;color:#c25656;border-radius:4px;cursor:pointer">🗑</button>
+              </div>
             </div>`;
-          }).join('')}</div>` : emptyCTA('Aucune tâche sur ce chantier', 'Les tâches d\'orchestration (acompte, BC fournisseurs, planif pose) sont créées auto à la signature d\'un devis.', '+ Nouvelle tâche', `openTaskEdit(null)`)}
+          }).join('')}</div>` : emptyCTA('Aucune tâche sur ce chantier', 'Les tâches d\'orchestration (acompte, BC fournisseurs, planif pose) sont créées auto à la signature d\'un devis.', '+ Nouvelle tâche', `openTaskEditForProjet('${p.id}')`)}
 
           <div id="zone-plaud">${projetReunionsSection(p)}</div>
 
@@ -1652,7 +2135,9 @@ async function submitDevisAdditif(){
     fd.append('type', 'Additif');
     const r = await fetch('/api/devis/import', { method: 'POST', body: fd });
     const d = await r.json();
-    if (!r.ok) throw new Error(d.error || 'erreur');
+    // RC Pro 2026 — withKeepAlive backend peut renvoyer 200 avec {error}
+    // (impossible de changer le status après le 1er byte). On check d.error en plus.
+    if (!r.ok || d.error) throw new Error(d.error || 'erreur');
     toastSuccess(`Devis additif créé · ${d.parsed_summary?.lignes||0} lignes`);
     closeModal();
     await loadAll();
@@ -1820,7 +2305,7 @@ function _renderFicheChantier(projetId) {
           </div>` : ''}
 
           <div class="fc-footer no-print" style="margin-top:32px;padding-top:16px;border-top:1px solid var(--border);font-size:11px;color:var(--ink4);text-align:center">
-            Cockpit Tanguy Design — document de travail interne
+            Tanguy Design — document de travail interne
           </div>
         </div>
       </div>
@@ -1857,7 +2342,7 @@ function sendFicheChantier(projetId) {
     ...journalEntries.slice(0, 20).map(e => `  ${e.meta?`[${e.meta}] `:''}${e.text}`),
     journalEntries.length > 20 ? `  … (${journalEntries.length - 20} entrées plus anciennes)` : null,
     ``,
-    `— Cockpit Tanguy Design`
+    `— Tanguy Design`
   ].filter(l => l !== null).join('\n');
 
   const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines)}`;
@@ -1908,8 +2393,9 @@ function projetTOC(p, devisLies, commandesLiees, tachesLiees, devisArtisansLies)
   const tachesEnRetard = tachesLiees.filter(t => t.Statut!=='Terminée' && t.Échéance && t.Échéance < today).length;
   const devisAttente = devisLies.filter(d => d.Statut === 'Envoyé').length;
   const items = [
-    {id:'zone-stepper',  label:'Parcours',         count:''},
-    {id:'zone-bilan',    label:'Bilan financier',  count:''},
+    {id:'zone-stepper',     label:'Parcours',          count:''},
+    {id:'zone-next-actions',label:'Prochaines actions',count:''},
+    {id:'zone-bilan',       label:'Bilan financier',   count:''},
     {id:'zone-info',     label:'Informations',     count:''},
     {id:'zone-devis',    label:'Devis Tanguy',     count:devisLies.length, urgent: devisAttente>0},
     {id:'zone-fact',     label:'Facturation',      count:''},
@@ -1959,12 +2445,15 @@ function projetAttachmentsSection(p, fieldName, hint) {
   const inputId = 'att-upl-' + fieldName.replace(/\s+/g, '-').toLowerCase();
   const items = list.map(a => {
     const ext = (a.filename||'').split('.').pop().toUpperCase().slice(0,4);
+    // Escape JS-safe pour onclick attribut HTML : single quotes + backslashes + newlines.
+    // ⚠ Bug historique 2026-05-12 : JSON.stringify(a.filename) produit du `"..."` qui casse onclick="..." (double quotes imbriquées) → DELETE jamais déclenché.
+    const fnameJs = String(a.filename||'').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
     return `<div class="attach-chip">
       <a href="${a.url}" target="_blank" rel="noopener" class="attach-chip-link" title="${esc(a.filename)} (${(a.size/1024|0)} KB)">
         <span class="attach-ext">${esc(ext)}</span>
         <span class="attach-name">${esc(a.filename)}</span>
       </a>
-      <button class="attach-del" onclick="deleteProjetAttachment('${p.id}','${esc(fieldName)}','${a.id}',${JSON.stringify(a.filename)})" title="Supprimer">×</button>
+      <button class="attach-del" onclick="deleteProjetAttachment('${p.id}','${esc(fieldName)}','${a.id}','${fnameJs}')" title="Supprimer">×</button>
     </div>`;
   }).join('');
   const addBtn = `
@@ -2026,7 +2515,14 @@ async function saveProjet(projetId){
   const fields = {};
   document.querySelectorAll('#projet-detail-view [data-pf]').forEach(inp => {
     const key = inp.dataset.pf;
+    const type = inp.dataset.pfType;
     let v = inp.value;
+    // 2026-05-12 : champs de type "link" (linked record Airtable) → array d'IDs.
+    // Permet de rattacher/changer/délier le client depuis le mode édition projet.
+    if (type === 'link') {
+      fields[key] = v ? [v] : [];
+      return;
+    }
     if (['Budget HT','Marge prévisionnelle'].includes(key)) v = v?parseFloat(v):null;
     if (v !== '' && v !== null) fields[key] = v;
   });
@@ -2304,7 +2800,7 @@ async function uploadArtisanDevis(event, projetId){
     fd.append('projetId', projetId);
     const r = await fetch('/api/artisan-devis/import', { method: 'POST', body: fd });
     const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'Erreur import');
+    if (!r.ok || data.error) throw new Error(data.error || 'Erreur import');
     const s = data.parsed_summary || {};
     let msg = `✅ Devis ${s.numero||''} importé — ${euros(s.montant_ht)} HT · rétro-com ${euros(s.retrocommission)}`;
     if (!data.artisan_matched) msg += `\n⚠️ Artisan "${data.artisan_name||''}" non trouvé dans la base — à lier manuellement.`;
@@ -2501,13 +2997,11 @@ async function openClientDetail(clientId){
           </div>
           <div class="form-row"><label>Notes / Suivi</label><textarea id="cf-Notes" rows="5" placeholder="Suivi commercial, historique, préférences…">${esc(c.Notes||'')}</textarea></div>
 
-          ${!isNew && (linkedProjets.length||linkedDevis.length) ? `
-            <div class="linked-block">
-              <div class="linked-title">Projets liés (${linkedProjets.length})</div>
-              ${linkedProjets.length ? linkedProjets.map(p=>`<div class="linked-item" onclick="closeClientDetail();openProjetDetail('${p.id}')">${esc(p.Référence||'—')} <span style="color:var(--ink4)">· ${esc(p.Statut||'')}</span></div>`).join('') : '<div class="muted" style="font-size:11px;color:var(--ink4)">Aucun</div>'}
-              <div class="linked-title" style="margin-top:14px">Devis liés (${linkedDevis.length})</div>
-              ${linkedDevis.length ? linkedDevis.map(d=>`<div class="linked-item" onclick="closeClientDetail();switchTab('devis');openDevisDetail('${d.id}')">${esc(d['Numéro devis']||'—')} <span style="color:var(--ink4)">· ${euros(d['Total TTC'])}</span></div>`).join('') : '<div class="muted" style="font-size:11px;color:var(--ink4)">Aucun</div>'}
-            </div>` : ''}
+          ${!isNew ? `
+            <div class="linked-block" id="client-linked-block">
+              ${renderClientLinkedBlock(clientId)}
+            </div>` : `
+            <div class="muted" style="font-size:11px;color:var(--ink4);background:var(--paper);padding:8px 10px;border-radius:4px">💡 Une fois le client créé, tu pourras lui rattacher des projets depuis cette modale.</div>`}
         </div>
         <div class="modal-foot">
           ${!isNew?`<button class="btn-danger" onclick="deleteClient('${clientId}')">Supprimer</button>`:'<span></span>'}
@@ -2523,6 +3017,101 @@ async function openClientDetail(clientId){
   host.innerHTML = html;
 }
 function closeClientDetail(){ const h=document.getElementById('client-modal-host'); if(h)h.innerHTML=''; }
+
+// ============ RATTACHEMENT BIDIRECTIONNEL CLIENT ↔ PROJET ============
+// 2026-05-12 — Permet de rattacher/délier des projets depuis la fiche client (modale).
+// Côté projet (fiche projet) : déjà fait via le sélecteur dans le mode édition projet.
+// Le rattachement est stocké côté Projet (champ Client = [clientId]) — on PATCH le projet
+// même quand on agit depuis la fiche client. Cela maintient une source de vérité unique.
+
+function renderClientLinkedBlock(clientId) {
+  const linkedDevis = DATA.devis.filter(d => Array.isArray(d.Client) && d.Client.includes(clientId));
+  const linkedProjets = DATA.projets.filter(p => Array.isArray(p.Client) && p.Client.includes(clientId));
+  // Projets disponibles à rattacher (tous sauf déjà liés à CE client, triés par référence)
+  const projetsDispos = DATA.projets
+    .filter(p => !Array.isArray(p.Client) || !p.Client.includes(clientId))
+    .sort((a,b) => (a.Référence||'').localeCompare(b.Référence||''));
+  return `
+    <div class="linked-title">Projets liés (${linkedProjets.length})</div>
+    ${linkedProjets.length ? linkedProjets.map(p => `
+      <div class="linked-item" style="display:flex;align-items:center;gap:8px;justify-content:space-between">
+        <span style="flex:1;cursor:pointer" onclick="closeClientDetail();openProjetDetail('${p.id}')" title="Ouvrir le projet">
+          ${esc(p.Référence||'—')} <span style="color:var(--ink4)">· ${esc(p.Statut||'')}</span>${p['Budget HT']?` <span style="color:var(--ink4)">· ${euros(p['Budget HT'])}</span>`:''}
+        </span>
+        <button type="button" class="abtn" style="font-size:11px;padding:2px 8px;border-color:#e0a8a8;color:#c25656" onclick="detachProjetFromClient('${p.id}','${clientId}')" title="Délier ce projet du client (le projet n'est pas supprimé)">× Délier</button>
+      </div>
+    `).join('') : '<div class="muted" style="font-size:11px;color:var(--ink4);padding:4px 0">Aucun projet rattaché à ce client.</div>'}
+    <div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <select id="client-attach-projet-select" style="flex:1;min-width:180px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:4px;background:#fff">
+        <option value="">— Rattacher un projet existant —</option>
+        ${projetsDispos.map(p => {
+          const otherClientId = Array.isArray(p.Client) && p.Client[0] ? p.Client[0] : null;
+          const otherClient = otherClientId ? DATA.clients.find(c => c.id === otherClientId) : null;
+          const hint = otherClient ? ` (actuellement : ${(otherClient.Nom||'').slice(0,20)})` : '';
+          return `<option value="${p.id}">${esc(p.Référence||'—')}${esc(hint)}</option>`;
+        }).join('')}
+      </select>
+      <button type="button" class="abtn primary" style="font-size:11px;padding:5px 10px" onclick="attachProjetToClient(document.getElementById('client-attach-projet-select').value, '${clientId}')">Rattacher</button>
+      <button type="button" class="abtn" style="font-size:11px;padding:5px 10px" onclick="openNewProjetForClient('${clientId}')" title="Crée un nouveau projet déjà lié à ce client">+ Nouveau projet</button>
+    </div>
+    <div class="linked-title" style="margin-top:14px">Devis liés (${linkedDevis.length})</div>
+    ${linkedDevis.length ? linkedDevis.map(d => `<div class="linked-item" onclick="closeClientDetail();switchTab('devis');openDevisDetail('${d.id}')">${esc(d['Numéro devis']||'—')} <span style="color:var(--ink4)">· ${euros(d['Total TTC'])}</span></div>`).join('') : '<div class="muted" style="font-size:11px;color:var(--ink4);padding:4px 0">Aucun devis (créés auto via les projets liés).</div>'}
+  `;
+}
+
+async function attachProjetToClient(projetId, clientId) {
+  if (!projetId) { toastError('Sélectionne un projet dans la liste'); return; }
+  const p = DATA.projets.find(x => x.id === projetId);
+  if (!p) { toastError('Projet introuvable'); return; }
+  const wasLinked = Array.isArray(p.Client) && p.Client.length > 0 && p.Client[0] !== clientId;
+  if (wasLinked) {
+    const other = DATA.clients.find(c => c.id === p.Client[0]);
+    if (!confirm(`Le projet « ${p.Référence||'—'} » est actuellement lié à ${other?.Nom||'un autre client'}.\n\nÉcraser et le rattacher au client courant ?`)) return;
+  }
+  showLoader('Rattachement…');
+  try {
+    const r = await fetch('/api/data/projets/'+projetId, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({fields:{Client: [clientId]}})
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'erreur');
+    toastSuccess(`Projet « ${p.Référence||'—'} » rattaché`);
+    await loadAll();
+    const block = document.getElementById('client-linked-block');
+    if (block) block.innerHTML = renderClientLinkedBlock(clientId);
+  } catch(e) { toastError('Erreur : '+e.message); }
+  finally { hideLoader(); }
+}
+
+async function detachProjetFromClient(projetId, clientId) {
+  const p = DATA.projets.find(x => x.id === projetId);
+  if (!p) return;
+  if (!confirm(`Délier le projet « ${p.Référence||'—'} » de ce client ?\n\nLe projet n'est PAS supprimé, juste détaché. Tu pourras le rerattacher plus tard.`)) return;
+  showLoader('Détachement…');
+  try {
+    const r = await fetch('/api/data/projets/'+projetId, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({fields:{Client: []}})
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'erreur');
+    toastSuccess(`Projet « ${p.Référence||'—'} » délié`);
+    await loadAll();
+    const block = document.getElementById('client-linked-block');
+    if (block) block.innerHTML = renderClientLinkedBlock(clientId);
+  } catch(e) { toastError('Erreur : '+e.message); }
+  finally { hideLoader(); }
+}
+
+// Crée un nouveau projet déjà lié au client courant.
+// Le hint global est lu par saveModal après création (PATCH du projet créé avec Client=[clientId]).
+function openNewProjetForClient(clientId) {
+  window.NEW_PROJET_CLIENT_HINT = clientId;
+  closeClientDetail();
+  switchTab('projets');
+  openModal('projets');
+}
 
 async function saveClient(clientId){
   const fields = {};
@@ -2668,7 +3257,7 @@ function openTaskEdit(taskId){
   host.innerHTML = html;
   document.body.appendChild(host);
 }
-function closeTaskEdit(){ document.getElementById('task-edit-host')?.remove(); }
+function closeTaskEdit(){ document.getElementById('task-edit-host')?.remove(); NEW_TASK_PROJET_HINT = null; }
 async function saveTaskEdit(taskId){
   const fields = {
     Titre: document.getElementById('te-Titre').value.trim(),
@@ -2679,6 +3268,10 @@ async function saveTaskEdit(taskId){
     Échéance: document.getElementById('te-Echeance').value || null,
   };
   if (!fields.Titre) { toastError('Titre obligatoire'); return; }
+  // 2026-05-12 : lier auto au projet si on a ouvert la modale depuis une fiche projet.
+  if (!taskId && NEW_TASK_PROJET_HINT) {
+    fields.Projet = [NEW_TASK_PROJET_HINT];
+  }
   try {
     const url = taskId ? '/api/data/taches/'+taskId : '/api/data/taches';
     const method = taskId ? 'PATCH' : 'POST';
@@ -2687,6 +3280,13 @@ async function saveTaskEdit(taskId){
     toastSuccess(taskId?'Tâche mise à jour':'Tâche créée');
     closeTaskEdit();
     await loadAll();
+    // Si on était sur la fiche projet (création depuis le projet OU édition d'une tâche liée), refresh
+    const projetView = document.getElementById('projet-detail-view');
+    if (projetView && projetView.style.display !== 'none' && CURRENT_PROJET_ID) {
+      const p = DATA.projets.find(x => x.id === CURRENT_PROJET_ID);
+      if (p) renderProjetDetail(p);
+    }
+    NEW_TASK_PROJET_HINT = null;
   } catch(e) { toastError('Erreur : '+e.message); }
 }
 async function deleteTask(taskId){
@@ -2698,6 +3298,64 @@ async function deleteTask(taskId){
     closeTaskEdit();
     await loadAll();
   } catch(e) { toastError('Erreur : '+e.message); }
+}
+
+// ============ ACTIONS TÂCHES DEPUIS LA FICHE PROJET ============
+// 2026-05-12 : JMG signale qu'on ne peut ni cycler le statut, ni supprimer une tâche depuis la fiche projet.
+// Avec ces helpers, on peut tout faire sans quitter la page projet ET le stepper se met à jour.
+
+// Cycle le statut d'une tâche À faire → En cours → Terminée → À faire.
+// Si on est sur la fiche projet, refresh la fiche (sinon refresh kanban).
+async function cycleTacheStatut(taskId){
+  const t = DATA.taches.find(x=>x.id===taskId);
+  if (!t) return;
+  const next = {'À faire':'En cours','En cours':'Terminée','Terminée':'À faire'}[t.Statut||'À faire'];
+  t.Statut = next; // optimistic
+  // Refresh immédiat de la vue active
+  const projetView = document.getElementById('projet-detail-view');
+  if (projetView && projetView.style.display !== 'none' && CURRENT_PROJET_ID) {
+    const p = DATA.projets.find(x => x.id === CURRENT_PROJET_ID);
+    if (p) renderProjetDetail(p);
+  } else if (typeof renderTaches === 'function') {
+    renderTaches();
+  }
+  try {
+    const r = await fetch('/api/data/taches/'+taskId, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{Statut:next}})});
+    if (!r.ok) throw new Error((await r.json()).error||'erreur');
+    // Refresh propre pour recalculer stepper avec toutes les données du serveur
+    await loadAll();
+    if (projetView && projetView.style.display !== 'none' && CURRENT_PROJET_ID) {
+      const p = DATA.projets.find(x => x.id === CURRENT_PROJET_ID);
+      if (p) renderProjetDetail(p);
+    } else if (typeof renderTaches === 'function') {
+      renderTaches();
+    }
+  } catch(e) { toastError('Erreur : '+e.message); await loadAll(); }
+}
+
+// Supprime une tâche depuis la fiche projet (sans passer par la modale d'édition).
+async function deleteTacheFromProjet(taskId){
+  const t = DATA.taches.find(x=>x.id===taskId);
+  const titre = t?.Titre || 'cette tâche';
+  if (!confirm(`Supprimer la tâche "${titre}" ?`)) return;
+  try {
+    const r = await fetch('/api/data/taches/'+taskId, {method:'DELETE'});
+    if (!r.ok) throw new Error((await r.json()).error||'erreur');
+    toastSuccess('Tâche supprimée');
+    await loadAll();
+    const projetView = document.getElementById('projet-detail-view');
+    if (projetView && projetView.style.display !== 'none' && CURRENT_PROJET_ID) {
+      const p = DATA.projets.find(x => x.id === CURRENT_PROJET_ID);
+      if (p) renderProjetDetail(p);
+    }
+  } catch(e) { toastError('Erreur : '+e.message); }
+}
+
+// Hint pour créer une nouvelle tâche déjà liée au projet courant.
+let NEW_TASK_PROJET_HINT = null;
+function openTaskEditForProjet(projetId){
+  NEW_TASK_PROJET_HINT = projetId;
+  openTaskEdit(null);
 }
 async function reassignTask(taskId, newPerson){
   const t = DATA.taches.find(x=>x.id===taskId);
@@ -2719,6 +3377,17 @@ async function dropTask(ev, newStatut){
   renderTaches();
   try {
     await fetch('/api/data/taches/'+rid, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{Statut:newStatut}})});
+    // Bidirectionnel : si la tâche est liée à un projet, rafraîchir le stepper de ce projet
+    // (le stepper computeParcours lit le statut des tâches "Acompte", "Facture solde", "PV", "Avis").
+    if (Array.isArray(task.Projet) && task.Projet[0]) {
+      // Recharger la donnée puis re-rendre la fiche projet si elle est ouverte
+      await loadAll();
+      const projetView = document.getElementById('projet-detail-view');
+      if (projetView && projetView.style.display !== 'none' && typeof renderProjetDetail === 'function') {
+        const p = DATA.projets.find(x => x.id === task.Projet[0]);
+        if (p) renderProjetDetail(p);
+      }
+    }
   } catch(e) { toastError('Erreur : '+e.message); await loadAll(); }
 }
 function renderSAV(){
@@ -3033,6 +3702,40 @@ function toggleDevisEdit(on){
   renderDevisDetail(DEVIS_CURRENT);
 }
 
+// Changement de statut devis (Brouillon ↔ Envoyé ↔ Annulé). Ne PASSE PAS par signDevis
+// car celui-ci déclenche aussi la création des commandes et le passage projet en Commandes.
+// Pour le statut "Signé", il faut OBLIGATOIREMENT signDevis (pipeline complet).
+async function setDevisStatut(devisId, statut) {
+  if (statut === 'Signé') return signDevis(devisId); // garde-fou
+  const conf = statut === 'Annulé'
+    ? confirm(`Marquer ce devis comme "Annulé" ?\n\n(Le devis reste visible mais ne compte plus dans les KPIs.)`)
+    : true;
+  if (!conf) return;
+  showLoader(`Mise à jour statut → ${statut}…`);
+  try {
+    const r = await fetch('/api/data/devis/'+devisId, {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({fields:{Statut: statut}})
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'erreur');
+    hideLoader();
+    toastSuccess(`Statut devis → ${statut}`);
+    await loadAll();
+    // Re-render le détail devis (pour rafraîchir les boutons selon nouveau statut)
+    await openDevisDetail(devisId);
+    // Si une fiche projet est ouverte, la rafraîchir aussi (stepper bouge)
+    const projet = (DATA.devis.find(x => x.id === devisId)||{})['Projet'];
+    if (projet && projet[0]) {
+      const p = DATA.projets.find(x => x.id === projet[0]);
+      if (p && typeof renderProjetDetail === 'function' && document.getElementById('projet-detail-view') && document.getElementById('projet-detail-view').style.display !== 'none') {
+        renderProjetDetail(p);
+      }
+    }
+  } catch(e) { hideLoader(); toastError('Erreur : '+e.message); }
+}
+
 async function signDevis(devisId){
   if (!confirm('Signer ce bon de commande ?\n\nCela va :\n- Passer le statut en SIGNÉ\n- Générer les commandes fournisseurs par catégorie\n- Créer les tâches de suivi (acompte, commandes, pose)\n- Passer le projet en statut "Commandes"')) return;
   showLoader('Signature en cours…');
@@ -3172,12 +3875,33 @@ function renderDevisDetail(data){
       </tr>`).join('')}</tbody>
     </table>` : '';
 
-  const isSigned = dv.Statut === 'Signé';
+  const statut = dv.Statut || 'Brouillon';
+  const isSigned = statut === 'Signé';
+  // Statuts cyclables : Brouillon → Envoyé → Signé / Annulé. Boutons contextuels.
+  const statusActions = editing ? '' : (() => {
+    const btns = [];
+    if (statut === 'Brouillon') {
+      btns.push(`<button class="btn-ghost" onclick="setDevisStatut('${devisId}','Envoyé')" title="Marquer envoyé au client">📤 Envoyé</button>`);
+      btns.push(`<button class="btn-primary" onclick="signDevis('${devisId}')" title="Signature client + génère commandes + tâches + passe projet en Commandes">✓ Signer ce BC</button>`);
+    } else if (statut === 'Envoyé') {
+      btns.push(`<button class="btn-ghost" onclick="setDevisStatut('${devisId}','Brouillon')" title="Repasser en brouillon">↩ Brouillon</button>`);
+      btns.push(`<button class="btn-primary" onclick="signDevis('${devisId}')" title="Signature client + génère commandes + tâches">✓ Signer ce BC</button>`);
+    } else if (statut === 'Signé') {
+      btns.push(`<span style="font-size:12px;color:var(--green);font-weight:600">✓ BC signé · commandes générées</span>`);
+    } else if (statut === 'Annulé') {
+      btns.push(`<button class="btn-ghost" onclick="setDevisStatut('${devisId}','Brouillon')" title="Réactiver le devis">↻ Réactiver</button>`);
+    }
+    // Annuler dispo sauf si déjà annulé
+    if (statut !== 'Annulé' && statut !== 'Signé') {
+      btns.push(`<button class="btn-ghost" onclick="setDevisStatut('${devisId}','Annulé')" style="color:var(--ink3)" title="Annuler ce devis">✕ Annuler</button>`);
+    }
+    return btns.join('');
+  })();
   const actionsBar = editing
     ? `<div style="display:flex;gap:8px"><button class="btn-primary" onclick="saveDevisEdits()">Enregistrer</button><button class="btn-ghost" onclick="toggleDevisEdit(false)">Annuler</button></div>`
     : `<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
         <button class="btn-ghost" onclick="toggleDevisEdit(true)">Modifier</button>
-        ${isSigned ? '' : `<button class="btn-primary" onclick="signDevis('${devisId}')">✓ Signer ce BC</button>`}
+        ${statusActions}
         <button class="btn-danger" onclick="deleteDevis('${devisId}','${esc(dv['Numéro devis']||'ce devis')}')">Supprimer</button>
       </div>`;
 
@@ -3315,7 +4039,7 @@ async function doImportDevisPdf(file, projetId){
     if (projetId) fd.append('projetId', projetId);
     const r = await fetch('/api/devis/import', {method:'POST', body:fd});
     const d = await r.json();
-    if (!r.ok) throw new Error(d.error||'Erreur parsing');
+    if (!r.ok || d.error) throw new Error(d.error||'Erreur parsing');
     hideLoader();
     toastSuccess(`Devis ${d.parsed_summary.numero} importé · ${d.parsed_summary.lignes} lignes · ${euros(d.parsed_summary.total_ttc)}`);
     await loadAll();
@@ -3501,7 +4225,7 @@ async function submitPlaud(){
     if (niveau) payload.niveau = niveau;
     const r = await fetch('/api/plaud/parse', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d = await r.json();
-    if (!r.ok) throw new Error(d.error||'Erreur');
+    if (!r.ok || d.error) throw new Error(d.error||'Erreur');
     toastSuccess(`Transcription ${d.niveau||''} analysée et liée au projet`);
     await loadAll();
     // Si on était sur la fiche projet, refresh
@@ -3645,6 +4369,7 @@ function closeModal(){
   currentModalRecordId = null;
   const delBtn = document.getElementById('modalDeleteBtn');
   if (delBtn) delBtn.style.display = 'none';
+  window.NEW_PROJET_CLIENT_HINT = null; // reset hint pour ne pas polluer la prochaine ouverture
 }
 
 async function submitModal(){
@@ -3677,6 +4402,23 @@ async function submitModal(){
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error||'erreur');
+
+    // 2026-05-12 : rattachement auto au client si on a ouvert la modale depuis une fiche client.
+    if (currentModalTable === 'projets' && !currentModalRecordId && window.NEW_PROJET_CLIENT_HINT && d.record?.id) {
+      const clientHint = window.NEW_PROJET_CLIENT_HINT;
+      window.NEW_PROJET_CLIENT_HINT = null;
+      try {
+        await fetch('/api/data/projets/'+d.record.id, {
+          method:'PATCH',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({fields:{Client: [clientHint]}})
+        });
+        const cli = DATA.clients.find(c => c.id === clientHint);
+        toastSuccess(`Projet créé et rattaché à ${cli?.Nom||'le client'}`);
+      } catch(e) {
+        toastError('Projet créé mais rattachement client échoué : '+e.message);
+      }
+    }
 
     // Enrichissement Plaud (uniquement à la création d'un projet)
     if (currentModalTable === 'projets' && !currentModalRecordId) {
@@ -3747,5 +4489,5 @@ async function deleteFromModal(){
 $('#modalBg').addEventListener('click', e => { if (e.target === $('#modalBg')) closeModal(); });
 
 // ============ INIT ============
-loadAll();
-setInterval(loadAll, 2*60*1000); // refresh 2 min
+loadAll().then(() => startGlobalPolling());
+// 2026-05-12 : remplacé setInterval(loadAll, 2min) par startGlobalPolling() (30s + guards édition + visibilitychange).
