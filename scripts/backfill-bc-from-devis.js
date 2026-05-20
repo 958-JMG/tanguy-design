@@ -196,18 +196,24 @@ function buildDetailsFromZone(z) {
     const allLignes = lignesByDevisId.get(d.id) || [];
     const lignesType = allLignes.filter(l => acceptedCategories.includes(l.fields.Catégorie));
 
-    // Lignes BC structurées — on nettoie la description en extrayant les blocs L:/H:/P:
-    // qui sont collés à la fin par le parser Winner, et on les place sur leur propre ligne.
+    // Lignes BC structurées — on nettoie la description du parser Winner :
+    //  - retire TOUS les blocs "L: NNN, H: NNN, P: NNN" (incrustés au milieu sans séparation)
+    //  - retire les blocs "H: NN, H: NN" / "L: NN" répétés
+    //  - sépare "Modèle:" / "Couleurs modifiées" / "Façade redéfinie" sur leurs propres lignes
     const lignesStructured = lignesType.map(l => {
       const f = l.fields;
       let desc = String(f.Désignation || '');
       const largeurMm = f['Largeur mm'] || null;
       const hauteurMm = f['Hauteur mm'] || null;
       const profondeurMm = f['Profondeur mm'] || null;
-      // Retire le bloc "L: NNN, H: NNN, P: NNN" final s'il est présent (Winner le double dans la désignation)
-      desc = desc.replace(/\s*L\s*:\s*\d+\s*,?\s*H\s*:\s*\d+\s*,?\s*P\s*:\s*\d+\s*$/i, '').trim();
-      // Si Modèle override / Couleurs modifiées / etc. sont collés à la fin, on les sépare
-      desc = desc.replace(/(Modèle:\s)/g, '\n$1');
+      // 1. Supprimer TOUS les blocs L: H: P: (les dimensions sont dans les champs séparés)
+      desc = desc.replace(/\s*L\s*:\s*\d+\s*,?\s*H\s*:\s*\d+\s*,?\s*P\s*:\s*\d+/gi, ' ');
+      // 2. Supprimer les blocs "H: NNN" répétés isolés (gorges Winner)
+      desc = desc.replace(/\s*(?:^|\s)(?:[LHP]\s*:\s*\d+\s*,?\s*){1,3}(?=[A-ZÉ]|$)/gi, ' ');
+      // 3. Insérer des sauts de ligne avant les marqueurs structurels Winner
+      desc = desc.replace(/(Modèle:|Couleurs modifiées|Façade redéfinie|Hauteur =|Profondeur =|Largeur =|Direction =|Exécution de façade|Coloris de façade|Finition de gorges|Coloris de côté|Finition d'éléments|Finition étagères)/g, '\n$1');
+      // 4. Compacter les espaces multiples et nettoyer
+      desc = desc.replace(/[ \t]+/g, ' ').replace(/\n\s*/g, '\n').replace(/\n{2,}/g, '\n').trim();
       return {
         pos: String(f.Position || ''),
         code: String(f['Code produit'] || ''),
