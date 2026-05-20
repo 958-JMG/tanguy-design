@@ -157,11 +157,14 @@ app.use(helmet({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// sameSite=strict : mitigation CSRF (cf. ADR-002).
+// L'app n'est jamais accédée via lien externe — un user qui arrive via mail/signet doit re-login.
+// Le webhook SAV sortant (proxy /api/sav-webhook) n'est pas affecté (appel serveur→n8n, pas inverse).
 app.use(session({
   name: 'tanguy.sid',
   keys: [process.env.SESSION_SECRET || SESSION_SECRET_FALLBACK],
   httpOnly: true,
-  sameSite: 'lax',
+  sameSite: 'strict',
   secure: IS_PROD, // HTTPS only en prod
   maxAge: 1000 * 60 * 60 * 24 * 30
 }));
