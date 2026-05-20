@@ -5,7 +5,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "hash": "node scripts/hash-password.js"
+    "hash": "node scripts/hash-password.js",
+    "test": "node --test services/*.test.js",
+    "test:watch": "node --test --watch services/*.test.js",
+    "smoke": "node --check server.js && echo '✅ syntax OK'"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.1",
