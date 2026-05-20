@@ -9,7 +9,7 @@ import { renderAdmin } from '../views/admin.js';
 
 export function navigateTo(route, params = {}) {
   let hash = '#' + route;
-  if (params.id) hash += '/' + params.id;
+  if (params.id) hash += '/' + encodeURIComponent(params.id);
   if (location.hash !== hash) location.hash = hash;
   else router(); // forcer re-render si même route
 }
@@ -30,7 +30,7 @@ export function router() {
     switch (route) {
       case 'dashboard':        return renderDashboard(app);
       case 'clients':          return rest.length ? renderClientDetail(app, rest[0]) : renderClientsList(app);
-      case 'pipeline':         return renderPipeline(app);
+      case 'pipeline':         return renderPipeline(app, rest.length ? decodeURIComponent(rest.join('/')) : null);
       case 'calendar':         return renderCalendar(app);
       case 'admin':            return renderAdmin(app);
       default:                 return renderDashboard(app);

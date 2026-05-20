@@ -28,9 +28,14 @@ export function renderDashboard(app) {
 
   const caTotal = projets.reduce((sum, p) => sum + (p['Budget HT'] || 0), 0);
 
-  const margeAvg = projets.length
-    ? projets.reduce((sum, p) => sum + (p['Marge prévisionnelle'] || 0), 0) / projets.length
+  // Marge prévisionnelle peut être stockée en décimal (0.25) ou pourcent entier (25)
+  // selon comment elle est saisie côté Airtable. On normalise sur 0-1 avant de multiplier par 100.
+  const margesValides = projets.map(p => p['Marge prévisionnelle']).filter(m => m != null && !isNaN(m));
+  const margeAvgRaw = margesValides.length
+    ? margesValides.reduce((sum, m) => sum + m, 0) / margesValides.length
     : 0;
+  // Si la moyenne brute > 1, c'est qu'on est en notation pourcent entier → ne pas re-multiplier
+  const margeAvgPct = margeAvgRaw > 1 ? margeAvgRaw : margeAvgRaw * 100;
 
   // Compteurs par phase (fallback Statut legacy si Phase commerciale absente)
   const countByPhase = {};
@@ -69,7 +74,7 @@ export function renderDashboard(app) {
         <div class="kpi-label">CA cumul prévi</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-value">${margeAvg ? (margeAvg * 100).toFixed(1) + '%' : '—'}</div>
+        <div class="kpi-value">${margesValides.length ? margeAvgPct.toFixed(1) + ' %' : '—'}</div>
         <div class="kpi-label">Marge prévi moyenne</div>
       </div>
     </div>
