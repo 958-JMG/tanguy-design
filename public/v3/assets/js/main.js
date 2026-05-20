@@ -8,9 +8,13 @@ import { state, loadMe } from './core/state.js';
 import { fetchClients, fetchProjets } from './core/api.js';
 import { openSearch } from './core/search.js';
 import { hydrateIcons } from './core/lucide.js';
+import { openSupport } from './core/support.js';
 
 // Hydrater les icônes de la coquille HTML (data-icon) dès chargement du module
 hydrateIcons(document);
+
+// Bouton flottant support
+document.getElementById('support-btn')?.addEventListener('click', openSupport);
 
 // Exposés en global pour les onclick="" inline du HTML squelette
 window.navigateTo = navigateTo;

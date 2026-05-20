@@ -1,17 +1,221 @@
-// Calendar v3 — Sprint 3 (stub Sprint 1)
+// Calendar v3 (Sprint 3) — calendrier mensuel avec drag-and-drop sur les périodes de pose.
+// Pas de lib externe — grille HTML 7×6 + HTML5 drag-and-drop natif.
 
+import { state } from '../core/state.js';
+import { navigateTo } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
+import { patchProjet } from '../core/api.js';
+
+const MOIS_NOMS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+const JOURS = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+}
+
+function toISODate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+function parseISODate(s) {
+  if (!s) return null;
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function diffDays(d1, d2) {
+  return Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+}
+
+// Construit la liste des événements pour le mois affiché
+function buildEvents(year, month) {
+  const debutMois = new Date(year, month, 1);
+  const finMois   = new Date(year, month + 1, 0);
+  const events = [];
+
+  // Projets : période pose (Date pose prévue → Date pose fin, défaut +5j si fin manquante)
+  for (const p of state.projets || []) {
+    const dStart = parseISODate(p['Date pose prévue']);
+    if (!dStart) continue;
+    const dEnd = parseISODate(p['Date pose fin']) || new Date(dStart.getTime() + 5 * 86400000);
+    if (dEnd < debutMois || dStart > finMois) continue;
+    events.push({
+      type: 'pose',
+      id: p.id,
+      titre: p.Référence || '?',
+      start: dStart,
+      end: dEnd,
+      color: 'accent',
+      draggable: true,
+    });
+  }
+
+  return events;
+}
 
 export function renderCalendar(app) {
-  app.innerHTML = `
-    <h1 class="page-title">Calendar</h1>
-    <div class="card">
-      <p class="muted muted-with-icon">${icon('construction', 14)}
-        Calendar interactif avec drag-and-drop sur les périodes de pose
-        à venir <strong>Sprint 3</strong>. Intégration FullCalendar.js + rétro-planning
-        auto (J-3,5 mois commandes, J-1,5 mois rappel planif chantier).
+  // État local : mois affiché (par défaut : mois courant)
+  const today = new Date();
+  let curYear = today.getFullYear();
+  let curMonth = today.getMonth();
+
+  function draw() {
+    const events = buildEvents(curYear, curMonth);
+    const debutMois = new Date(curYear, curMonth, 1);
+    const finMois   = new Date(curYear, curMonth + 1, 0);
+    // Décalage lundi = 0 (au lieu de dimanche)
+    let firstDay = debutMois.getDay() - 1; if (firstDay < 0) firstDay = 6;
+    const nbJours = finMois.getDate();
+    const nbCases = Math.ceil((firstDay + nbJours) / 7) * 7;
+
+    // Map événements par jour ISO
+    const eventsParJour = new Map();
+    for (const ev of events) {
+      let d = new Date(ev.start);
+      while (d <= ev.end) {
+        const iso = toISODate(d);
+        if (!eventsParJour.has(iso)) eventsParJour.set(iso, []);
+        eventsParJour.get(iso).push({
+          ...ev,
+          isStart: d.getTime() === ev.start.getTime(),
+          isEnd: d.getTime() === ev.end.getTime(),
+        });
+        d.setDate(d.getDate() + 1);
+      }
+    }
+
+    app.innerHTML = `
+      <div class="page-header">
+        <h1 class="page-title">Calendar</h1>
+        <div class="cal-nav">
+          <button class="btn btn-ghost btn-sm" id="cal-prev">${icon('arrowLeft', 14)}</button>
+          <strong class="cal-title">${MOIS_NOMS[curMonth]} ${curYear}</strong>
+          <button class="btn btn-ghost btn-sm" id="cal-next">${icon('arrowRight', 14)}</button>
+          <button class="btn btn-ghost btn-sm" id="cal-today">Aujourd'hui</button>
+        </div>
+      </div>
+
+      <div class="cal-legend">
+        <span class="legend-dot color-accent"></span> Pose chantier
+        <span class="muted" style="margin-left:16px">Glisse la barre verte pour déplacer une pose.</span>
+      </div>
+
+      <div class="cal-grid">
+        <div class="cal-header">
+          ${JOURS.map(j => `<div class="cal-header-day">${j}</div>`).join('')}
+        </div>
+        <div class="cal-body">
+          ${Array.from({ length: nbCases }, (_, i) => {
+            const dayNum = i - firstDay + 1;
+            const isInMonth = dayNum >= 1 && dayNum <= nbJours;
+            const dayDate = isInMonth ? new Date(curYear, curMonth, dayNum) : null;
+            const iso = dayDate ? toISODate(dayDate) : '';
+            const isToday = dayDate && toISODate(dayDate) === toISODate(today);
+            const evs = eventsParJour.get(iso) || [];
+            return `
+            <div class="cal-cell ${isInMonth ? '' : 'cal-cell-empty'} ${isToday ? 'is-today' : ''}" data-iso="${iso}">
+              ${isInMonth ? `<div class="cal-day-num">${dayNum}</div>` : ''}
+              ${evs.slice(0, 3).map(ev => `
+                <button class="cal-event color-${ev.color} ${ev.isStart ? 'is-start' : ''} ${ev.isEnd ? 'is-end' : ''}"
+                        draggable="${ev.draggable}"
+                        data-id="${ev.id}"
+                        data-type="${ev.type}"
+                        data-start="${toISODate(ev.start)}"
+                        data-end="${toISODate(ev.end)}"
+                        title="${esc(ev.titre)} (${toISODate(ev.start)} → ${toISODate(ev.end)})">
+                  ${ev.isStart ? esc(ev.titre) : '·'}
+                </button>
+              `).join('')}
+              ${evs.length > 3 ? `<div class="cal-more muted">+ ${evs.length - 3}</div>` : ''}
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <p class="muted muted-with-icon" style="margin-top:16px">${icon('construction', 14)}
+        Réunions Plaud (R1/R2), commandes fournisseurs et tâches sur le calendar
+        à venir Sprint 4. Aujourd'hui : seules les périodes de pose sont affichées.
       </p>
-    </div>
-  `;
-  hydrateIcons(app);
+    `;
+
+    hydrateIcons(app);
+
+    // Bindings navigation
+    document.getElementById('cal-prev').onclick = () => { curMonth--; if (curMonth < 0) { curMonth = 11; curYear--; } draw(); };
+    document.getElementById('cal-next').onclick = () => { curMonth++; if (curMonth > 11) { curMonth = 0; curYear++; } draw(); };
+    document.getElementById('cal-today').onclick = () => { curYear = today.getFullYear(); curMonth = today.getMonth(); draw(); };
+
+    // Click event → navigate
+    app.querySelectorAll('.cal-event').forEach(el => {
+      el.addEventListener('click', e => {
+        if (e.target.classList.contains('dragging')) return;
+        const id = el.dataset.id;
+        if (el.dataset.type === 'pose') navigateTo('projet', { id });
+      });
+    });
+
+    // Drag & drop
+    let dragData = null;
+    app.querySelectorAll('.cal-event[draggable="true"]').forEach(el => {
+      el.addEventListener('dragstart', e => {
+        dragData = {
+          id: el.dataset.id,
+          type: el.dataset.type,
+          start: el.dataset.start,
+          end: el.dataset.end,
+          startNum: parseISODate(el.dataset.start).getTime(),
+        };
+        el.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      el.addEventListener('dragend', () => {
+        el.classList.remove('dragging');
+        dragData = null;
+        app.querySelectorAll('.cal-cell.drag-over').forEach(c => c.classList.remove('drag-over'));
+      });
+    });
+
+    app.querySelectorAll('.cal-cell:not(.cal-cell-empty)').forEach(cell => {
+      cell.addEventListener('dragover', e => {
+        if (!dragData) return;
+        e.preventDefault();
+        cell.classList.add('drag-over');
+      });
+      cell.addEventListener('dragleave', () => cell.classList.remove('drag-over'));
+      cell.addEventListener('drop', async e => {
+        e.preventDefault();
+        cell.classList.remove('drag-over');
+        if (!dragData) return;
+        const newStartIso = cell.dataset.iso;
+        if (newStartIso === dragData.start) return; // aucun changement
+        const newStart = parseISODate(newStartIso);
+        const oldStart = parseISODate(dragData.start);
+        const oldEnd = parseISODate(dragData.end);
+        const duration = diffDays(oldStart, oldEnd);
+        const newEnd = new Date(newStart.getTime() + duration * 86400000);
+
+        if (!confirm(`Déplacer la pose au ${newStartIso} (${duration + 1} j) ?`)) return;
+        try {
+          await patchProjet(dragData.id, {
+            'Date pose prévue': newStartIso,
+            'Date pose fin': toISODate(newEnd),
+          });
+          // Mettre à jour state local
+          const p = state.projets.find(x => x.id === dragData.id);
+          if (p) {
+            p['Date pose prévue'] = newStartIso;
+            p['Date pose fin'] = toISODate(newEnd);
+          }
+          draw();
+        } catch (err) {
+          alert('Erreur déplacement : ' + err.message);
+        }
+      });
+    });
+  }
+
+  draw();
 }

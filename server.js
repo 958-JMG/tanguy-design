@@ -180,7 +180,15 @@ app.use(helmet({
   },
   crossOriginEmbedderPolicy: false, // pas d'embed cross-origin complexe
   strictTransportSecurity: IS_PROD ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
+  // Sprint 4 P2 : Permissions-Policy explicite (camera/mic/géoloc bloqués — cockpit n'en a pas besoin)
+  permittedCrossDomainPolicies: { permittedPolicies: 'none' },
 }));
+
+// Permissions-Policy header (helmet ne le set pas par défaut)
+app.use((req, res, next) => {
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), accelerometer=()');
+  next();
+});
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -304,7 +312,35 @@ const loginLimiter = rateLimit({
   skipSuccessfulRequests: true, // ne compte pas les logins réussis
 });
 
+// Sprint 4 — Account lockout par login (en plus du rate-limit par IP).
+// Un attaquant pivotant sur plusieurs IPs ne peut plus brute-forcer un compte donné.
+// 5 échecs consécutifs → lock 15 min pour ce login (toute IP confondue).
+const ACCOUNT_LOCK_MAX_FAILS = 5;
+const ACCOUNT_LOCK_DURATION_MS = 15 * 60 * 1000;
+const accountLockout = new Map(); // login.toLowerCase() → { fails, lockedUntil }
+function accountIsLocked(login) {
+  const entry = accountLockout.get(login);
+  if (!entry) return false;
+  if (entry.lockedUntil && Date.now() < entry.lockedUntil) return true;
+  if (entry.lockedUntil && Date.now() >= entry.lockedUntil) accountLockout.delete(login);
+  return false;
+}
+function accountRegisterFail(login) {
+  const entry = accountLockout.get(login) || { fails: 0, lockedUntil: 0 };
+  entry.fails++;
+  if (entry.fails >= ACCOUNT_LOCK_MAX_FAILS) {
+    entry.lockedUntil = Date.now() + ACCOUNT_LOCK_DURATION_MS;
+    logger.warn({ login, fails: entry.fails }, 'account locked after consecutive fails');
+  }
+  accountLockout.set(login, entry);
+}
+function accountRegisterSuccess(login) {
+  accountLockout.delete(login);
+}
+
 // Multer pour upload PDF (stockage mémoire, 15MB max)
+// Note : fileFilter ne voit que le mimetype déclaré (manipulable). La validation
+// magic bytes "%PDF-" est faite après l'upload côté route, avant l'appel Claude.
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 },
@@ -313,6 +349,14 @@ const upload = multer({
     else cb(new Error('Seuls les fichiers PDF sont acceptés'));
   }
 });
+
+// Vérifie les 4 premiers bytes du buffer pour confirmer signature PDF (Sprint 4 P1-6).
+// Empêche un upload non-PDF étiqueté avec un mimetype manipulé.
+function validatePdfMagicBytes(buffer) {
+  if (!buffer || buffer.length < 4) return false;
+  // PDF commence par %PDF-
+  return buffer[0] === 0x25 && buffer[1] === 0x50 && buffer[2] === 0x44 && buffer[3] === 0x46;
+}
 
 // --- Airtable helpers ---
 async function atFetchAll(tableId, params = '') {
@@ -418,6 +462,24 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'tanguy-design', ts: new Date().toISOString() });
 });
 
+// --- Support feedback (Sprint 4 P2) ---
+// Bouton flottant v3 → POST ici. On log structuré JSON, JMG suit dans Scaleway Logs Browser.
+// Champs : message (requis), url, context (optionnel).
+app.post('/api/support/feedback', requireAuth, async (req, res) => {
+  const { message, url, context } = req.body || {};
+  if (!message || message.length < 5) return res.status(400).json({ error: 'message requis (≥ 5 chars)' });
+  if (message.length > 2000) return res.status(400).json({ error: 'message trop long (≤ 2000 chars)' });
+  logger.warn({
+    user: req.session?.user,
+    url: String(url || '').slice(0, 200),
+    context: String(context || '').slice(0, 500),
+    message: String(message).slice(0, 2000),
+    ip: clientIp(req),
+    userAgent: String(req.headers['user-agent'] || '').slice(0, 200),
+  }, '[support] feedback utilisateur');
+  res.json({ ok: true });
+});
+
 // --- Auth ---
 app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
 
@@ -426,18 +488,26 @@ app.post('/api/login', loginLimiter, async (req, res) => {
   const ip = clientIp(req);
   if (!login || !password) return res.status(400).json({ error: 'login + password requis' });
   const loginLc = String(login).toLowerCase();
+  // Account lockout (Sprint 4 P1-5)
+  if (accountIsLocked(loginLc)) {
+    logger.warn({ login: loginLc, ip }, '[auth] login REJECTED (account locked)');
+    return res.status(429).json({ error: 'Trop de tentatives. Compte temporairement verrouillé (15 min).' });
+  }
   const hash = USERS[loginLc];
   if (!hash) {
-    logger.warn(`[auth] login FAIL (unknown user) login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
+    accountRegisterFail(loginLc);
+    logger.warn({ login: loginLc, ip }, '[auth] login FAIL (unknown user)');
     return res.status(401).json({ error: 'identifiants invalides' });
   }
   const ok = await bcrypt.compare(password, hash);
   if (!ok) {
-    logger.warn(`[auth] login FAIL (bad password) login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
+    accountRegisterFail(loginLc);
+    logger.warn({ login: loginLc, ip }, '[auth] login FAIL (bad password)');
     return res.status(401).json({ error: 'identifiants invalides' });
   }
+  accountRegisterSuccess(loginLc);
   req.session.user = loginLc;
-  logger.info(`[auth] login OK login=${loginLc} ip=${ip} t=${new Date().toISOString()}`);
+  logger.info({ login: loginLc, ip }, '[auth] login OK');
   res.json({ ok: true, user: req.session.user });
 });
 
@@ -632,6 +702,7 @@ app.get('/api/devis/:id/detail', requireAuth, async (req, res) => {
 // En mode Additif : projetId requis, pas de création auto client/projet.
 app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'PDF requis' });
+  if (!validatePdfMagicBytes(req.file.buffer)) return res.status(400).json({ error: 'Fichier non reconnu comme PDF (signature %PDF manquante)' });
   if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY non configurée' });
 
   const projetId = req.body.projetId || null;
@@ -864,16 +935,62 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
 });
 
 // --- DEVIS : signature → génération commandes fournisseurs + tâches ---
-// Mapping catégorie devis → Type fournisseur
+// Mapping catégorie devis → Type fournisseur (Sprint 2 : + Plan de travail)
 const CAT_TO_FOURNISSEUR_TYPE = {
   'Meubles': 'Meubles',
   'Panneaux de recouvrement': 'Meubles',
   'Electroménager': 'Électroménager',
   'Eviers et robinetterie': 'Sanitaire',
   'Sanitaires': 'Sanitaire',
-  'Produits de vente': 'Accessoires'
+  'Produits de vente': 'Accessoires',
+  'Plan de travail': 'Plan de travail',
+  'Plans de travail': 'Plan de travail',
   // Dépose et Divers : pas de commande fournisseur auto
 };
+
+// Sprint 2 — Format BC en tableau structuré (Pos | Code | Description | SENS | Cote | Qté)
+// SANS MONTANTS, à la demande JMG. Retour : string ASCII alignée + version HTML pour mail.
+function buildBcTableau(lignes) {
+  if (!lignes || lignes.length === 0) return { texte: '— Pas de ligne disponible —', html: '<p>Pas de ligne disponible.</p>' };
+
+  const rows = lignes.map(l => {
+    const f = l.fields || {};
+    return {
+      pos:   String(f['Position'] || ''),
+      code:  String(f['Code produit'] || f['Code'] || ''),
+      desc:  String(f['Désignation'] || f['Description'] || '').replace(/\s+/g, ' ').slice(0, 80),
+      sens:  String(f['Sens'] || ''),
+      cote:  String(f['Côté visible'] || f['Cote visible'] || ''),
+      qte:   String(f['Quantité'] || ''),
+      unite: String(f['Unité'] || ''),
+    };
+  }).filter(r => r.code || r.desc); // ignorer les lignes vides
+
+  // Largeurs auto (alignement texte)
+  const widths = {
+    pos: Math.max(3, ...rows.map(r => r.pos.length)),
+    code: Math.max(4, ...rows.map(r => r.code.length)),
+    desc: Math.min(50, Math.max(11, ...rows.map(r => r.desc.length))),
+    sens: Math.max(4, ...rows.map(r => r.sens.length)),
+    cote: Math.max(4, ...rows.map(r => r.cote.length)),
+    qte: Math.max(3, ...rows.map(r => r.qte.length)),
+  };
+  const pad = (s, n, right = false) => right ? String(s).padStart(n) : String(s).padEnd(n);
+
+  const header = `${pad('Pos', widths.pos)} | ${pad('Code', widths.code)} | ${pad('Description', widths.desc)} | ${pad('SENS', widths.sens)} | ${pad('Cote', widths.cote)} | ${pad('Qté', widths.qte, true)}`;
+  const sep    = `${'-'.repeat(widths.pos)}-+-${'-'.repeat(widths.code)}-+-${'-'.repeat(widths.desc)}-+-${'-'.repeat(widths.sens)}-+-${'-'.repeat(widths.cote)}-+-${'-'.repeat(widths.qte)}`;
+  const body   = rows.map(r => `${pad(r.pos, widths.pos)} | ${pad(r.code, widths.code)} | ${pad(r.desc, widths.desc)} | ${pad(r.sens, widths.sens)} | ${pad(r.cote, widths.cote)} | ${pad(r.qte + (r.unite ? ' ' + r.unite : ''), widths.qte, true)}`).join('\n');
+
+  const texte = [header, sep, body].join('\n');
+
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  const html = `<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-family:monospace;font-size:12px">
+  <thead><tr style="background:#f4f4f4"><th>Pos</th><th>Code</th><th>Description</th><th>SENS</th><th>Cote visible</th><th>Qté</th></tr></thead>
+  <tbody>${rows.map(r => `<tr><td>${esc(r.pos)}</td><td>${esc(r.code)}</td><td>${esc(r.desc)}</td><td>${esc(r.sens)}</td><td>${esc(r.cote)}</td><td style="text-align:right">${esc(r.qte)}${r.unite ? ' ' + esc(r.unite) : ''}</td></tr>`).join('')}</tbody>
+</table>`;
+
+  return { texte, html };
+}
 
 app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
   const devisId = req.params.id;
@@ -913,7 +1030,7 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     const ligneIds = dv['Lignes devis'] || [];
     const lignes = await atFetchByIds(TABLES['lignes-devis'].id, ligneIds);
 
-    // 3. Groupement par catégorie mappée + collecte des libellés de lignes pour pré-remplir le contenu
+    // 3. Groupement par catégorie mappée + collecte des LIGNES ENTIÈRES par type (Sprint 2 : tableau BC)
     const totauxParCat = {};
     const lignesParType = {};
     for (const l of lignes) {
@@ -921,12 +1038,7 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       const type = CAT_TO_FOURNISSEUR_TYPE[cat];
       if (!type) continue;
       totauxParCat[type] = (totauxParCat[type] || 0) + (parseFloat(l.fields['Montant HT']) || 0);
-      const lib = l.fields['Désignation'] || l.fields['Description'] || l.fields['Référence'] || '';
-      const qte = l.fields['Quantité'] || '';
-      const mt = l.fields['Montant HT'] || 0;
-      if (lib) {
-        (lignesParType[type] = lignesParType[type] || []).push(`• ${qte ? qte+'× ' : ''}${lib}${mt ? ' — '+(Math.round(mt*100)/100)+' € HT' : ''}`);
-      }
+      (lignesParType[type] = lignesParType[type] || []).push(l);
     }
 
     // 4. Création des commandes fournisseurs
@@ -937,8 +1049,8 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       const numCmd = clientNom
         ? `${clientNom} · ${type.toUpperCase()} · ${numero}-${idx}`
         : `${numero}-${type.slice(0,3).toUpperCase()}-${idx}`;
-      const contenuSugg = (lignesParType[type] || []).join('\n');
-      const notesPrefill = `[Auto-généré depuis devis ${numero} signé le ${new Date().toLocaleDateString('fr-FR')}]\n\nContenu prévisionnel (à valider/ajuster avant envoi au fournisseur) :\n${contenuSugg || '— Pas de détail ligne disponible —'}`;
+      const { texte: tableauTexte } = buildBcTableau(lignesParType[type]);
+      const notesPrefill = `[Auto-généré depuis devis ${numero} signé le ${new Date().toLocaleDateString('fr-FR')}]\n\nDétail commande (à valider avant envoi au fournisseur, SANS MONTANTS pour le mail) :\n\n${tableauTexte}`;
       const cf = {
         'Numéro': numCmd,
         'Statut': 'Créée',
@@ -1015,13 +1127,53 @@ app.post('/api/plaud/parse', requireAuth, async (req, res) => {
     Object.keys(fields).forEach(k => { if (fields[k] === null || fields[k] === '') delete fields[k]; });
 
     const rec = await atCreate(TABLES['reunions-plaud'].id, fields);
-    return { ok: true, record: rec, parsed, niveau: niveauResolu };
+
+    // Sprint 2 — créer auto les tâches depuis prochaines_actions[]
+    const tachesCreees = [];
+    if (Array.isArray(parsed.prochaines_actions) && projetId) {
+      // Récupère nom client pour préfixer le titre (cf. demande JMG)
+      let clientNom = '';
+      if (clientId) {
+        try {
+          const cr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.clients.id}/${clientId}`, {
+            headers: { Authorization: `Bearer ${AT_KEY}` }
+          });
+          if (cr.ok) clientNom = (await cr.json()).fields?.Nom || '';
+        } catch (e) { /* fallback silencieux */ }
+      }
+      for (const action of parsed.prochaines_actions) {
+        if (!action.titre) continue;
+        const titre = clientNom && !action.titre.includes('[')
+          ? `[${clientNom}] / ${action.titre}`
+          : action.titre;
+        try {
+          const t = await atCreate(TABLES.taches.id, {
+            'Titre': titre,
+            'Statut': 'À faire',
+            'Priorité': 'Moyenne',
+            'Assignée à': action.assignee_suggere || 'Virginie',
+            'Échéance': action.date_souhaitee || null,
+            'Description': action.notes || `Tâche générée auto depuis Plaud R1 (type: ${action.type || 'autre'})`,
+            'Projet': [projetId],
+          });
+          tachesCreees.push({ id: t.id, titre });
+        } catch (e) {
+          logger.warn({ err: e.message, action }, 'plaud: création tâche auto échouée');
+        }
+      }
+      if (tachesCreees.length) {
+        logger.info({ projetId, count: tachesCreees.length }, 'plaud: tâches auto créées depuis prochaines_actions');
+      }
+    }
+
+    return { ok: true, record: rec, parsed, niveau: niveauResolu, tachesCreees };
   });
 });
 
 // --- DEVIS ARTISAN : import PDF + parsing + création record ---
 app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'PDF requis' });
+  if (!validatePdfMagicBytes(req.file.buffer)) return res.status(400).json({ error: 'Fichier non reconnu comme PDF (signature %PDF manquante)' });
   if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY non configurée' });
 
   const projetId = req.body.projetId || null;
