@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tanguy Design — v3 (preview)</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/v3/assets/css/styles.css">
+</head>
+<body>
+
+<div class="banner-v3">
+  🚧 v3 preview — pivot client-centric ·
+  <a href="/">retour cockpit v2</a>
+</div>
+
+<header class="topbar">
+  <button class="brand" onclick="navigateTo('dashboard')">Tanguy Design</button>
+  <nav class="nav-main">
+    <button class="nav-item" data-route="dashboard" onclick="navigateTo('dashboard')">
+      <span class="nav-icon">🏠</span><span class="nav-label">Dashboard</span>
+    </button>
+    <button class="nav-item" data-route="clients" onclick="navigateTo('clients')">
+      <span class="nav-icon">👤</span><span class="nav-label">Clients</span>
+    </button>
+    <button class="nav-item" data-route="pipeline" onclick="navigateTo('pipeline')">
+      <span class="nav-icon">📊</span><span class="nav-label">Pipeline</span>
+    </button>
+    <button class="nav-item" data-route="calendar" onclick="navigateTo('calendar')">
+      <span class="nav-icon">📅</span><span class="nav-label">Calendar</span>
+    </button>
+    <button class="nav-item nav-admin-only" data-route="admin" onclick="navigateTo('admin')">
+      <span class="nav-icon">⚙️</span><span class="nav-label">Admin</span>
+    </button>
+  </nav>
+  <button class="search-btn" onclick="openSearch()" title="Rechercher (Cmd+K)">🔍 <kbd>⌘K</kbd></button>
+  <div class="user-info">
+    <span id="user-name">…</span>
+    <button class="logout-btn" onclick="logout()">Sortir</button>
+  </div>
+</header>
+
+<main id="app" class="app-main">
+  <div class="loading">Chargement…</div>
+</main>
+
+<nav class="nav-bottom">
+  <button class="nav-bottom-item" data-route="dashboard" onclick="navigateTo('dashboard')">🏠<small>Home</small></button>
+  <button class="nav-bottom-item" data-route="clients" onclick="navigateTo('clients')">👤<small>Clients</small></button>
+  <button class="nav-bottom-item" data-route="pipeline" onclick="navigateTo('pipeline')">📊<small>Pipeline</small></button>
+  <button class="nav-bottom-item" data-route="calendar" onclick="navigateTo('calendar')">📅<small>Calendar</small></button>
+  <button class="nav-bottom-item nav-admin-only" data-route="admin" onclick="navigateTo('admin')">⚙️<small>Admin</small></button>
+</nav>
+
+<script type="module" src="/v3/assets/js/main.js"></script>
+</body>
+</html>

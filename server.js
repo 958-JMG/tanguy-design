@@ -1385,6 +1385,11 @@ app.get('/', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'publi
 app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
 app.use('/img', express.static(path.join(__dirname, 'public', 'img')));
 
+// /v3/ — démo isolée du pivot client-centric (Sprint 1)
+app.get('/v3', requireAuth, (req, res) => res.redirect('/v3/'));
+app.get('/v3/', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'v3', 'index.html')));
+app.use('/v3', requireAuth, express.static(path.join(__dirname, 'public', 'v3')));
+
 app.listen(PORT, () => {
   logger.info(`✅ Tanguy Design — Cockpit v0.3.0 on port ${PORT}`);
   logger.info(`   Users: ${Object.keys(USERS).length} | Airtable: ${BASE_ID ? 'OK' : 'MISSING'} | Claude: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'MISSING'}`);
