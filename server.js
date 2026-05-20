@@ -1724,18 +1724,24 @@ function renderBcHtml({ commande, fournisseur, lignes }) {
   const numero = commande['Numéro'] || '';
   const numDevis = numero.match(/\d+\/\d+\/\d+/)?.[0] || '';
 
+  // La description Airtable est multiline — on garde les sauts de ligne via <br>.
+  // Les dimensions L/H/P sont déjà dans la description (extraites du devis Winner), pas besoin de doubler.
   const lignesHtml = (Array.isArray(lignes) && lignes.length > 0)
-    ? lignes.map(l => `
+    ? lignes.map(l => {
+        const descHtml = l.description ? esc(l.description).replace(/\n/g, '<br>') : '';
+        const notesHtml = l.notes ? '<br><em style="color:#c44">' + esc(l.notes).replace(/\n/g, '<br>') + '</em>' : '';
+        const qteTxt = l.quantite != null
+          ? l.quantite.toLocaleString('fr-FR', { minimumFractionDigits: 4 }) + (l.unite ? ' ' + l.unite : '')
+          : '';
+        return `
       <tr>
         <td>${esc(l.pos)}</td>
-        <td><strong>${esc(l.code || '')}</strong>${l.description ? '<br>' + esc(l.description) : ''}${
-          (l.largeurMm || l.hauteurMm || l.profondeurMm) ? '<br><span style="color:#666;font-size:11px">L: ' + (l.largeurMm || '?') + ', H: ' + (l.hauteurMm || '?') + ', P: ' + (l.profondeurMm || '?') + '</span>' : ''
-        }${l.notes ? '<br><em style="color:#c44">' + esc(l.notes) + '</em>' : ''}</td>
+        <td><strong>${esc(l.code || '')}</strong>${descHtml ? '<br>' + descHtml : ''}${notesHtml}</td>
         <td style="text-align:center">${esc(l.sens || '')}</td>
         <td style="text-align:center">${esc(l.coteVisible || '')}</td>
-        <td style="text-align:right">${l.quantite != null ? l.quantite.toLocaleString('fr-FR', { minimumFractionDigits: 4 }) : ''}${l.unite ? ' ' + esc(l.unite) : ''}</td>
-      </tr>
-    `).join('')
+        <td style="text-align:right">${esc(qteTxt)}</td>
+      </tr>`;
+      }).join('')
     : '<tr><td colspan="5" style="text-align:center;color:#999">Aucune ligne définie. Édite la commande pour ajouter les détails.</td></tr>';
 
   return `
