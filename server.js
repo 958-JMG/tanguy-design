@@ -11,6 +11,7 @@ const { parseDevisPdf, parsePlaudTranscript } = require('./services/devis-parser
 const { parseArtisanDevisPdf } = require('./services/artisan-devis-parser');
 const { generateFicheMission } = require('./services/fiche-mission-generator');
 const { enrichEcheancesAvecDates } = require('./services/echeances-helper');
+const { canAccess, pickAllowedFields } = require('./services/acl');
 const logger = require('./services/logger');
 
 const app = express();
@@ -366,10 +367,30 @@ app.get('/api/me', (req, res) => {
   res.json({ user: req.session.user, isAdmin: ADMIN_LOGINS.has(req.session.user) });
 });
 
-// --- Data API générique ---
+// --- Data API générique avec ACL (cf. services/acl.js et ADR Sprint 0.7 P0-2) ---
+// Le proxy /api/data/:table autorisait n'importe quel user authentifié à faire CRUD
+// sur n'importe quelle table avec n'importe quel champ. Risque concret : un collab
+// non-admin pouvait modifier Rétro-commission d'un artisan ou Marge d'un projet.
+
+function userRole(req) {
+  return ADMIN_LOGINS.has(req.session?.user) ? 'admin' : '*';
+}
+
+function requireTableAccess(req, res, verb) {
+  const tableKey = req.params.table;
+  const t = TABLES[tableKey];
+  if (!t) { res.status(404).json({ error: 'unknown table' }); return null; }
+  const role = userRole(req);
+  if (!canAccess(role, tableKey, verb)) {
+    logger.warn({ user: req.session?.user, role, table: tableKey, verb }, 'ACL refus');
+    res.status(role === 'admin' ? 405 : 403).json({ error: role === 'admin' ? `${verb} non autorisé sur ${tableKey}` : 'admin requis' });
+    return null;
+  }
+  return t;
+}
+
 app.get('/api/data/:table', requireAuth, async (req, res) => {
-  const t = TABLES[req.params.table];
-  if (!t) return res.status(404).json({ error: 'unknown table' });
+  const t = requireTableAccess(req, res, 'GET'); if (!t) return;
   try {
     const records = await atFetchAll(t.id);
     res.json({ ok: true, records });
@@ -377,26 +398,25 @@ app.get('/api/data/:table', requireAuth, async (req, res) => {
 });
 
 app.post('/api/data/:table', requireAuth, async (req, res) => {
-  const t = TABLES[req.params.table];
-  if (!t) return res.status(404).json({ error: 'unknown table' });
+  const t = requireTableAccess(req, res, 'POST'); if (!t) return;
   try {
-    const rec = await atCreate(t.id, req.body.fields || {});
+    const fields = pickAllowedFields(req.params.table, req.body.fields);
+    const rec = await atCreate(t.id, fields);
     res.json({ ok: true, record: rec });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.patch('/api/data/:table/:id', requireAuth, async (req, res) => {
-  const t = TABLES[req.params.table];
-  if (!t) return res.status(404).json({ error: 'unknown table' });
+  const t = requireTableAccess(req, res, 'PATCH'); if (!t) return;
   try {
-    const rec = await atPatch(t.id, req.params.id, req.body.fields || {});
+    const fields = pickAllowedFields(req.params.table, req.body.fields);
+    const rec = await atPatch(t.id, req.params.id, fields);
     res.json({ ok: true, record: rec });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/data/:table/:id', requireAuth, async (req, res) => {
-  const t = TABLES[req.params.table];
-  if (!t) return res.status(404).json({ error: 'unknown table' });
+  const t = requireTableAccess(req, res, 'DELETE'); if (!t) return;
   try {
     const d = await atDelete(t.id, req.params.id);
     res.json({ ok: true, deleted: d });
