@@ -5,6 +5,7 @@ import { state } from '../core/state.js';
 import { navigateTo } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
 import { patchProjet } from '../core/api.js';
+import { toast, confirmModal } from '../core/ui.js';
 
 const MOIS_NOMS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 const JOURS = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
@@ -189,29 +190,34 @@ export function renderCalendar(app) {
         e.preventDefault();
         cell.classList.remove('drag-over');
         if (!dragData) return;
+        // Capture locale AVANT await — sinon `dragend` qui reset dragData=null peut se déclencher
+        // entre le confirm() et la fin du await, et `dragData.id` plante en cascade.
+        const captured = { id: dragData.id, start: dragData.start, end: dragData.end };
         const newStartIso = cell.dataset.iso;
-        if (newStartIso === dragData.start) return; // aucun changement
+        if (newStartIso === captured.start) return; // aucun changement
         const newStart = parseISODate(newStartIso);
-        const oldStart = parseISODate(dragData.start);
-        const oldEnd = parseISODate(dragData.end);
+        const oldStart = parseISODate(captured.start);
+        const oldEnd = parseISODate(captured.end);
         const duration = diffDays(oldStart, oldEnd);
         const newEnd = new Date(newStart.getTime() + duration * 86400000);
 
-        if (!confirm(`Déplacer la pose au ${newStartIso} (${duration + 1} j) ?`)) return;
+        const ok = await confirmModal(`Déplacer la pose au ${newStartIso} (${duration + 1} j) ?`, { okLabel: 'Déplacer' });
+        if (!ok) return;
         try {
-          await patchProjet(dragData.id, {
+          await patchProjet(captured.id, {
             'Date pose prévue': newStartIso,
             'Date pose fin': toISODate(newEnd),
           });
           // Mettre à jour state local
-          const p = state.projets.find(x => x.id === dragData.id);
+          const p = (state.projets || []).find(x => x.id === captured.id);
           if (p) {
             p['Date pose prévue'] = newStartIso;
             p['Date pose fin'] = toISODate(newEnd);
           }
           draw();
+          toast(`Pose déplacée au ${newStartIso}`, 'success');
         } catch (err) {
-          alert('Erreur déplacement : ' + err.message);
+          toast('Erreur déplacement : ' + err.message, 'error', 5000);
         }
       });
     });

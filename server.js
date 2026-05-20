@@ -462,6 +462,93 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'tanguy-design', ts: new Date().toISOString() });
 });
 
+// --- Admin : IA suggestions cockpit (Sprint 4 P2) ---
+// Analyse l'état du cockpit (projets en cours, alertes, marges, blockages) et demande à
+// Claude (claude-sonnet-4-5) une synthèse + 5 suggestions actionnables. Admin only.
+function requireAdmin(req, res, next) {
+  if (!req.session?.user) return res.status(401).json({ error: 'not authenticated' });
+  if (!ADMIN_LOGINS.has(req.session.user)) return res.status(403).json({ error: 'admin requis' });
+  next();
+}
+app.get('/api/admin/ai-suggestions', requireAuth, requireAdmin, async (req, res) => {
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY non configurée' });
+  await withKeepAlive(req, res, async () => {
+    // 1. Snapshot état cockpit
+    const [clients, projets, taches, commandes] = await Promise.all([
+      atFetchAll(TABLES.clients.id),
+      atFetchAll(TABLES.projets.id),
+      atFetchAll(TABLES.taches.id),
+      atFetchAll(TABLES.commandes.id),
+    ]);
+    const now = new Date();
+    const aujourdhui = now.toISOString().slice(0, 10);
+
+    const projetsEnCours = projets.filter(p => {
+      const c = p.fields['Statut chantier'];
+      return c && c !== 'Archivé' && c !== 'Terminé';
+    });
+    const tachesEnRetard = taches.filter(t => {
+      const e = t.fields['Échéance'];
+      return e && e < aujourdhui && t.fields['Statut'] !== 'Terminée';
+    });
+    const projetsBloques = projets.filter(p => {
+      const dDec = p.fields['Date découverte'];
+      if (!dDec) return false;
+      const age = Math.floor((now - new Date(dDec)) / 86400000);
+      return age > 30 && p.fields['Phase commerciale'] !== 'Signé';
+    });
+
+    const snapshot = {
+      date_snapshot: aujourdhui,
+      nb_clients: clients.length,
+      nb_projets_total: projets.length,
+      nb_projets_en_cours: projetsEnCours.length,
+      nb_taches_en_retard: tachesEnRetard.length,
+      nb_projets_bloques_30j: projetsBloques.length,
+      ca_total_prevu: projets.reduce((s, p) => s + (p.fields['Budget HT'] || 0), 0),
+      repartition_phases: projets.reduce((acc, p) => {
+        const k = p.fields['Phase commerciale'] || p.fields.Statut || 'inconnu';
+        acc[k] = (acc[k] || 0) + 1; return acc;
+      }, {}),
+      top_taches_retard: tachesEnRetard.slice(0, 5).map(t => ({
+        titre: t.fields.Titre, assignee: t.fields['Assignée à'], echeance: t.fields['Échéance']
+      })),
+      top_projets_bloques: projetsBloques.slice(0, 5).map(p => ({
+        ref: p.fields.Référence, phase: p.fields['Phase commerciale'], decouverte: p.fields['Date découverte']
+      })),
+    };
+
+    // 2. Claude analyse
+    const Anthropic = require('@anthropic-ai/sdk').default;
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const prompt = `Tu es un consultant senior qui analyse le cockpit de gestion de Tanguy Design (agence cuisine 4 collaborateurs à Vannes).
+Voici un snapshot JSON de l'état du cockpit aujourd'hui :
+
+${JSON.stringify(snapshot, null, 2)}
+
+Réponds en JSON strict avec :
+{
+  "synthese": "2-3 phrases sur l'état global (santé pipeline, charge tâches, points chauds)",
+  "points_attention": ["3-5 points concrets prioritaires aujourd'hui, formulés en impératif court"],
+  "suggestions": ["5 suggestions actionnables et spécifiques pour optimiser la semaine"],
+  "alerte_critique": "phrase ou null — uniquement si une situation est vraiment urgente (projet pose < 7 j sans commandes, etc.)"
+}
+
+Sois concret, factuel, pas creux. Cible Tanguy ou Virginie qui lisent ça en 30 secondes le matin.`;
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 2000,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const text = response.content.filter(c => c.type === 'text').map(c => c.text).join('');
+    const first = text.indexOf('{'), last = text.lastIndexOf('}');
+    if (first === -1) throw new Error('Réponse Claude sans JSON');
+    const analysis = JSON.parse(text.slice(first, last + 1));
+
+    return { ok: true, snapshot, analysis, generatedAt: new Date().toISOString() };
+  });
+});
+
 // --- Support feedback (Sprint 4 P2) ---
 // Bouton flottant v3 → POST ici. On log structuré JSON, JMG suit dans Scaleway Logs Browser.
 // Champs : message (requis), url, context (optionnel).
