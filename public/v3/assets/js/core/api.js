@@ -41,6 +41,13 @@ export async function patchClient(clientId, fields) {
   });
 }
 
+export async function createClient(fields) {
+  return api(`/api/data/clients`, {
+    method: 'POST',
+    body: JSON.stringify({ fields }),
+  });
+}
+
 export async function createProjetForClient(clientId, fields) {
   return api(`/api/clients/${clientId}/projets`, {
     method: 'POST',
