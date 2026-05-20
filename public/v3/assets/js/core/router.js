@@ -3,6 +3,7 @@
 
 import { renderDashboard } from '../views/dashboard.js';
 import { renderClientsList, renderClientDetail } from '../views/clients.js';
+import { renderProjet } from '../views/projet.js';
 import { renderPipeline } from '../views/pipeline.js';
 import { renderCalendar } from '../views/calendar.js';
 import { renderAdmin } from '../views/admin.js';
@@ -29,7 +30,8 @@ export function router() {
   try {
     switch (route) {
       case 'dashboard':        return renderDashboard(app);
-      case 'clients':          return rest.length ? renderClientDetail(app, rest[0]) : renderClientsList(app);
+      case 'clients':          return rest.length ? renderClientDetail(app, decodeURIComponent(rest[0])) : renderClientsList(app);
+      case 'projet':           return rest.length ? renderProjet(app, decodeURIComponent(rest[0])) : renderDashboard(app);
       case 'pipeline':         return renderPipeline(app, rest.length ? decodeURIComponent(rest.join('/')) : null);
       case 'calendar':         return renderCalendar(app);
       case 'admin':            return renderAdmin(app);

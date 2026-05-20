@@ -137,23 +137,38 @@ export async function renderClientDetail(app, clientId) {
       <div id="projets-list" class="projets-list">
         ${projets.length === 0
           ? '<div class="card"><p class="muted">Aucun projet pour ce client. Cliquez sur « Nouveau projet » pour démarrer.</p></div>'
-          : projets.map(p => {
-              const pf = p.fields;
-              const phase = pf['Phase commerciale'] || pf['Statut'] || '—';
-              const chantier = pf['Statut chantier'] || '';
-              return `
-              <button class="projet-card" onclick="window.alert('Fiche projet v3 : à venir Sprint 1.5')">
-                <div class="projet-ref">${icon('folder', 16)} ${esc(pf['Référence'] || '(sans référence)')}</div>
-                <div class="projet-meta">
-                  <span class="badge phase-${esc(phase).toLowerCase().replace(/[^a-z]+/g,'-')}">${esc(phase)}</span>
-                  ${chantier ? `<span class="badge chantier">${esc(chantier)}</span>` : ''}
-                  ${pf['Budget HT'] ? `<span>${pf['Budget HT'].toLocaleString('fr-FR')} €</span>` : ''}
-                  ${pf['Date pose prévue'] ? `<span class="meta-with-icon">${icon('calendar', 12)} Pose ${esc(pf['Date pose prévue'])}</span>` : ''}
-                </div>
-              </button>
-              `;
-            }).join('')
+          : projets
+              .filter(p => (p.fields['Statut chantier'] || '') !== 'Archivé') // filtre archivés par défaut
+              .map(p => {
+                const pf = p.fields;
+                const phase = pf['Phase commerciale'] || pf['Statut'] || '—';
+                const chantier = pf['Statut chantier'] || '';
+                return `
+                <button class="projet-card" onclick="window.navigateTo('projet', { id: '${p.id}' })">
+                  <div class="projet-ref">${icon('folder', 16)} ${esc(pf['Référence'] || '(sans référence)')}</div>
+                  <div class="projet-meta">
+                    <span class="badge phase-${esc(phase).toLowerCase().replace(/[^a-z]+/g,'-')}">${esc(phase)}</span>
+                    ${chantier ? `<span class="badge chantier">${esc(chantier)}</span>` : ''}
+                    ${pf['Budget HT'] ? `<span>${pf['Budget HT'].toLocaleString('fr-FR')} €</span>` : ''}
+                    ${pf['Date pose prévue'] ? `<span class="meta-with-icon">${icon('calendar', 12)} Pose ${esc(pf['Date pose prévue'])}</span>` : ''}
+                  </div>
+                </button>
+                `;
+              }).join('')
         }
+        ${projets.filter(p => (p.fields['Statut chantier'] || '') === 'Archivé').length > 0
+          ? `<details class="archived-toggle"><summary class="muted">Voir ${projets.filter(p => (p.fields['Statut chantier'] || '') === 'Archivé').length} projet(s) archivé(s)</summary>
+              <div class="projets-list" style="margin-top:8px">
+              ${projets.filter(p => (p.fields['Statut chantier'] || '') === 'Archivé').map(p => {
+                const pf = p.fields;
+                return `<button class="projet-card archived" onclick="window.navigateTo('projet', { id: '${p.id}' })">
+                  <div class="projet-ref">${icon('archive', 16)} ${esc(pf['Référence'] || '(sans référence)')}</div>
+                  <div class="projet-meta"><span class="badge chantier">Archivé</span></div>
+                </button>`;
+              }).join('')}
+              </div>
+            </details>`
+          : ''}
       </div>
     `;
 
