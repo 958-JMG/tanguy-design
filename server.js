@@ -1385,10 +1385,15 @@ app.get('/', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'publi
 app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
 app.use('/img', express.static(path.join(__dirname, 'public', 'img')));
 
-// /v3/ — démo isolée du pivot client-centric (Sprint 1)
-app.get('/v3', requireAuth, (req, res) => res.redirect('/v3/'));
-app.get('/v3/', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'v3', 'index.html')));
-app.use('/v3', requireAuth, express.static(path.join(__dirname, 'public', 'v3')));
+// /v3/ — démo isolée du pivot client-centric (Sprint 1).
+// Pas de redirect /v3 → /v3/ : Cloudflare normalise les URLs en supprimant le trailing
+// slash, ce qui crée une boucle ERR_TOO_MANY_REDIRECTS. On sert le même HTML sur les
+// deux paths, et tous les <link>/<script> de l'index.html sont en chemin absolu
+// (/v3/assets/...) donc OK quel que soit le path d'entrée.
+const v3Index = (req, res) => res.sendFile(path.join(__dirname, 'public', 'v3', 'index.html'));
+app.get('/v3',  requireAuth, v3Index);
+app.get('/v3/', requireAuth, v3Index);
+app.use('/v3',  requireAuth, express.static(path.join(__dirname, 'public', 'v3')));
 
 app.listen(PORT, () => {
   logger.info(`✅ Tanguy Design — Cockpit v0.3.0 on port ${PORT}`);
