@@ -1175,24 +1175,85 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       (lignesParType[type] = lignesParType[type] || []).push(l);
     }
 
-    // 4. Création des commandes fournisseurs
+    // 4. Création des commandes fournisseurs (Sprint v3.1 — BC structurés et modifiables)
+    // Pour chaque type, on populer les champs structurés (Contremarque, Contact Tanguy,
+    // Référence courte, Lignes BC JSON) en + des Notes texte ASCII pour rétrocompatibilité.
+    const TYPE_TO_REFERENCE_COURTE = {
+      'Meubles': 'NOVA_CUC',
+      'Électroménager': 'ELECTRO',
+      'Sanitaire': 'SANIT',
+      'Accessoires': 'ACCESS',
+      'Plan de travail': 'PLAN_TRAV',
+    };
     const commandesCreees = [];
     let idx = 1;
+    // Pour meubles : extraire infos modèle depuis la 1re zone du devis (NOVA_CUC = singulier)
+    let modeleHeader = '';
+    let detailsModele = '';
+    try {
+      if (Array.isArray(parsed.zones) && parsed.zones[0]) {
+        const z0 = parsed.zones[0];
+        modeleHeader = [z0.marque, z0.modele].filter(Boolean).join(' — ') +
+          (z0.porte_epaisseur ? `\nPorte épaisseur ${z0.porte_epaisseur}` : '');
+        const lines = [];
+        if (z0.modularite)              lines.push(`Modularité : ${z0.modularite}`);
+        if (z0.execution_facade)        lines.push(`Exécution façade : ${z0.execution_facade}`);
+        if (z0.coloris_facade)          lines.push(`Coloris façade : ${z0.coloris_facade}`);
+        if (z0.chant_facade)            lines.push(`Chant façade : ${z0.chant_facade}`);
+        if (z0.coloris_caisson)         lines.push(`Coloris caisson : ${z0.coloris_caisson}`);
+        if (z0.execution_cote_finition) lines.push(`Exécution côté finition : ${z0.execution_cote_finition}`);
+        if (z0.coloris_cote_finition)   lines.push(`Coloris côté finition : ${z0.coloris_cote_finition}`);
+        if (z0.type_gorge)              lines.push(`Type de gorge : ${z0.type_gorge}`);
+        if (z0.execution_gorges)        lines.push(`Exécution gorges : ${z0.execution_gorges}`);
+        if (z0.finition_gorges)         lines.push(`Finition gorges : ${z0.finition_gorges}`);
+        if (z0.profondeur)              lines.push(`Profondeur : ${z0.profondeur}`);
+        if (z0.option_ouverture)        lines.push(`Option ouverture : ${z0.option_ouverture}`);
+        if (z0.finition_socle)          lines.push(`Finition socle : ${z0.finition_socle}`);
+        detailsModele = lines.join('\n');
+      }
+    } catch (e) { /* best effort */ }
+
     for (const [type, montant] of Object.entries(totauxParCat)) {
       if (montant <= 0) continue;
       const numCmd = clientNom
         ? `${clientNom} · ${type.toUpperCase()} · ${numero}-${idx}`
         : `${numero}-${type.slice(0,3).toUpperCase()}-${idx}`;
-      const { texte: tableauTexte } = buildBcTableau(lignesParType[type]);
-      const notesPrefill = `[Auto-généré depuis devis ${numero} signé le ${new Date().toLocaleDateString('fr-FR')}]\n\nDétail commande (à valider avant envoi au fournisseur, SANS MONTANTS pour le mail) :\n\n${tableauTexte}`;
+      const lignesType = lignesParType[type] || [];
+      const { texte: tableauTexte } = buildBcTableau(lignesType);
+      // Lignes structurées JSON pour édition future (front v3)
+      const lignesStructured = lignesType.map(l => {
+        const f = l.fields || {};
+        return {
+          pos: String(f.Position || ''),
+          code: String(f['Code produit'] || ''),
+          description: String(f['Désignation'] || ''),
+          sens: String(f.Sens || ''),
+          coteVisible: String(f['Côté visible'] || ''),
+          quantite: f.Quantité != null ? Number(f.Quantité) : null,
+          unite: String(f.Unité || ''),
+          largeurMm: f['Largeur mm'] || null,
+          hauteurMm: f['Hauteur mm'] || null,
+          profondeurMm: f['Profondeur mm'] || null,
+          notes: String(f.Notes || ''),
+        };
+      });
+      const notesPrefill = `[Auto-généré depuis devis ${numero} signé le ${new Date().toLocaleDateString('fr-FR')}]\n\nContenu prévisionnel (à valider/ajuster avant envoi au fournisseur, SANS MONTANTS) :\n\n${tableauTexte}`;
       const cf = {
         'Numéro': numCmd,
         'Statut': 'Créée',
-        'Date création': new Date().toISOString().slice(0,10),
+        'Date création': new Date().toISOString().slice(0, 10),
         'Montant HT': Math.round(montant * 100) / 100,
-        'Notes': notesPrefill
+        'Notes': notesPrefill,
+        'Contremarque': clientNom || '',
+        'Contact Tanguy': 'Solène',
+        'Référence courte': TYPE_TO_REFERENCE_COURTE[type] || type.toUpperCase(),
+        // Modèle choisi + détails uniquement pour les commandes Meubles (utile sur le BC)
+        ...(type === 'Meubles' ? { 'Modèle choisi': modeleHeader, 'Détails modèle': detailsModele } : {}),
+        'Lignes BC': JSON.stringify(lignesStructured, null, 2),
       };
       if (projetId) cf['Projet'] = [projetId];
+      // Nettoyage : retirer les champs vides
+      Object.keys(cf).forEach(k => { if (cf[k] === '' || cf[k] == null) delete cf[k]; });
       const c = await atCreate(TABLES.commandes.id, cf);
       commandesCreees.push({ id: c.id, type, montant, numero: numCmd });
       idx++;
@@ -1544,6 +1605,253 @@ app.post('/api/artisan-devis/:id/fiche-mission', requireAuth, async (req, res) =
     res.status(500).json({ error: e.message });
   }
 });
+
+// --- COMMANDES : détail enrichi + rendu HTML imprimable (Sprint v3.1 BC types) ---
+app.get('/api/commandes/:id', requireAuth, async (req, res) => {
+  const cmdId = req.params.id;
+  try {
+    const cr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.commandes.id}/${cmdId}`, {
+      headers: { Authorization: `Bearer ${AT_KEY}` }
+    });
+    if (!cr.ok) {
+      if (cr.status === 404) return res.status(404).json({ error: 'Commande introuvable' });
+      throw new Error(`commande lookup: ${cr.status}`);
+    }
+    const commande = await cr.json();
+
+    const projetId = (commande.fields?.Projet || [])[0];
+    const fournisseurId = (commande.fields?.Fournisseur || [])[0];
+
+    let projet = null, client = null, fournisseur = null;
+    if (projetId) {
+      try {
+        const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`, {
+          headers: { Authorization: `Bearer ${AT_KEY}` }
+        });
+        if (pr.ok) {
+          projet = await pr.json();
+          const clientId = (projet.fields?.Client || [])[0];
+          if (clientId) {
+            const cr2 = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.clients.id}/${clientId}`, {
+              headers: { Authorization: `Bearer ${AT_KEY}` }
+            });
+            if (cr2.ok) client = await cr2.json();
+          }
+        }
+      } catch (e) { /* best effort */ }
+    }
+    if (fournisseurId) {
+      try {
+        const fr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.fournisseurs.id}/${fournisseurId}`, {
+          headers: { Authorization: `Bearer ${AT_KEY}` }
+        });
+        if (fr.ok) fournisseur = await fr.json();
+      } catch (e) { /* best effort */ }
+    }
+
+    // Décoder Lignes BC JSON
+    let lignes = [];
+    try {
+      const raw = commande.fields?.['Lignes BC'];
+      if (raw) lignes = JSON.parse(raw);
+    } catch (e) {
+      logger.warn({ err: e.message, cmdId }, 'commandes: Lignes BC JSON invalide');
+    }
+
+    res.json({ ok: true, commande, projet, client, fournisseur, lignes });
+  } catch (e) {
+    logger.error({ err: e.message, cmdId }, '[commandes/:id] error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PATCH lignes BC structurées (édition v3)
+app.patch('/api/commandes/:id/lignes', requireAuth, async (req, res) => {
+  const cmdId = req.params.id;
+  const { lignes } = req.body || {};
+  if (!Array.isArray(lignes)) return res.status(400).json({ error: 'lignes array requis' });
+  try {
+    await atPatch(TABLES.commandes.id, cmdId, { 'Lignes BC': JSON.stringify(lignes, null, 2) });
+    res.json({ ok: true });
+  } catch (e) {
+    logger.error({ err: e.message, cmdId }, '[commandes/lignes] error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Rendu HTML d'un BC (format calé sur PDF Tanguy)
+app.get('/api/commandes/:id/render', requireAuth, async (req, res) => {
+  const cmdId = req.params.id;
+  try {
+    // Réutilise la logique GET /api/commandes/:id
+    const cr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.commandes.id}/${cmdId}`, {
+      headers: { Authorization: `Bearer ${AT_KEY}` }
+    });
+    if (!cr.ok) return res.status(404).json({ error: 'Commande introuvable' });
+    const commande = await cr.json();
+    const cf = commande.fields || {};
+
+    const fournisseurId = (cf.Fournisseur || [])[0];
+    let fournisseur = null;
+    if (fournisseurId) {
+      try {
+        const fr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.fournisseurs.id}/${fournisseurId}`, {
+          headers: { Authorization: `Bearer ${AT_KEY}` }
+        });
+        if (fr.ok) fournisseur = (await fr.json()).fields;
+      } catch (e) { /* */ }
+    }
+
+    let lignes = [];
+    try { if (cf['Lignes BC']) lignes = JSON.parse(cf['Lignes BC']); } catch (e) { /* */ }
+
+    const html = renderBcHtml({ commande: cf, fournisseur, lignes });
+    res.json({ ok: true, html });
+  } catch (e) {
+    logger.error({ err: e.message, cmdId }, '[commandes/render] error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Helper rendu HTML BC (format Tanguy)
+function renderBcHtml({ commande, fournisseur, lignes }) {
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  const dateCreaFr = commande['Date création']
+    ? new Date(commande['Date création']).toLocaleDateString('fr-FR')
+    : '—';
+  const refCourte = commande['Référence courte'] || (fournisseur?.Nom || '').toUpperCase().slice(0, 12);
+  const contremarque = commande['Contremarque'] || '';
+  const numero = commande['Numéro'] || '';
+  const numDevis = numero.match(/\d+\/\d+\/\d+/)?.[0] || '';
+
+  const lignesHtml = (Array.isArray(lignes) && lignes.length > 0)
+    ? lignes.map(l => `
+      <tr>
+        <td>${esc(l.pos)}</td>
+        <td><strong>${esc(l.code || '')}</strong>${l.description ? '<br>' + esc(l.description) : ''}${
+          (l.largeurMm || l.hauteurMm || l.profondeurMm) ? '<br><span style="color:#666;font-size:11px">L: ' + (l.largeurMm || '?') + ', H: ' + (l.hauteurMm || '?') + ', P: ' + (l.profondeurMm || '?') + '</span>' : ''
+        }${l.notes ? '<br><em style="color:#c44">' + esc(l.notes) + '</em>' : ''}</td>
+        <td style="text-align:center">${esc(l.sens || '')}</td>
+        <td style="text-align:center">${esc(l.coteVisible || '')}</td>
+        <td style="text-align:right">${l.quantite != null ? l.quantite.toLocaleString('fr-FR', { minimumFractionDigits: 4 }) : ''}${l.unite ? ' ' + esc(l.unite) : ''}</td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="5" style="text-align:center;color:#999">Aucune ligne définie. Édite la commande pour ajouter les détails.</td></tr>';
+
+  return `
+<style>
+  .bc-doc { font-family: Helvetica, Arial, sans-serif; color: #222; max-width: 760px; margin: 0 auto; padding: 24px; font-size: 13px; }
+  .bc-doc h1 { font-size: 32px; font-weight: 700; margin: 16px 0 8px; }
+  .bc-doc .bc-head { font-size: 12px; margin-bottom: 24px; }
+  .bc-doc .bc-head strong { font-size: 14px; }
+  .bc-doc .bc-top { display: flex; justify-content: space-between; align-items: flex-start; margin: 24px 0; }
+  .bc-doc .bc-box { border: 1px solid #000; padding: 32px 48px; }
+  .bc-doc .bc-cmd-title { font-size: 36px; font-weight: 700; }
+  .bc-doc .bc-fournisseur-ref { font-style: italic; font-weight: 600; font-size: 18px; margin-bottom: 8px; }
+  .bc-doc .bc-contact { font-size: 12px; line-height: 1.6; }
+  .bc-doc .bc-contact span.label { display: inline-block; min-width: 90px; }
+  .bc-doc .bc-meta { margin: 24px 0; font-size: 13px; }
+  .bc-doc .bc-meta dt { display: inline-block; min-width: 180px; font-weight: 700; font-style: italic; }
+  .bc-doc .bc-meta dd { display: inline; margin: 0; }
+  .bc-doc .bc-meta .row { margin: 4px 0; }
+  .bc-doc .bc-modele { border: 1px solid #aaa; padding: 8px 12px; margin: 16px 0; font-style: italic; }
+  .bc-doc .bc-detail { font-size: 12px; margin: 16px 0; padding: 0 24px; }
+  .bc-doc .bc-detail h3 { font-style: italic; font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+  .bc-doc .bc-detail dl { display: grid; grid-template-columns: 220px 1fr; gap: 2px 12px; font-style: italic; }
+  .bc-doc table.bc-lignes { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 12px; }
+  .bc-doc table.bc-lignes th { background: #f0f0f0; padding: 6px 8px; border: 1px solid #888; text-align: left; }
+  .bc-doc table.bc-lignes td { padding: 6px 8px; border: 1px solid #888; vertical-align: top; }
+  .bc-doc .bc-livraison { margin-top: 32px; font-size: 12px; }
+  .bc-doc .bc-livraison .row { margin: 4px 0; }
+  .bc-doc .bc-livraison strong { display: inline-block; min-width: 150px; }
+  .bc-doc .bc-footer { margin-top: 48px; padding-top: 12px; border-top: 1px solid #888; text-align: center; font-style: italic; font-size: 11px; color: #555; }
+</style>
+<div class="bc-doc">
+  <div class="bc-head">
+    <strong>TANGUY DESIGN</strong><br>
+    <em>4 Rue Louis Blériot . ZA Toul Garros</em><br>
+    <em>56400 AURAY</em><br>
+    <em>Tél. :0297562853</em><br>
+    Email : admin@tanguydesign.com<br>
+    Site : www.tanguydesign.com
+  </div>
+
+  <div class="bc-top">
+    <div class="bc-box"><div class="bc-cmd-title">Commande</div></div>
+    <div>
+      <div class="bc-fournisseur-ref">${esc(refCourte)}</div>
+      <div class="bc-contact">
+        <div><strong>Téléphone</strong> : ${esc(fournisseur?.Téléphone || '')}</div>
+        <div><strong>Fax</strong> : ${esc(fournisseur?.Fax || '')}</div>
+        <div><strong>E-Mail</strong> : ${esc(fournisseur?.Email || '')}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bc-meta">
+    <div class="row"><span class="label" style="display:inline-block;min-width:90px">Contact</span> : ${esc(commande['Contact Tanguy'] || 'Solène LORHO')}</div>
+    <div class="row"><span class="label" style="display:inline-block;min-width:90px">N° client</span> : </div>
+  </div>
+
+  <div class="bc-meta">
+    <div class="row"><dt>Numéro de commande</dt> : ${esc(numero)}</div>
+    <div class="row"><dt>Date de commande</dt> : ${esc(dateCreaFr)}</div>
+    <div class="row"><dt>Livraison souhaitée</dt> : ${esc(commande['Livraison semaine'] || '')}</div>
+    <div class="row"><dt>Contremarque</dt> : <strong>${esc(contremarque)}</strong></div>
+  </div>
+
+  ${commande['Modèle choisi'] ? `
+  <div style="font-style:italic;margin:16px 0 4px"><strong>Choix du modèle :</strong></div>
+  <div class="bc-modele">${esc(commande['Modèle choisi']).replace(/\n/g, '<br>')}</div>
+  ` : ''}
+
+  ${commande['Détails modèle'] ? `
+  <div class="bc-detail">
+    <h3>Détail :</h3>
+    ${commande['Détails modèle'].split('\n').map(l => {
+      const [k, ...rest] = l.split(' : ');
+      const v = rest.join(' : ');
+      return v ? `<div><em>${esc(k)}</em> : <strong>${esc(v)}</strong></div>` : `<div>${esc(l)}</div>`;
+    }).join('')}
+  </div>
+  ` : ''}
+
+  <table class="bc-lignes">
+    <thead>
+      <tr>
+        <th style="width:50px">Pos</th>
+        <th>Désignation</th>
+        <th style="width:50px;text-align:center">Sens</th>
+        <th style="width:60px;text-align:center">Coté visible</th>
+        <th style="width:100px;text-align:right">Quantité</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${lignesHtml}
+    </tbody>
+  </table>
+
+  <div class="bc-livraison">
+    <div class="row"><strong>Adresse de Livraison</strong> : TANGUY DESIGN</div>
+    <div class="row" style="padding-left:152px">4 Rue Louis Blériot</div>
+    <div class="row" style="padding-left:152px">ZA Toul Garros</div>
+    <div class="row" style="padding-left:152px">56400 AURAY</div>
+    <div class="row"><strong>Téléphone</strong> : 0297562853</div>
+    <div class="row"><strong>Téléphone Mobile</strong> : 0608034200</div>
+    <div class="row"><strong>Fax</strong> : </div>
+  </div>
+
+  <div class="bc-footer">
+    Numéro de TVA<br>
+    FR83334475068<br>
+    Siret : 33447506800022<br>
+    Email : admin@tanguydesign.com<br>
+    Site : www.tanguydesign.com<br>
+    <span style="font-size:10px;color:#888;display:block;margin-top:12px">Réf. : ${esc(numDevis)} &nbsp;&nbsp; Imprimé : ${esc(new Date().toLocaleDateString('fr-FR'))}</span>
+  </div>
+</div>
+`.trim();
+}
 
 // --- PROJET ATTACHMENTS : upload + suppression dans les 3 zones ---
 const uploadAny = multer({

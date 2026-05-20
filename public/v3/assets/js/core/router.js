@@ -32,6 +32,7 @@ export function router() {
       case 'dashboard':        return renderDashboard(app);
       case 'clients':          return rest.length ? renderClientDetail(app, decodeURIComponent(rest[0])) : renderClientsList(app);
       case 'projet':           return rest.length ? renderProjet(app, decodeURIComponent(rest[0])) : renderDashboard(app);
+      case 'commande':         return rest.length ? renderCommande(app, decodeURIComponent(rest[0])) : renderDashboard(app);
       case 'pipeline':         return renderPipeline(app, rest.length ? decodeURIComponent(rest.join('/')) : null);
       case 'calendar':         return renderCalendar(app);
       case 'admin':            return renderAdmin(app);
