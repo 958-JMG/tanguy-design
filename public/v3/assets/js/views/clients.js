@@ -234,7 +234,7 @@ function openModalNouveauProjet(clientId) {
     try {
       const r = await createProjetForClient(clientId, fields);
       modal.remove();
-      // Refresh fiche client
+      toast('Projet créé', 'success');
       navigateTo('clients', { id: clientId });
     } catch (err) {
       toast('Erreur création : ' + err.message, 'error', 5000);
@@ -302,10 +302,10 @@ function openModalEditClient(clientRecord) {
     }
     try {
       await patchClient(clientRecord.id, fields);
-      // refresh état global des clients + fiche
       await fetchClients();
       modal.remove();
-      router(); // re-render fiche courante
+      toast('Client enregistré', 'success');
+      router();
     } catch (err) {
       toast('Erreur enregistrement : ' + err.message, 'error', 5000);
     }

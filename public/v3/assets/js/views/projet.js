@@ -5,8 +5,10 @@ import { state } from '../core/state.js';
 import { navigateTo, router } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
 import {
-  fetchProjetDetail, patchProjet, patchTache, createTache, deleteTache, appendJournalEntry
+  fetchProjetDetail, patchProjet, patchTache, createTache, deleteTache,
+  appendJournalEntry, uploadAttachment, deleteAttachment
 } from '../core/api.js';
+import { toast, confirmModal } from '../core/ui.js';
 
 // === Stepper 12 étapes (porté v2) ===
 const STEPS = [
@@ -250,18 +252,16 @@ function renderFiche(app, data) {
     <!-- Attachments -->
     <h2 class="section-title">Documents</h2>
     <div class="attachments-grid">
-      ${renderAttachmentsCard('Plan 3D', pf['Plan 3D'])}
-      ${renderAttachmentsCard('Plan technique', pf['Plan technique'])}
-      ${renderAttachmentsCard('Images', pf['Images'])}
-      ${renderAttachmentsCard('Documents projet', pf['Documents projet'])}
+      ${renderAttachmentsCard('Plan 3D', pf['Plan 3D'], projet.id)}
+      ${renderAttachmentsCard('Plan technique', pf['Plan technique'], projet.id)}
+      ${renderAttachmentsCard('Images', pf['Images'], projet.id)}
+      ${renderAttachmentsCard('Documents projet', pf['Documents projet'], projet.id)}
     </div>
-    <p class="muted muted-with-icon" style="margin-top:8px">${icon('construction', 14)}
-      Upload de fichiers à venir Sprint 4 (validation magic bytes + types). En attendant,
-      utilise la <a href="/">version v2</a> pour ajouter des documents.
-    </p>
+    <p class="muted" style="margin-top:8px;font-size:12px">Drag & drop ou clic « + » sur chaque zone. Limite Airtable : 5 MB par fichier.</p>
   `;
 
   hydrateIcons(app);
+  bindAttachmentCards(app, projet.id);
 
   // === Bindings ===
   document.getElementById('btn-edit-projet')?.addEventListener('click', () => openModalEditProjet(projet));
@@ -321,19 +321,92 @@ function renderTacheRow(t) {
   `;
 }
 
-function renderAttachmentsCard(label, attachments) {
+function renderAttachmentsCard(label, attachments, projetId) {
   const count = (attachments || []).length;
   return `
-    <div class="card attachment-card">
-      <h3 class="card-title">${esc(label)}</h3>
-      <div class="kpi-value" style="font-size:24px">${count}</div>
-      <div class="muted" style="font-size:12px">fichier${count > 1 ? 's' : ''}</div>
-      ${count > 0 ? `<ul class="attachments-files">
-        ${(attachments || []).slice(0, 5).map(a => `<li><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.filename)}</a></li>`).join('')}
-        ${count > 5 ? `<li class="muted">+ ${count - 5} autre(s)…</li>` : ''}
-      </ul>` : ''}
+    <div class="card attachment-card" data-field="${esc(label)}" data-projet="${esc(projetId)}">
+      <div class="attachment-head">
+        <h3 class="card-title" style="margin:0">${esc(label)}</h3>
+        <button class="btn btn-ghost btn-sm" data-action="upload" aria-label="Ajouter">${icon('plus', 12)}</button>
+      </div>
+      <div class="attachment-count">
+        <span class="kpi-value" style="font-size:22px">${count}</span>
+        <span class="muted" style="font-size:12px">fichier${count > 1 ? 's' : ''}</span>
+      </div>
+      <ul class="attachments-files">
+        ${(attachments || []).map(a => `<li class="attachment-file" data-id="${esc(a.id)}">
+          <a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.filename)}</a>
+          <button class="attachment-del" data-action="delete" data-attachment="${esc(a.id)}" aria-label="Supprimer ${esc(a.filename)}">${icon('trash', 12)}</button>
+        </li>`).join('')}
+      </ul>
+      <div class="attachment-drop" data-action="drop">Glisse un fichier ici</div>
     </div>
   `;
+}
+
+function bindAttachmentCards(app, projetId) {
+  app.querySelectorAll('.attachment-card').forEach(card => {
+    const field = card.dataset.field;
+    const dropZone = card.querySelector('[data-action="drop"]');
+    const uploadBtn = card.querySelector('[data-action="upload"]');
+
+    const triggerUpload = () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.style.display = 'none';
+      input.addEventListener('change', async () => {
+        if (input.files && input.files[0]) await doUpload(input.files[0], field, projetId);
+        input.remove();
+      });
+      document.body.appendChild(input);
+      input.click();
+    };
+    uploadBtn.addEventListener('click', triggerUpload);
+    dropZone.addEventListener('click', triggerUpload);
+
+    ['dragenter', 'dragover'].forEach(ev => {
+      dropZone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dropZone.classList.add('is-active'); });
+    });
+    ['dragleave', 'drop'].forEach(ev => {
+      dropZone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dropZone.classList.remove('is-active'); });
+    });
+    dropZone.addEventListener('drop', async e => {
+      const files = e.dataTransfer.files;
+      if (files && files[0]) await doUpload(files[0], field, projetId);
+    });
+
+    card.querySelectorAll('[data-action="delete"]').forEach(btn => {
+      btn.addEventListener('click', async e => {
+        e.preventDefault();
+        e.stopPropagation();
+        const attachmentId = btn.dataset.attachment;
+        const ok = await confirmModal('Supprimer ce fichier ?', { okLabel: 'Supprimer', danger: true });
+        if (!ok) return;
+        try {
+          await deleteAttachment(projetId, field, attachmentId);
+          toast('Fichier supprimé', 'success');
+          router();
+        } catch (err) {
+          toast('Erreur suppression : ' + err.message, 'error', 5000);
+        }
+      });
+    });
+  });
+}
+
+async function doUpload(file, field, projetId) {
+  if (file.size > 5 * 1024 * 1024) {
+    toast(`Fichier trop volumineux (${(file.size / 1024 / 1024).toFixed(1)} MB > 5 MB max Airtable)`, 'error', 5000);
+    return;
+  }
+  toast(`Upload de ${file.name}…`, 'info', 3000);
+  try {
+    await uploadAttachment(projetId, field, file);
+    toast(`${file.name} ajouté à ${field}`, 'success');
+    router();
+  } catch (err) {
+    toast('Erreur upload : ' + err.message, 'error', 5000);
+  }
 }
 
 // === Modales ===
@@ -385,7 +458,7 @@ function openModalEditProjet(projet) {
       if (v === '' && k !== 'Statut chantier') continue;
       fields[k] = k === 'Budget HT' ? Number(v) : v;
     }
-    try { await patchProjet(projet.id, fields); close(); router(); }
+    try { await patchProjet(projet.id, fields); close(); toast('Projet enregistré', 'success'); router(); }
     catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
   });
 }
@@ -435,9 +508,10 @@ function openModalTache(tache, projet, client) {
     }
     if (isNew) fields.Projet = [projet.id];
     try {
-      if (isNew) await createTache(fields);
-      else await patchTache(tache.id, fields);
-      close(); router();
+      if (isNew) await createTache(fields); else await patchTache(tache.id, fields);
+      close();
+      toast(isNew ? 'Tâche créée' : 'Tâche enregistrée', 'success');
+      router();
     } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
   });
 }
@@ -462,8 +536,10 @@ function openModalJournal(projet) {
     e.preventDefault();
     const fd = new FormData(e.target);
     try {
-      await appendJournalEntry(projet.id, fd.get('texte'), fd.get('auteur'));
-      close(); router();
+      await appendJournalEntry(projet.id, fd.get('texte'));
+      close();
+      toast('Entrée journal ajoutée', 'success');
+      router();
     } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
   });
 }
@@ -473,6 +549,7 @@ async function archiveProjet(projet, newChantier) {
   if (!confirm(`Voulez-vous ${label} ce projet ?`)) return;
   try {
     await patchProjet(projet.id, { 'Statut chantier': newChantier || 'Pré-pose' });
+    toast(newChantier === 'Archivé' ? 'Projet archivé' : 'Projet désarchivé', 'success');
     router();
   } catch (e) {
     toast(`Erreur ${label} : ${e.message}`, 'error', 5000);
