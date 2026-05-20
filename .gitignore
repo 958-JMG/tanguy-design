@@ -30,3 +30,4 @@ scripts/output/
 import-report-*.json
 MAIL_*.md
 
+backups/
