@@ -2086,7 +2086,18 @@ app.use('/img', express.static(path.join(__dirname, 'public', 'img')));
 const v3Index = (req, res) => res.sendFile(path.join(__dirname, 'public', 'v3', 'index.html'));
 app.get('/v3',  requireAuth, v3Index);
 app.get('/v3/', requireAuth, v3Index);
-app.use('/v3',  requireAuth, express.static(path.join(__dirname, 'public', 'v3')));
+// V3 est encore en dev rapide : pas de cache long. Le browser doit toujours revalider
+// (Cmd+R = ETag → 304 si pas changé, sinon 200 avec nouveau code). Cela évite que les
+// users gardent un module ES obsolète après un fix déployé (cas vu 2026-05-21 : champ
+// Artisans filtré côté front pas pris en compte parce que projet.js était en cache 4h).
+app.use('/v3',  requireAuth, express.static(path.join(__dirname, 'public', 'v3'), {
+  maxAge: 0,
+  setHeaders: (res, filePath) => {
+    if (/\.(js|css|html)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    }
+  },
+}));
 
 app.listen(PORT, () => {
   logger.info(`✅ Tanguy Design — Cockpit v0.3.0 on port ${PORT}`);
