@@ -448,10 +448,72 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 }
 .support-btn:hover { background: var(--ink1); transform: scale(1.05); }
 .support-btn:focus-visible { outline: 2px solid var(--ink1); outline-offset: 2px; }
+.support-btn { position: fixed; }
+
+/* Sprint v3.22 — badge compteur de notifications non lues sur le bouton support */
+.support-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 20px;
+  height: 20px;
+  background: var(--accent);
+  color: white;
+  border: 2px solid var(--paper);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  line-height: 1;
+}
 
 @media (min-width: 761px) {
   .support-btn { bottom: 20px; }
 }
+
+/* Sprint v3.22 — Notifications de résolution dans la modale support */
+.support-notifs {
+  background: var(--green-lo);
+  border: 1px solid var(--green);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+.support-notifs-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--green);
+  font-weight: 700;
+  margin: 0 0 10px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.support-notifs-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.support-notif-item {
+  background: white;
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  border: 1px solid var(--green-lo);
+}
+.support-notif-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.support-notif-msg {
+  font-size: 13px;
+  color: var(--ink2);
+  margin: 4px 0 8px 0;
+  white-space: pre-line;
+}
+.support-notif-ack { font-size: 12px; padding: 4px 10px; }
 
 .support-toast {
   position: fixed;

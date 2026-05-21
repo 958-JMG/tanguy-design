@@ -2252,6 +2252,74 @@ function euros(n) {
   return Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 }
 
+// --- SAV : callback de résolution depuis cockpit 9·58 → notif client (v3.22) ---
+// Quand JMG clique "Résolu" sur un ticket côté cockpit central, n8n appelle
+// CE endpoint pour notifier l'utilisateur Tanguy qui avait ouvert le ticket.
+// Stockage en RAM (Map auteur → liste de notifs), cleanup auto > 30 j.
+//
+// Côté n8n : configurer un HTTP node sur la transition "Résolu" qui POST
+// https://tanguydesign.958.fr/api/sav/callback avec header X-958-Secret:
+// {SAV_WEBHOOK_SECRET} et body { ticket_id, statut, message_resolution,
+// auteur_email, titre }.
+const savNotifications = new Map(); // login → [{id, date, ticket_id, titre, message, lu}]
+const SAV_NOTIF_MAX_AGE_MS = 30 * 86400 * 1000;
+function cleanupOldNotifs() {
+  const now = Date.now();
+  for (const [login, list] of savNotifications.entries()) {
+    const fresh = list.filter(n => now - new Date(n.date).getTime() < SAV_NOTIF_MAX_AGE_MS);
+    if (fresh.length === 0) savNotifications.delete(login);
+    else savNotifications.set(login, fresh);
+  }
+}
+
+app.post('/api/sav/callback', async (req, res) => {
+  // Auth via secret (header X-958-Secret) — pas requireAuth car c'est n8n qui appelle
+  const incomingSecret = req.headers['x-958-secret'] || '';
+  if (!SAV_WEBHOOK_SECRET || incomingSecret !== SAV_WEBHOOK_SECRET) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  const { ticket_id, statut, message_resolution, auteur_email, titre } = req.body || {};
+  if (!ticket_id || !auteur_email) {
+    return res.status(400).json({ error: 'ticket_id et auteur_email requis' });
+  }
+  // auteur_email = "virginie@tanguydesign.local" → login = "virginie"
+  const login = String(auteur_email).split('@')[0].toLowerCase();
+  const notif = {
+    id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    date: new Date().toISOString(),
+    ticket_id,
+    statut: statut || 'Résolu',
+    titre: String(titre || `Ticket ${ticket_id}`).slice(0, 200),
+    message: String(message_resolution || 'Ticket résolu par l\'équipe 9·58.').slice(0, 2000),
+    lu: false,
+  };
+  cleanupOldNotifs();
+  const list = savNotifications.get(login) || [];
+  list.unshift(notif); // plus récent en tête
+  savNotifications.set(login, list);
+  logger.info({ login, ticket_id, statut }, '[sav/callback] notif stockée');
+  res.json({ ok: true, notif_id: notif.id });
+});
+
+// GET /api/sav/my-notifications — récupère les notifs de l'user connecté
+app.get('/api/sav/my-notifications', requireAuth, (req, res) => {
+  cleanupOldNotifs();
+  const login = (req.session?.user || '').toLowerCase();
+  const list = savNotifications.get(login) || [];
+  const unread = list.filter(n => !n.lu).length;
+  res.json({ ok: true, notifications: list, unread });
+});
+
+// POST /api/sav/notifications/:id/read — marquer comme lue
+app.post('/api/sav/notifications/:id/read', requireAuth, (req, res) => {
+  const login = (req.session?.user || '').toLowerCase();
+  const list = savNotifications.get(login) || [];
+  const n = list.find(x => x.id === req.params.id);
+  if (!n) return res.status(404).json({ error: 'introuvable' });
+  n.lu = true;
+  res.json({ ok: true });
+});
+
 // --- SAV : proxy vers webhook n8n du cockpit central 9·58 ----------------
 // Le cockpit central ouvre les tickets dans Airtable TICKETS_TBL et alimente
 // la zone Pilotage. Auth via header X-958-Secret. Configurable par env vars.
