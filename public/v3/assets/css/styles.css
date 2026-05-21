@@ -1210,22 +1210,22 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   gap: 10px;
   margin: 0;
   padding: 0;
+  align-items: stretch;
 }
-@media (min-width: 600px) {
-  .facturation-grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (min-width: 900px) {
+/* Sprint v3.15 — JMG : "1/3 - 1/3 - 1/3, plus joli".
+   Stack mobile, 3 colonnes strictes dès qu'on a la place (≥640px). */
+@media (min-width: 640px) {
   .facturation-grid { grid-template-columns: repeat(3, 1fr); }
 }
 .facturation-item {
   background: white;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  padding: 12px 14px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-height: 130px;
+  height: 170px; /* hauteur fixe identique sur les 3 cards (vs min-height qui laissait varier) */
   transition: border-color 100ms ease-out, box-shadow 100ms ease-out;
 }
 .facturation-item.is-encaisse { border-color: var(--green); background: var(--green-lo); }
