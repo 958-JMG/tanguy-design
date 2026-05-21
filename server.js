@@ -15,6 +15,7 @@ const { generateBcPdf } = require('./services/bc-pdf-generator');
 const { enrichEcheancesAvecDates } = require('./services/echeances-helper');
 const { canAccess, pickAllowedFields } = require('./services/acl');
 const logger = require('./services/logger');
+const usersStore = require('./services/users-store');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -651,7 +652,7 @@ app.post('/api/support/feedback', requireAuth, async (req, res) => {
         urgence: 'P3',
         titre: `[${req.session?.user || 'user'}] ${String(message).slice(0, 80)}`,
         description: `Message :\n${String(message).slice(0, 2000)}\n\nURL : ${String(url || '').slice(0, 200)}\nContext : ${String(context || '').slice(0, 500)}`,
-        auteur_email: getUserEmail(req.session?.user),
+        auteur_email: await usersStore.getEmail(req.session?.user),
         auteur_login: req.session?.user || '',
         // Sprint v3.23 — Standard inter-cockpits : chaque cockpit déclare son
         // URL de callback. n8n stocke ça dans le ticket et l'appelle à la
@@ -698,13 +699,14 @@ app.post('/api/login', loginLimiter, async (req, res) => {
     logger.warn({ login: loginLc, ip }, '[auth] login REJECTED (account locked)');
     return res.status(429).json({ error: 'Trop de tentatives. Compte temporairement verrouillé (15 min).' });
   }
-  const hash = USERS[loginLc];
-  if (!hash) {
+  // Sprint v4 — vérification via users-store (Airtable + fallback env var)
+  const user = await usersStore.findUser(loginLc);
+  if (!user || !user.actif) {
     accountRegisterFail(loginLc);
-    logger.warn({ login: loginLc, ip }, '[auth] login FAIL (unknown user)');
+    logger.warn({ login: loginLc, ip, reason: user ? 'user désactivé' : 'inconnu' }, '[auth] login FAIL');
     return res.status(401).json({ error: 'identifiants invalides' });
   }
-  const ok = await bcrypt.compare(password, hash);
+  const ok = await bcrypt.compare(password, user.hash);
   if (!ok) {
     accountRegisterFail(loginLc);
     logger.warn({ login: loginLc, ip }, '[auth] login FAIL (bad password)');
@@ -712,15 +714,87 @@ app.post('/api/login', loginLimiter, async (req, res) => {
   }
   accountRegisterSuccess(loginLc);
   req.session.user = loginLc;
-  logger.info({ login: loginLc, ip }, '[auth] login OK');
+  logger.info({ login: loginLc, ip, source: user.source }, '[auth] login OK');
   res.json({ ok: true, user: req.session.user });
 });
 
 app.post('/api/logout', (req, res) => { req.session = null; res.json({ ok: true }); });
 
-app.get('/api/me', (req, res) => {
+// === Sprint v4 — Admin Users (CRUD comptes utilisateurs) ===========================
+// Toutes ces routes nécessitent admin (Virginie par défaut, ou ADMIN_LOGINS env).
+// Source : table Airtable "Users cockpit" via services/users-store.js.
+function requireAdminUsers(req, res, next) {
+  if (!req.session?.user) return res.status(401).json({ error: 'non authentifié' });
+  // Permissive : admin si dans ADMIN_LOGINS env OU si user.admin=true dans Airtable
+  if (ADMIN_LOGINS.has(req.session.user)) return next();
+  // Check async dans usersStore
+  usersStore.isAdmin(req.session.user).then(isAdmin => {
+    if (isAdmin) return next();
+    return res.status(403).json({ error: 'admin requis pour gérer les utilisateurs' });
+  }).catch(e => res.status(500).json({ error: e.message }));
+}
+
+app.get('/api/admin/users', requireAdminUsers, async (req, res) => {
+  try {
+    await usersStore.refreshCache();
+    const users = await usersStore.listUsers();
+    res.json({ ok: true, users });
+  } catch (e) {
+    logger.error('[admin/users] list error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/users', requireAdminUsers, async (req, res) => {
+  const { login, password, email, displayName, admin, notes } = req.body || {};
+  try {
+    const created = await usersStore.createUser({ login, password, email, displayName, admin, notes });
+    logger.info({ by: req.session.user, login: created.login }, '[admin/users] user créé');
+    res.json({ ok: true, user: created });
+  } catch (e) {
+    logger.warn({ err: e.message, by: req.session.user }, '[admin/users] create FAIL');
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.patch('/api/admin/users/:id', requireAdminUsers, async (req, res) => {
+  const { email, displayName, admin, actif, notes } = req.body || {};
+  try {
+    await usersStore.updateUser(req.params.id, { email, displayName, admin, actif, notes });
+    logger.info({ by: req.session.user, id: req.params.id }, '[admin/users] user updated');
+    res.json({ ok: true });
+  } catch (e) {
+    logger.warn({ err: e.message, by: req.session.user, id: req.params.id }, '[admin/users] update FAIL');
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/users/:id/reset-password', requireAdminUsers, async (req, res) => {
+  const { newPassword } = req.body || {};
+  try {
+    await usersStore.resetPassword(req.params.id, newPassword);
+    logger.warn({ by: req.session.user, id: req.params.id }, '[admin/users] password reset');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/users/:id/disable', requireAdminUsers, async (req, res) => {
+  try {
+    await usersStore.disableUser(req.params.id);
+    logger.warn({ by: req.session.user, id: req.params.id }, '[admin/users] user désactivé');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.get('/api/me', async (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: 'not authenticated' });
-  res.json({ user: req.session.user, isAdmin: ADMIN_LOGINS.has(req.session.user) });
+  // Sprint v4 — isAdmin lu depuis Airtable OU env ADMIN_LOGINS (rétrocompat)
+  const isAdmin = ADMIN_LOGINS.has(req.session.user) || await usersStore.isAdmin(req.session.user);
+  res.json({ user: req.session.user, isAdmin });
 });
 
 // --- Data API générique avec ACL (cf. services/acl.js) ---
@@ -2384,7 +2458,7 @@ app.post('/api/sav/submit', requireAuth, async (req, res) => {
       urgence: urgence || 'P3',
       titre: String(titre).slice(0, 200),
       description: String(description).slice(0, 5000),
-      auteur_email: getUserEmail(req.session?.user),
+      auteur_email: await usersStore.getEmail(req.session?.user),
       auteur_login: req.session?.user || '',
       // Sprint v3.23 — Standard inter-cockpits : callback_url dans le payload
       callback_url: SAV_CALLBACK_URL,

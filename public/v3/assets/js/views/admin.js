@@ -42,6 +42,15 @@ export function renderAdmin(app) {
       </div>
     </div>
 
+    <!-- Sprint v4 — Gestion des accès utilisateurs -->
+    <div class="section-header" style="margin-top:32px">
+      <h2 class="section-title">Utilisateurs (${icon('user', 14)} accès cockpit)</h2>
+      <button class="btn btn-primary btn-sm" id="btn-new-user">${icon('plus', 14)} Nouveau compte</button>
+    </div>
+    <div id="users-output">
+      <div class="card"><p class="muted">${icon('clock', 14)} Chargement…</p></div>
+    </div>
+
     <h2 class="section-title" style="margin-top:32px">Sous-sections à venir</h2>
     <div class="kpi-row">
       <div class="kpi-card"><div class="kpi-label">Stock</div><div class="muted">Sprint 6+</div></div>
@@ -54,6 +63,263 @@ export function renderAdmin(app) {
   hydrateIcons(app);
   document.getElementById('btn-gen-ai').addEventListener('click', generateBriefing);
   document.getElementById('btn-load-marges').addEventListener('click', loadMarges);
+  document.getElementById('btn-new-user').addEventListener('click', () => openModalNouveauUser());
+  loadUsers();
+}
+
+// === Sprint v4 — Gestion des accès utilisateurs ============================
+async function loadUsers() {
+  const out = document.getElementById('users-output');
+  try {
+    const r = await fetch('/api/admin/users', { credentials: 'same-origin' });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || r.statusText);
+    }
+    const { users } = await r.json();
+    renderUsers(out, users);
+  } catch (err) {
+    out.innerHTML = `<div class="card"><p class="muted">Erreur : ${esc(err.message)}</p></div>`;
+  }
+}
+
+function renderUsers(container, users) {
+  if (!users.length) {
+    container.innerHTML = `<div class="card"><p class="muted">Aucun utilisateur. Crée le premier via « Nouveau compte ».</p></div>`;
+    return;
+  }
+  // Tri : admin d'abord, puis actifs alphabétiques, puis désactivés
+  users.sort((a, b) => {
+    if (a.admin !== b.admin) return a.admin ? -1 : 1;
+    if (a.actif !== b.actif) return a.actif ? -1 : 1;
+    return a.login.localeCompare(b.login);
+  });
+  container.innerHTML = `
+    <table class="pipeline-table">
+      <thead>
+        <tr>
+          <th>Login</th>
+          <th>Display name</th>
+          <th>Email</th>
+          <th>Rôle</th>
+          <th>Statut</th>
+          <th>Source</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${users.map(u => `
+        <tr data-id="${esc(u.id || '')}" data-login="${esc(u.login)}">
+          <td><strong>${esc(u.login)}</strong></td>
+          <td>${esc(u.displayName || '—')}</td>
+          <td>${esc(u.email || '—')}</td>
+          <td>${u.admin ? `<span class="badge phase-signe">${icon('star', 11)} Admin</span>` : '<span class="muted">Membre</span>'}</td>
+          <td>${u.actif ? '<span class="badge phase-signe">Actif</span>' : '<span class="badge" style="background:var(--accent-lo);color:var(--accent)">Désactivé</span>'}</td>
+          <td class="muted" style="font-size:11px">${esc(u.source)}</td>
+          <td>
+            ${u.source === 'airtable' ? `
+              <button class="btn btn-ghost btn-sm" data-action="edit-user" data-id="${esc(u.id)}">${icon('edit', 12)}</button>
+              <button class="btn btn-ghost btn-sm" data-action="reset-user" data-id="${esc(u.id)}" title="Reset mot de passe">${icon('mail', 12)}</button>
+              ${u.actif ? `<button class="btn btn-ghost btn-sm" data-action="disable-user" data-id="${esc(u.id)}" data-login="${esc(u.login)}" style="color:var(--accent)" title="Désactiver">${icon('trash', 12)}</button>` : ''}
+            ` : '<span class="muted" style="font-size:11px">via env</span>'}
+          </td>
+        </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+  hydrateIcons(container);
+  container.querySelectorAll('[data-action="edit-user"]').forEach(b => {
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      const u = users.find(x => x.id === b.dataset.id);
+      if (u) openModalEditUser(u);
+    });
+  });
+  container.querySelectorAll('[data-action="reset-user"]').forEach(b => {
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      const u = users.find(x => x.id === b.dataset.id);
+      if (u) openModalResetPassword(u);
+    });
+  });
+  container.querySelectorAll('[data-action="disable-user"]').forEach(b => {
+    b.addEventListener('click', async e => {
+      e.stopPropagation();
+      const login = b.dataset.login;
+      if (!confirm(`Désactiver le compte ${login} ? Il ne pourra plus se connecter.`)) return;
+      try {
+        const r = await fetch(`/api/admin/users/${encodeURIComponent(b.dataset.id)}/disable`, {
+          method: 'POST', credentials: 'same-origin',
+        });
+        if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.error || r.statusText); }
+        toast(`Compte ${login} désactivé`, 'success');
+        loadUsers();
+      } catch (err) {
+        toast('Erreur : ' + err.message, 'error', 5000);
+      }
+    });
+  });
+}
+
+function openModalNouveauUser() {
+  const modal = document.createElement('div');
+  modal.className = 'modal-bg';
+  modal.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="new-user-title">
+      <h2 id="new-user-title">Nouveau compte utilisateur</h2>
+      <p class="muted" style="margin-bottom:12px">Crée un accès au cockpit pour un nouveau collaborateur.</p>
+      <form id="form-new-user">
+        <label>Login (court, lowercase, sans espace)
+          <input name="login" required pattern="[a-z0-9._-]{3,32}" placeholder="ex : marie, jean.dupont">
+        </label>
+        <label>Display name (affiché dans le cockpit)
+          <input name="displayName" required placeholder="ex : Marie Dupont">
+        </label>
+        <label>Email professionnel
+          <input name="email" type="email" required placeholder="ex : marie@tanguydesign.com">
+        </label>
+        <label>Mot de passe initial (min 8 caractères, à communiquer au user)
+          <input name="password" type="text" required minlength="8" placeholder="Génère un mot de passe fort">
+          <small class="muted">Le user pourra changer son mot de passe à la 1re connexion (TODO).</small>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;flex-direction:row">
+          <input name="admin" type="checkbox">
+          <span>Admin (accès Marges, Stock, Gestion users)</span>
+        </label>
+        <label>Notes (optionnel)
+          <textarea name="notes" rows="2" placeholder="ex : Pose chantier, arrive en mars"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="cancel-new-user">Annuler</button>
+          <button type="submit" class="btn btn-primary">Créer le compte</button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  const close = () => modal.remove();
+  document.getElementById('cancel-new-user').onclick = close;
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  document.getElementById('form-new-user').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const payload = {
+      login: fd.get('login'),
+      displayName: fd.get('displayName'),
+      email: fd.get('email'),
+      password: fd.get('password'),
+      admin: fd.get('admin') === 'on',
+      notes: fd.get('notes') || '',
+    };
+    try {
+      const r = await fetch('/api/admin/users', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) { const er = await r.json().catch(()=>({})); throw new Error(er.error || r.statusText); }
+      toast(`Compte ${payload.login} créé`, 'success');
+      close();
+      loadUsers();
+    } catch (err) {
+      toast('Erreur : ' + err.message, 'error', 5000);
+    }
+  });
+}
+
+function openModalEditUser(u) {
+  const modal = document.createElement('div');
+  modal.className = 'modal-bg';
+  modal.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true">
+      <h2>Éditer ${esc(u.login)}</h2>
+      <form id="form-edit-user">
+        <label>Display name <input name="displayName" value="${esc(u.displayName || '')}" required></label>
+        <label>Email <input name="email" type="email" value="${esc(u.email || '')}"></label>
+        <label style="display:flex;align-items:center;gap:8px;flex-direction:row">
+          <input name="admin" type="checkbox" ${u.admin ? 'checked' : ''}>
+          <span>Admin (accès Marges, Stock, Gestion users)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;flex-direction:row">
+          <input name="actif" type="checkbox" ${u.actif ? 'checked' : ''}>
+          <span>Compte actif</span>
+        </label>
+        <label>Notes <textarea name="notes" rows="2"></textarea></label>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="cancel-edit-user">Annuler</button>
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  const close = () => modal.remove();
+  document.getElementById('cancel-edit-user').onclick = close;
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  document.getElementById('form-edit-user').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const payload = {
+      displayName: fd.get('displayName'),
+      email: fd.get('email'),
+      admin: fd.get('admin') === 'on',
+      actif: fd.get('actif') === 'on',
+      notes: fd.get('notes') || '',
+    };
+    try {
+      const r = await fetch(`/api/admin/users/${encodeURIComponent(u.id)}`, {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) { const er = await r.json().catch(()=>({})); throw new Error(er.error || r.statusText); }
+      toast(`${u.login} mis à jour`, 'success');
+      close();
+      loadUsers();
+    } catch (err) {
+      toast('Erreur : ' + err.message, 'error', 5000);
+    }
+  });
+}
+
+function openModalResetPassword(u) {
+  const modal = document.createElement('div');
+  modal.className = 'modal-bg';
+  modal.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true">
+      <h2>Reset mot de passe ${esc(u.login)}</h2>
+      <p class="muted" style="margin-bottom:12px">Le nouveau mot de passe sera affiché ici. Communique-le au user en privé (chat sécurisé, papier remis en main propre).</p>
+      <form id="form-reset-pwd">
+        <label>Nouveau mot de passe (≥ 8 caractères)
+          <input name="newPassword" type="text" required minlength="8" autofocus>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="cancel-reset">Annuler</button>
+          <button type="submit" class="btn btn-primary">Reset</button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  const close = () => modal.remove();
+  document.getElementById('cancel-reset').onclick = close;
+  document.getElementById('form-reset-pwd').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      const r = await fetch(`/api/admin/users/${encodeURIComponent(u.id)}/reset-password`, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPassword: fd.get('newPassword') }),
+      });
+      if (!r.ok) { const er = await r.json().catch(()=>({})); throw new Error(er.error || r.statusText); }
+      toast(`Mot de passe reset pour ${u.login}`, 'success', 6000);
+      close();
+    } catch (err) {
+      toast('Erreur : ' + err.message, 'error', 5000);
+    }
+  });
 }
 
 async function loadMarges() {
