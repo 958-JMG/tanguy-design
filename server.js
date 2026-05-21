@@ -2,6 +2,7 @@ const express = require('express');
 const session = require('cookie-session');
 const bcrypt = require('bcrypt');
 const path = require('path');
+const fs = require('fs');
 const multer = require('multer');
 // fetch est natif depuis Node 18, requis Node 20+ (cf. package.json engines).
 const helmet = require('helmet');
@@ -2083,9 +2084,43 @@ app.use('/img', express.static(path.join(__dirname, 'public', 'img')));
 // slash, ce qui crée une boucle ERR_TOO_MANY_REDIRECTS. On sert le même HTML sur les
 // deux paths, et tous les <link>/<script> de l'index.html sont en chemin absolu
 // (/v3/assets/...) donc OK quel que soit le path d'entrée.
-const v3Index = (req, res) => res.sendFile(path.join(__dirname, 'public', 'v3', 'index.html'));
+//
+// Sprint v3.3 — cache-busting des modules ES :
+// Le browser garde les imports ES en cache navigateur (cache-control max-age=14400
+// imposé par Cloudflare malgré nos headers). Pour propager les fix immédiatement,
+// on append `?v=<GITHUB_SHA>` sur tous les imports relatifs des fichiers .js de /v3/
+// ET sur le main.js / styles.css référencés dans index.html. Chaque deploy = nouveau
+// SHA = nouvelle URL = browser télécharge frais.
+const V3_VERSION = (process.env.GITHUB_SHA || Date.now().toString(36)).slice(0, 12);
+const v3IndexHtml = (() => {
+  let html = fs.readFileSync(path.join(__dirname, 'public', 'v3', 'index.html'), 'utf8');
+  html = html.replace(/src="\/v3\/assets\/js\/main\.js"/g, `src="/v3/assets/js/main.js?v=${V3_VERSION}"`);
+  html = html.replace(/href="\/v3\/assets\/css\/styles\.css"/g, `href="/v3/assets/css/styles.css?v=${V3_VERSION}"`);
+  return html;
+})();
+const v3Index = (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  res.type('html').send(v3IndexHtml);
+};
 app.get('/v3',  requireAuth, v3Index);
 app.get('/v3/', requireAuth, v3Index);
+
+// Middleware qui réécrit tous les imports relatifs des .js de /v3/ avec ?v=VERSION
+// pour forcer le browser à télécharger les nouveaux modules à chaque déploiement.
+// Doit être placé AVANT express.static pour intercepter.
+app.get(/^\/v3\/assets\/js\/.+\.js$/, requireAuth, (req, res, next) => {
+  const fp = path.join(__dirname, 'public', req.path);
+  if (!fs.existsSync(fp)) return next();
+  let js;
+  try { js = fs.readFileSync(fp, 'utf8'); }
+  catch (e) { return next(); }
+  // Réécrit `from './x.js'` → `from './x.js?v=VERSION'`
+  js = js.replace(/(\bfrom\s+|\bimport\s+|\bimport\(\s*)(['"])(\.\.?\/[^'"]+\.js)\2/g,
+    (m, prefix, q, p) => `${prefix}${q}${p}?v=${V3_VERSION}${q}`);
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  res.send(js);
+});
 // V3 est encore en dev rapide : pas de cache long. Le browser doit toujours revalider
 // (Cmd+R = ETag → 304 si pas changé, sinon 200 avec nouveau code). Cela évite que les
 // users gardent un module ES obsolète après un fix déployé (cas vu 2026-05-21 : champ
