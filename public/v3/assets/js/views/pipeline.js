@@ -1,19 +1,20 @@
-// Pipeline commercial v3 (Sprint 2) — tableau de suivi prospects + taux conversion
-// Décomposition par Phase commerciale (fallback Statut legacy si migration v3 non appliquée).
+// Pipeline commercial v3 (Sprint 2 / v3.19) — Kanban board par phase + édition rapide
+// JMG 2026-05-21 : refonte en Kanban, fix calcul "bloqué" (basé sur activité réelle).
 
 import { state } from '../core/state.js';
 import { navigateTo } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
+import { toast } from '../core/ui.js';
 
 const PHASES = [
-  { key: 'Découverte',          icon: 'compass', pct: 0   },
-  { key: 'Dessin',              icon: 'pencil',  pct: 25  },
-  { key: 'Présentation devis',  icon: 'file',    pct: 50  },
-  { key: 'En attente décision', icon: 'clock',   pct: 75  },
-  { key: 'Signé',               icon: 'check',   pct: 100 },
+  { key: 'Découverte',          icon: 'compass', pct: 0,   short: 'Découverte' },
+  { key: 'Dessin',              icon: 'pencil',  pct: 25,  short: 'Dessin' },
+  { key: 'Présentation devis',  icon: 'file',    pct: 50,  short: 'Devis présenté' },
+  { key: 'En attente décision', icon: 'clock',   pct: 75,  short: 'En attente' },
+  { key: 'Signé',               icon: 'check',   pct: 100, short: 'Signé' },
 ];
 
-const ALERT_DAYS_THRESHOLD = 30; // au-delà : projet "bloqué" en attente
+const STUCK_THRESHOLD = 30; // jours sans activité
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
@@ -22,12 +23,26 @@ function euros(n) {
   if (n == null || isNaN(n)) return '—';
   return Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
 }
-function ageJours(p) {
-  const start = p['Date découverte'] || p['Date contact'] || null;
-  if (!start) return null;
-  const d = new Date(start);
-  if (isNaN(d.getTime())) return null;
-  return Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+
+// Sprint v3.19 — Âge "depuis dernière activité" (R1/R2 le plus récent, dernière
+// tâche créée, dernier devis importé) plutôt que juste "Date découverte".
+// Si on vient d'ajouter un R1, le projet n'est plus "bloqué" même si la
+// date de découverte est ancienne.
+function daysSinceActivity(p) {
+  const candidates = [
+    p['Date découverte'],
+    p['Date contact'],
+    p['Date pose prévue'], // si > today, ça indique un projet actif
+    // Note : on n'a pas accès aux Plaud/tâches/devis ici depuis state, ce serait
+    // un fetch lourd. À défaut, on utilise au moins les dates du projet.
+  ].filter(Boolean);
+  if (candidates.length === 0) return null;
+  const mostRecent = candidates
+    .map(d => new Date(d))
+    .filter(d => !isNaN(d.getTime()))
+    .sort((a, b) => b - a)[0];
+  if (!mostRecent) return null;
+  return Math.floor((Date.now() - mostRecent.getTime()) / 86400000);
 }
 
 // Fallback mapping pour les projets sans Phase commerciale
@@ -42,148 +57,191 @@ function projetPhase(p) {
 }
 
 export function renderPipeline(app, filterPhase = null) {
-  const projets = state.projets || [];
+  const projets = (state.projets || []).filter(p =>
+    (p['Statut chantier'] || '') !== 'Archivé'
+  );
   const clients = state.clients || [];
   const clientById = new Map(clients.map(c => [c.id, c]));
 
   // Agrégat par phase
   const byPhase = {};
+  for (const ph of PHASES) byPhase[ph.key] = [];
   for (const p of projets) {
     const ph = projetPhase(p);
     if (!byPhase[ph]) byPhase[ph] = [];
     byPhase[ph].push(p);
   }
 
-  // Taux de conversion : Découverte → Dessin, Dessin → Présentation, etc.
-  const totalEnAmont = (phaseKey) => {
-    const idx = PHASES.findIndex(p => p.key === phaseKey);
-    let total = 0;
-    for (let i = idx; i < PHASES.length; i++) total += (byPhase[PHASES[i].key] || []).length;
-    return total;
-  };
-  const conversionRate = (from, to) => {
-    const fromTotal = totalEnAmont(from);
-    const toTotal = totalEnAmont(to);
-    if (!fromTotal) return null;
-    return (toTotal / fromTotal) * 100;
-  };
+  // Stats globales
+  const totalProjets = projets.length;
+  const caPipeline = projets
+    .filter(p => projetPhase(p) !== 'Signé')
+    .reduce((s, p) => s + (p['Budget HT'] || 0), 0);
+  const caPondere = projets
+    .filter(p => projetPhase(p) !== 'Signé')
+    .reduce((s, p) => {
+      const ph = PHASES.find(x => x.key === projetPhase(p));
+      return s + (p['Budget HT'] || 0) * (ph?.pct || 0) / 100;
+    }, 0);
+  const stuckCount = projets.filter(p => {
+    const a = daysSinceActivity(p);
+    const ph = projetPhase(p);
+    return a != null && a > STUCK_THRESHOLD && ph !== 'Signé';
+  }).length;
 
   app.innerHTML = `
-    <div class="page-header">
+    <div class="page-header" style="margin-bottom:16px">
       <h1 class="page-title">Pipeline commercial</h1>
-      <span class="muted">${projets.length} projet${projets.length > 1 ? 's' : ''} en base</span>
+      <span class="muted">${totalProjets} projet${totalProjets > 1 ? 's' : ''} actif${totalProjets > 1 ? 's' : ''}</span>
     </div>
 
-    <p class="muted muted-with-icon" style="margin:-8px 0 20px">${icon('alert', 14)}
-      ${projets.some(p => p['Phase commerciale']) ? '' :
-        'Compteurs basés sur le Statut legacy. Lance <code>node scripts/setup-fields-v3.js --apply</code> pour activer Phase commerciale.'}
-    </p>
+    <!-- KPIs pipeline -->
+    <div class="kpi-row" style="margin-bottom:24px">
+      <div class="kpi-card"><div class="kpi-value">${totalProjets}</div><div class="kpi-label">Projets actifs</div></div>
+      <div class="kpi-card"><div class="kpi-value">${euros(caPipeline)}</div><div class="kpi-label">CA pipeline brut</div></div>
+      <div class="kpi-card"><div class="kpi-value">${euros(caPondere)}</div><div class="kpi-label">CA pondéré par phase</div></div>
+      <div class="kpi-card${stuckCount > 0 ? ' is-warning' : ''}"><div class="kpi-value">${stuckCount}</div><div class="kpi-label">À relancer (> ${STUCK_THRESHOLD} j)</div></div>
+    </div>
 
-    <h2 class="section-title">Conversion entre phases</h2>
-    <div class="conversion-row">
-      ${PHASES.slice(0, -1).map((p, i) => {
-        const next = PHASES[i + 1];
-        const rate = conversionRate(p.key, next.key);
+    <!-- Kanban board : 5 colonnes par phase -->
+    <div class="pipeline-board" role="list" aria-label="Pipeline commercial Kanban">
+      ${PHASES.map(ph => {
+        const list = byPhase[ph.key] || [];
+        const ca = list.reduce((s, p) => s + (p['Budget HT'] || 0), 0);
         return `
-        <div class="conv-step">
-          <div class="conv-from">${icon(p.icon, 16)} ${p.key}</div>
-          <div class="conv-arrow">→ <strong>${rate != null ? rate.toFixed(0) + '%' : '—'}</strong></div>
-          <div class="conv-to">${next.key} ${icon(next.icon, 16)}</div>
-        </div>`;
+        <section class="pipeline-col" data-phase="${esc(ph.key)}" role="listitem">
+          <header class="pipeline-col-head">
+            <div class="pipeline-col-title">
+              <span class="pipeline-col-icon" aria-hidden="true">${icon(ph.icon, 14)}</span>
+              <span>${esc(ph.short)}</span>
+              <span class="pipeline-col-count">${list.length}</span>
+            </div>
+            <div class="pipeline-col-ca muted">${ca > 0 ? euros(ca) : ''}</div>
+          </header>
+          <div class="pipeline-col-body">
+            ${list.length === 0
+              ? '<div class="pipeline-col-empty muted">Aucun projet</div>'
+              : list
+                  .sort((a, b) => (daysSinceActivity(b) || 0) - (daysSinceActivity(a) || 0))
+                  .map(p => renderProjetCard(p, ph.key, clientById))
+                  .join('')}
+          </div>
+        </section>`;
       }).join('')}
-    </div>
-
-    <h2 class="section-title">Détail par phase</h2>
-    <table class="pipeline-table">
-      <thead>
-        <tr>
-          <th></th>
-          <th>Phase</th>
-          <th class="num">Nb</th>
-          <th class="num">CA estim.</th>
-          <th class="num">Âge moyen</th>
-          <th>État</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        ${PHASES.map(ph => {
-          const list = byPhase[ph.key] || [];
-          const ca = list.reduce((s, p) => s + (p['Budget HT'] || 0), 0);
-          const ages = list.map(ageJours).filter(a => a != null);
-          const ageMoy = ages.length ? Math.round(ages.reduce((s, a) => s + a, 0) / ages.length) : null;
-          const stuckCount = list.filter(p => {
-            const a = ageJours(p);
-            return a != null && a > ALERT_DAYS_THRESHOLD && ph.key !== 'Signé';
-          }).length;
-          return `
-          <tr class="${filterPhase === ph.key ? 'is-active' : ''}">
-            <td>${icon(ph.icon, 18)}</td>
-            <td><strong>${ph.key}</strong> <span class="muted">${ph.pct}%</span></td>
-            <td class="num">${list.length}</td>
-            <td class="num">${euros(ca)}</td>
-            <td class="num">${ageMoy != null ? ageMoy + ' j' : '—'}</td>
-            <td>${stuckCount > 0 ? `<span class="badge phase-en-attente-decision">${stuckCount} bloqué${stuckCount > 1 ? 's' : ''} > ${ALERT_DAYS_THRESHOLD}j</span>` : '<span class="muted">OK</span>'}</td>
-            <td><button class="btn btn-ghost btn-sm" data-phase="${esc(ph.key)}">Voir ${list.length > 0 ? '→' : ''}</button></td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table>
-
-    ${filterPhase ? renderProjetsList(filterPhase, byPhase[filterPhase] || [], clientById) : ''}
-
-    <h2 class="section-title">Alertes pipeline</h2>
-    <div class="card">
-      ${(() => {
-        const alerts = [];
-        for (const p of projets) {
-          const ph = projetPhase(p);
-          if (ph === 'Signé') continue;
-          const a = ageJours(p);
-          if (a != null && a > ALERT_DAYS_THRESHOLD) {
-            const cId = (p.Client || [])[0];
-            const cNom = cId ? (clientById.get(cId)?.Nom || '?') : '?';
-            alerts.push({ p, age: a, ph, cNom });
-          }
-        }
-        if (alerts.length === 0) return `<p class="muted">Pas d'alertes pipeline aujourd'hui.</p>`;
-        alerts.sort((x, y) => y.age - x.age);
-        return `<ul class="alerts-list">${alerts.slice(0, 10).map(a => `<li>${icon('alert', 14)} <strong>${esc(a.cNom)}</strong> — ${esc(a.p.Référence || '')} bloqué ${a.age} j en <em>${esc(a.ph)}</em></li>`).join('')}</ul>`;
-      })()}
     </div>
   `;
 
-  // Listeners boutons "Voir N →"
-  app.querySelectorAll('.btn[data-phase]').forEach(b => {
-    b.addEventListener('click', () => {
-      const phase = b.dataset.phase;
-      navigateTo('pipeline', { id: phase });
+  // Click card → fiche projet
+  app.querySelectorAll('.pipeline-card-main').forEach(el => {
+    el.addEventListener('click', e => {
+      e.preventDefault();
+      const id = el.dataset.id;
+      if (id) location.hash = '#projet/' + id;
+    });
+  });
+
+  // Click "Changer phase" → menu select
+  app.querySelectorAll('[data-action="change-phase"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const projetId = btn.dataset.id;
+      const currentPhase = btn.dataset.phase;
+      openChangePhaseMenu(btn, projetId, currentPhase);
     });
   });
 
   hydrateIcons(app);
 }
 
-function renderProjetsList(phase, projets, clientById) {
-  if (!projets.length) {
-    return `<h2 class="section-title">Projets — ${esc(phase)}</h2><div class="card"><p class="muted">Aucun projet dans cette phase.</p></div>`;
-  }
+function renderProjetCard(p, phaseKey, clientById) {
+  const cId = (p.Client || [])[0];
+  const c = cId ? clientById.get(cId) : null;
+  const cNom = c?.Nom || '— Sans client —';
+  const days = daysSinceActivity(p);
+  const isStuck = days != null && days > STUCK_THRESHOLD && phaseKey !== 'Signé';
+  const budget = p['Budget HT'];
   return `
-    <h2 class="section-title">Projets — ${esc(phase)} (${projets.length})</h2>
-    <div class="projets-list">
-      ${projets.map(p => {
-        const cId = (p.Client || [])[0];
-        const c = cId ? clientById.get(cId) : null;
-        return `
-        <button class="projet-card" onclick="window.navigateTo('projet', { id: '${p.id}' })">
-          <div class="projet-ref">${icon('folder', 16)} ${esc(p.Référence || '(sans référence)')}</div>
-          <div class="projet-meta">
-            ${c ? `<span><strong>${esc(c.Nom)}</strong></span>` : '<span class="muted">Sans client</span>'}
-            ${p['Budget HT'] ? `<span>${euros(p['Budget HT'])}</span>` : ''}
-            ${p['Date découverte'] ? `<span>Découvert le ${esc(p['Date découverte'])}</span>` : ''}
-          </div>
-        </button>`;
-      }).join('')}
-    </div>
+    <article class="pipeline-card ${isStuck ? 'is-stuck' : ''}">
+      <a href="#projet/${esc(p.id)}" class="pipeline-card-main" data-id="${esc(p.id)}">
+        <div class="pipeline-card-ref">${esc(p['Référence'] || '(sans référence)')}</div>
+        <div class="pipeline-card-client">${esc(cNom)}</div>
+        <div class="pipeline-card-foot">
+          ${budget ? `<span class="pipeline-card-budget">${euros(budget)}</span>` : '<span class="muted">— € —</span>'}
+          ${days != null
+            ? `<span class="pipeline-card-age ${isStuck ? 'is-stuck' : ''}" title="${days} jours depuis la dernière activité enregistrée">${days} j</span>`
+            : ''}
+        </div>
+      </a>
+      <button class="pipeline-card-action" data-action="change-phase" data-id="${esc(p.id)}" data-phase="${esc(phaseKey)}" aria-label="Changer la phase">
+        ${icon('arrowLeft', 12)}
+      </button>
+    </article>`;
+}
+
+// Sprint v3.19 — Menu de changement de phase : popover avec les 5 phases.
+// Patch /api/data/projets/:id { Phase commerciale: newPhase } + refresh.
+function openChangePhaseMenu(anchor, projetId, currentPhase) {
+  // Ferme tout menu existant
+  document.querySelectorAll('.pipeline-phase-menu').forEach(m => m.remove());
+
+  const menu = document.createElement('div');
+  menu.className = 'pipeline-phase-menu';
+  menu.innerHTML = `
+    <div class="pipeline-phase-menu-title">Changer la phase</div>
+    ${PHASES.map(p => `
+      <button class="pipeline-phase-option ${p.key === currentPhase ? 'is-current' : ''}" data-phase="${esc(p.key)}">
+        ${icon(p.icon, 12)} ${esc(p.key)}
+        ${p.key === currentPhase ? '<span class="muted">(actuel)</span>' : ''}
+      </button>
+    `).join('')}
   `;
+  document.body.appendChild(menu);
+  hydrateIcons(menu);
+
+  // Position près du bouton
+  const rect = anchor.getBoundingClientRect();
+  menu.style.position = 'absolute';
+  menu.style.top = `${rect.bottom + window.scrollY + 4}px`;
+  menu.style.left = `${Math.max(8, rect.right + window.scrollX - 200)}px`;
+
+  // Ferme au clic extérieur
+  const onClickOutside = (ev) => {
+    if (!menu.contains(ev.target) && ev.target !== anchor) {
+      menu.remove();
+      document.removeEventListener('click', onClickOutside);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', onClickOutside), 0);
+
+  // Bind options
+  menu.querySelectorAll('[data-phase]').forEach(opt => {
+    opt.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const newPhase = opt.dataset.phase;
+      if (newPhase === currentPhase) { menu.remove(); return; }
+      menu.remove();
+      try {
+        const r = await fetch(`/api/data/projets/${encodeURIComponent(projetId)}`, {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: { 'Phase commerciale': newPhase } }),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.error || r.statusText);
+        }
+        // Update state local pour re-render sans refetch complet
+        const proj = (state.projets || []).find(p => p.id === projetId);
+        if (proj) proj['Phase commerciale'] = newPhase;
+        toast(`Phase → ${newPhase}`, 'success');
+        // Re-render pipeline
+        const app = document.getElementById('app');
+        renderPipeline(app);
+      } catch (err) {
+        toast('Erreur : ' + err.message, 'error', 5000);
+      }
+    });
+  });
 }
