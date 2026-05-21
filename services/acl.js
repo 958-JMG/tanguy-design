@@ -47,7 +47,7 @@ const FIELD_WHITELIST = {
   'zones-devis':       ['Nom', 'Ordre', 'Notes'],
   'lignes-devis':      ['Notes', 'Alertes'],
   'echeances-devis':   ['Statut', 'Date prévue', 'Date encaissement', 'Notes', 'Montant prévu'],
-  commandes:           ['Statut', 'Notes', 'Date envoi', 'Date réception prévue', 'Date réception réelle', 'Fournisseur', 'Contremarque', 'Contact Tanguy', 'Référence courte', 'Livraison semaine', 'Modèle choisi', 'Détails modèle', 'Lignes BC', 'Date livraison prévue', 'Numéro', 'Montant HT', 'Facture reçue', 'Type'],
+  commandes:           ['Statut', 'Notes', 'Date envoi', 'Fournisseur', 'Contremarque', 'Contact Tanguy', 'Référence courte', 'Livraison semaine', 'Modèle choisi', 'Détails modèle', 'Lignes BC', 'Date livraison prévue', 'Numéro', 'Montant HT', 'Facture reçue', 'Type', 'Date création'],
 };
 
 /**
