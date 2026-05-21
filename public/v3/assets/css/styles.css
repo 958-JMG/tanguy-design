@@ -100,11 +100,9 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
   border-radius: var(--r-sm);
 }
 .brand-logo {
-  height: 36px;
+  height: 44px;
   width: auto;
   display: block;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line);
   transition: opacity 0.12s;
 }
 .brand:hover .brand-logo { opacity: 0.85; }
@@ -619,8 +617,24 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 .journal { color: var(--ink2); line-height: 1.5; }
 
 /* === Attachments grid === */
-.attachments-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-.attachment-card { display: flex; flex-direction: column; }
+/* Sprint v3.13 — cards égalisées en hauteur via grid + align-items stretch */
+.attachments-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: stretch;
+}
+@media (min-width: 600px) {
+  .attachments-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 1200px) {
+  .attachments-grid { grid-template-columns: repeat(4, 1fr); }
+}
+.attachment-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 180px;
+}
 .attachment-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .attachment-head .btn-sm { padding: 4px 8px; min-width: auto; }
 .attachment-count { display: flex; gap: 6px; align-items: baseline; margin-bottom: 8px; }

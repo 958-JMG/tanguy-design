@@ -497,7 +497,7 @@ function renderFiche(app, data) {
           <div class="projet-section-header">
             <h2>Documents</h2>
           </div>
-          <div class="attachments-grid" style="grid-template-columns:repeat(2,1fr);gap:12px">
+          <div class="attachments-grid">
             ${renderAttachmentsCard('Plan 3D', pf['Plan 3D'], projet.id)}
             ${renderAttachmentsCard('Plan technique', pf['Plan technique'], projet.id)}
             ${renderAttachmentsCard('Images', pf['Images'], projet.id)}
