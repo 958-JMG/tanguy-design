@@ -888,6 +888,7 @@ function renderFacturationSection(echeances, taches, devis) {
     || devisSigne?.fields?.['Total HT après remise']
     || devisSigne?.fields?.['Total HT articles']
     || 0;
+  const caTTC = devisSigne?.fields?.['Total TTC'] || 0;
 
   const ordered = (echeances || []).slice().sort((a,b) => (a.fields?.Ordre||0) - (b.fields?.Ordre||0));
 
@@ -906,8 +907,8 @@ function renderFacturationSection(echeances, taches, devis) {
   return `
     <section class="facturation-card-block" aria-label="Facturation client" data-section="facturation">
       <header class="facturation-header">
-        <h3>${icon('mail', 14)} <span>Facturation client</span></h3>
-        ${caHT > 0 ? `<div class="facturation-ca">CA signé HT <strong>${euros(caHT)}</strong></div>` : ''}
+        <h3><span aria-hidden="true">${icon('mail', 14)}</span> <span>Facturation client</span></h3>
+        ${caHT > 0 || caTTC > 0 ? `<div class="facturation-ca">${caHT > 0 ? 'HT <strong>' + euros(caHT) + '</strong>' : ''}${caTTC > 0 ? ` · TTC <strong>${euros(caTTC)}</strong>` : ''}</div>` : ''}
       </header>
       <ul class="facturation-grid" role="list">
         ${ordered.map(e => {
@@ -916,8 +917,10 @@ function renderFacturationSection(echeances, taches, devis) {
           const tacheLiee = taches.find(t => (t.fields?.Description || '').includes(`[echeance:${e.id}]`));
           const tacheTerminee = tacheLiee && tacheLiee.fields?.Statut === 'Terminée';
           const tacheEnCours = tacheLiee && tacheLiee.fields?.Statut !== 'Terminée';
-          const montantHt = ef['Montant prévu'] || 0;
-          const pct = totalPrevu > 0 ? Math.round((montantHt / totalPrevu) * 100) : null;
+          // Le champ Airtable "Montant prévu" stocke le TTC (le client paie TTC).
+          // Le pourcentage est relatif au total TTC des échéances pour totaliser 100%.
+          const montantTTC = ef['Montant prévu'] || 0;
+          const pct = totalPrevu > 0 ? Math.round((montantTTC / totalPrevu) * 100) : null;
 
           let stateCls, badge, meta, action = '';
           if (isEncaisse) {
@@ -947,8 +950,8 @@ function renderFacturationSection(echeances, taches, devis) {
                 ${badge}
               </div>
               <div class="facturation-item-amount">
-                <span class="facturation-amount-value">${euros(montantHt)}</span>
-                <span class="facturation-amount-unit">HT${pct != null ? ' · ' + pct + ' %' : ''}</span>
+                <span class="facturation-amount-value">${euros(montantTTC)}</span>
+                <span class="facturation-amount-unit">TTC${pct != null ? ' · ' + pct + ' %' : ''}</span>
               </div>
               ${meta ? `<div class="facturation-item-meta">${meta}</div>` : ''}
               ${action}
