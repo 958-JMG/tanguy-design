@@ -33,6 +33,19 @@ const STEPS = [
 function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 }
+
+// Sprint v3.14 — Répare les filenames mojibake (UTF-8 mal décodé en Latin1).
+// Ex: "prÃ©sentation" → "présentation". Vient d'uploads passés à travers une
+// chaîne mal configurée (cockpit v1 / Airtable form).
+function fixMojibake(s) {
+  if (!s || !/Ã[^\x00-\x7F]?/.test(s)) return s;
+  try {
+    const bytes = new Uint8Array([...String(s)].map(c => c.charCodeAt(0) & 0xff));
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (e) {
+    return s; // pas réparable, on garde l'original
+  }
+}
 function euros(n) {
   if (n == null || isNaN(n)) return '—';
   return Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
@@ -724,10 +737,13 @@ function renderAttachmentsCard(label, attachments, projetId) {
         <span class="muted" style="font-size:12px">fichier${count > 1 ? 's' : ''}</span>
       </div>
       <ul class="attachments-files">
-        ${(attachments || []).map(a => `<li class="attachment-file" data-id="${esc(a.id)}">
-          <a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.filename)}</a>
-          <button class="attachment-del" data-action="delete" data-attachment="${esc(a.id)}" aria-label="Supprimer ${esc(a.filename)}">${icon('trash', 12)}</button>
-        </li>`).join('')}
+        ${(attachments || []).map(a => {
+          const fname = fixMojibake(a.filename || '');
+          return `<li class="attachment-file" data-id="${esc(a.id)}">
+            <a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(fname)}</a>
+            <button class="attachment-del" data-action="delete" data-attachment="${esc(a.id)}" aria-label="Supprimer ${esc(fname)}">${icon('trash', 12)}</button>
+          </li>`;
+        }).join('')}
       </ul>
       <div class="attachment-drop" data-action="drop">Glisse un fichier ici</div>
     </div>
