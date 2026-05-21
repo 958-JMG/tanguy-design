@@ -771,17 +771,50 @@ app.get('/api/clients/:id', requireAuth, async (req, res) => {
     const projetIds = client.fields?.Projets || [];
     const projets = await atFetchByIds(TABLES.projets.id, projetIds);
 
-    // Clients rattachés (cas architecte : champ inverse "Clients liés")
-    const clientsLies = client.fields?.['Clients liés'] || [];
+    // Sprint v3.10 — Cas architecte : si ce client est référencé par d'autres clients
+    // (champ inverse "From field: Architecte référent"), on récupère ces clients et
+    // leurs projets pour agréger le CA généré par l'architecte.
+    const clientsRattachesIds = client.fields?.['From field: Architecte référent'] || [];
+    let clientsRattaches = [];
+    let projetsRattaches = [];
+    let archiStats = null;
+    if (clientsRattachesIds.length > 0) {
+      clientsRattaches = await atFetchByIds(TABLES.clients.id, clientsRattachesIds);
+      // Collecter tous les projets de tous les clients liés
+      const projetIdsRattaches = clientsRattaches.flatMap(c => c.fields?.Projets || []);
+      projetsRattaches = projetIdsRattaches.length
+        ? await atFetchByIds(TABLES.projets.id, projetIdsRattaches)
+        : [];
+      const caCumule = projetsRattaches.reduce((s, p) => s + (p.fields?.['Budget HT'] || 0), 0);
+      const chantiersActifs = projetsRattaches.filter(p => {
+        const ch = p.fields?.['Statut chantier'] || '';
+        return ch && ch !== 'Archivé' && ch !== 'Terminé';
+      }).length;
+      archiStats = {
+        nbClients: clientsRattaches.length,
+        nbChantiers: projetsRattaches.length,
+        nbChantiersActifs: chantiersActifs,
+        caCumule,
+      };
+    }
 
-    // Agrégats simples pour la fiche
+    // Agrégats simples pour la fiche du client courant
     const stats = {
       nbProjets: projets.length,
       nbProjetsEnCours: projets.filter(p => (p.fields['Statut chantier'] || '') !== 'Archivé' && (p.fields['Statut chantier'] || '') !== 'Terminé').length,
       caTotal: projets.reduce((sum, p) => sum + (p.fields['Budget HT'] || 0), 0),
     };
 
-    res.json({ ok: true, client, projets, clientsLies, stats });
+    res.json({
+      ok: true,
+      client,
+      projets,
+      clientsLies: clientsRattachesIds,
+      clientsRattaches,
+      projetsRattaches,
+      archiStats,
+      stats,
+    });
   } catch (e) {
     logger.error({ err: e.message, clientId }, '[clients/:id] error');
     res.status(500).json({ error: e.message });

@@ -48,7 +48,14 @@ export function renderClientsList(app) {
   function renderList() {
     const q = currentSearch.trim().toLowerCase();
     const filtered = clients.filter(c => {
-      if (currentFilter !== 'all' && c.Type !== currentFilter) return false;
+      // Sprint v3.10 — Filtre "Architecte" identifié par champ inverse (clients qui le référencent)
+      // car le singleSelect Type n'a que Particulier/Professionnel (migration enum bloquée par PAT 422).
+      if (currentFilter === 'Architecte') {
+        const isArchi = c['From field: Architecte référent'] && c['From field: Architecte référent'].length > 0;
+        if (!isArchi) return false;
+      } else if (currentFilter !== 'all' && c.Type !== currentFilter) {
+        return false;
+      }
       if (!q) return true;
       const blob = [c.Nom, c.Email, c.Téléphone, c.Contact].filter(Boolean).join(' ').toLowerCase();
       return blob.includes(q);
@@ -59,20 +66,24 @@ export function renderClientsList(app) {
       list.innerHTML = '<div class="card"><p class="muted">Aucun client correspondant.</p></div>';
       return;
     }
-    list.innerHTML = filtered.map(c => `
+    list.innerHTML = filtered.map(c => {
+      const isArchi = c['From field: Architecte référent'] && c['From field: Architecte référent'].length > 0;
+      const nbClientsRattaches = isArchi ? c['From field: Architecte référent'].length : 0;
+      return `
       <button class="client-card" onclick="window.navigateTo('clients', { id: '${c.id}' })">
-        <div class="client-icon">${icon(TYPE_ICONS[c.Type] || 'user', 24)}</div>
+        <div class="client-icon">${icon(isArchi ? 'landmark' : (TYPE_ICONS[c.Type] || 'user'), 24)}</div>
         <div class="client-info">
-          <div class="client-name">${esc(c.Nom || '—')}</div>
+          <div class="client-name">${esc(c.Nom || '—')}${isArchi ? ` <span class="badge phase-en-cours" style="margin-left:6px;font-size:10px">Architecte</span>` : ''}</div>
           <div class="client-meta">
             <span class="client-type">${esc(c.Type || 'Particulier')}</span>
             ${c.Téléphone ? `<span class="client-meta-item">${icon('phone', 12)} ${esc(c.Téléphone)}</span>` : ''}
             ${c.Email ? `<span class="client-meta-item">${icon('mail', 12)} ${esc(c.Email)}</span>` : ''}
           </div>
         </div>
-        <div class="client-projets">${(c.Projets || []).length} projet${(c.Projets || []).length > 1 ? 's' : ''}</div>
+        <div class="client-projets">${isArchi ? `${nbClientsRattaches} client${nbClientsRattaches>1?'s':''} rattaché${nbClientsRattaches>1?'s':''}` : `${(c.Projets || []).length} projet${(c.Projets || []).length > 1 ? 's' : ''}`}</div>
       </button>
-    `).join('');
+    `;
+    }).join('');
   }
   renderList();
 
@@ -98,6 +109,12 @@ export async function renderClientDetail(app, clientId) {
     const data = await fetchClient(clientId);
     const c = data.client.fields;
     const projets = data.projets || [];
+    // Sprint v3.10 — Vue architecte : si ce client est référencé par d'autres clients
+    // (champ inverse), c'est un architecte → on affiche ses clients rattachés + agrégation CA
+    const archiStats = data.archiStats || null;
+    const clientsRattaches = data.clientsRattaches || [];
+    const projetsRattaches = data.projetsRattaches || [];
+    const isArchitecte = !!archiStats;
 
     app.innerHTML = `
       <nav class="breadcrumb">
@@ -106,11 +123,11 @@ export async function renderClientDetail(app, clientId) {
 
       <div class="client-header">
         <div class="client-header-left">
-          <div class="client-header-icon">${icon(TYPE_ICONS[c.Type] || 'user', 36)}</div>
+          <div class="client-header-icon">${icon(isArchitecte ? 'landmark' : (TYPE_ICONS[c.Type] || 'user'), 36)}</div>
           <div>
             <h1 class="page-title" style="margin:0">${esc(c.Nom)}</h1>
             <div class="muted" style="margin-top:4px">
-              ${esc(c.Type || 'Particulier')}${c['Architecte référent'] ? ' · via architecte' : ''}
+              ${isArchitecte ? '<span class="badge phase-en-cours">Architecte</span> ' : ''}${esc(c.Type || 'Particulier')}${c['Architecte référent'] ? ' · via architecte' : ''}
               ${c.Source ? ` · Source : ${esc(c.Source)}` : ''}
             </div>
           </div>
@@ -132,8 +149,39 @@ export async function renderClientDetail(app, clientId) {
         </div>` : ''}
       </div>
 
+      ${isArchitecte ? `
+      <!-- Sprint v3.10 — Bilan architecte : clients rattachés + chantiers + CA cumulé -->
+      <h2 class="section-title">${icon('landmark', 18)} Portefeuille architecte</h2>
+      <div class="kpi-row" style="margin-bottom:16px">
+        <div class="kpi-card"><div class="kpi-value">${archiStats.nbClients}</div><div class="kpi-label">Clients rattachés</div></div>
+        <div class="kpi-card"><div class="kpi-value">${archiStats.nbChantiers}</div><div class="kpi-label">Chantiers (total)</div></div>
+        <div class="kpi-card"><div class="kpi-value">${archiStats.nbChantiersActifs}</div><div class="kpi-label">Chantiers actifs</div></div>
+        <div class="kpi-card"><div class="kpi-value">${Number(archiStats.caCumule || 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €</div><div class="kpi-label">CA HT cumulé</div></div>
+      </div>
+
       <div class="section-header">
-        <h2 class="section-title">Projets (${projets.length})</h2>
+        <h2 class="section-title">Clients rattachés (${clientsRattaches.length})</h2>
+      </div>
+      <div class="projets-list" style="margin-bottom:24px">
+        ${clientsRattaches.map(cli => {
+          const cf = cli.fields || {};
+          const projetsDuClient = projetsRattaches.filter(p => (p.fields?.Client || []).includes(cli.id));
+          const caClient = projetsDuClient.reduce((s, p) => s + (p.fields?.['Budget HT'] || 0), 0);
+          return `
+          <button class="projet-card" onclick="window.navigateTo('clients', { id: '${cli.id}' })">
+            <div class="projet-ref">${icon('user', 16)} ${esc(cf.Nom || '?')}</div>
+            <div class="projet-meta">
+              ${projetsDuClient.length ? `<span>${icon('folder', 12)} ${projetsDuClient.length} chantier${projetsDuClient.length>1?'s':''}</span>` : '<span class="muted">Pas encore de chantier</span>'}
+              ${caClient > 0 ? `<span><strong>${Number(caClient).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €</strong> HT</span>` : ''}
+              ${cf.Téléphone ? `<span class="muted">${esc(cf.Téléphone)}</span>` : ''}
+            </div>
+          </button>`;
+        }).join('')}
+      </div>
+      ` : ''}
+
+      <div class="section-header">
+        <h2 class="section-title">Projets ${isArchitecte ? 'directs ' : ''}(${projets.length})</h2>
         <button class="btn btn-primary" id="btn-new-projet">${icon('plus', 16)} Nouveau projet</button>
       </div>
 
