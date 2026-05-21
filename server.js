@@ -126,6 +126,25 @@ const ADMIN_LOGINS = new Set(
     .split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
 );
 
+// Sprint v3.24 — Vrais emails users pour le SAV (vs login@tanguydesign.local fake)
+// Format env var USERS_EMAILS="virginie:virginie@tanguydesign.com,solene:solene@..."
+// JMG TODO : à terme, admin UI permettra à Virginie d'éditer les emails depuis le
+// cockpit sans toucher aux env vars Scaleway (créer table Airtable "Users" + CRUD).
+const USERS_EMAILS = (() => {
+  const map = {};
+  const raw = process.env.USERS_EMAILS || '';
+  for (const part of raw.split(',')) {
+    const [login, email] = part.split(':').map(s => s.trim());
+    if (login && email) map[login.toLowerCase()] = email;
+  }
+  return map;
+})();
+function getUserEmail(login) {
+  if (!login) return '';
+  const lo = String(login).toLowerCase();
+  return USERS_EMAILS[lo] || `${lo}@tanguydesign.local`;
+}
+
 // --- Middleware ---
 // Scaleway en front, Cloudflare en amont (Proxied).
 // trust proxy = 2 (Cloudflare + Scaleway LB) pour que req.ip/secure cookies fonctionnent.
@@ -632,7 +651,8 @@ app.post('/api/support/feedback', requireAuth, async (req, res) => {
         urgence: 'P3',
         titre: `[${req.session?.user || 'user'}] ${String(message).slice(0, 80)}`,
         description: `Message :\n${String(message).slice(0, 2000)}\n\nURL : ${String(url || '').slice(0, 200)}\nContext : ${String(context || '').slice(0, 500)}`,
-        auteur_email: req.session?.user ? `${req.session.user}@tanguydesign.local` : '',
+        auteur_email: getUserEmail(req.session?.user),
+        auteur_login: req.session?.user || '',
         // Sprint v3.23 — Standard inter-cockpits : chaque cockpit déclare son
         // URL de callback. n8n stocke ça dans le ticket et l'appelle à la
         // résolution. Plus de mapping centralisé à maintenir côté 9·58.
@@ -2282,12 +2302,14 @@ app.post('/api/sav/callback', async (req, res) => {
   if (!SAV_WEBHOOK_SECRET || incomingSecret !== SAV_WEBHOOK_SECRET) {
     return res.status(401).json({ error: 'unauthorized' });
   }
-  const { ticket_id, statut, message_resolution, auteur_email, titre } = req.body || {};
-  if (!ticket_id || !auteur_email) {
-    return res.status(400).json({ error: 'ticket_id et auteur_email requis' });
+  const { ticket_id, statut, message_resolution, auteur_email, auteur_login, titre } = req.body || {};
+  if (!ticket_id || !(auteur_email || auteur_login)) {
+    return res.status(400).json({ error: 'ticket_id et auteur_login (ou auteur_email) requis' });
   }
-  // auteur_email = "virginie@tanguydesign.local" → login = "virginie"
-  const login = String(auteur_email).split('@')[0].toLowerCase();
+  // Sprint v3.24 — Prioriser auteur_login (envoyé explicitement par le cockpit),
+  // fallback sur auteur_email.split('@')[0] pour rétrocompat avec anciens cockpits.
+  const login = String(auteur_login || (auteur_email || '').split('@')[0] || '').toLowerCase();
+  if (!login) return res.status(400).json({ error: 'login utilisateur introuvable' });
   const notif = {
     id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     date: new Date().toISOString(),
@@ -2362,7 +2384,8 @@ app.post('/api/sav/submit', requireAuth, async (req, res) => {
       urgence: urgence || 'P3',
       titre: String(titre).slice(0, 200),
       description: String(description).slice(0, 5000),
-      auteur_email: req.session?.user ? `${req.session.user}@tanguydesign.local` : '',
+      auteur_email: getUserEmail(req.session?.user),
+      auteur_login: req.session?.user || '',
       // Sprint v3.23 — Standard inter-cockpits : callback_url dans le payload
       callback_url: SAV_CALLBACK_URL,
     };
