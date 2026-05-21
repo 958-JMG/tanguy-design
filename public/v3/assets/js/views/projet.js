@@ -855,7 +855,8 @@ function openModalImportDevis(projet, devisExistants) {
       </div>
     </form>
   `);
-  document.getElementById('cancel').onclick = close;
+  const cancelBtn = document.getElementById('cancel');
+  cancelBtn.onclick = close;
   document.getElementById('form-import-devis').addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -864,16 +865,43 @@ function openModalImportDevis(projet, devisExistants) {
     if (!file || file.size === 0) return;
     const btn = document.getElementById('submit-btn');
     btn.disabled = true;
-    btn.innerHTML = 'Parsing PDF (1-2 min)…';
+
+    // Compteur temps écoulé + bouton annuler (parsing peut prendre 1-3 min selon taille PDF)
+    const startTime = Date.now();
+    const controller = new AbortController();
+    let aborted = false;
+    const update = () => {
+      const sec = Math.floor((Date.now() - startTime) / 1000);
+      const min = Math.floor(sec / 60);
+      const remSec = sec % 60;
+      btn.innerHTML = `Parsing… ${min > 0 ? min + 'min ' : ''}${remSec}s`;
+    };
+    const interval = setInterval(update, 1000);
+    update();
+    cancelBtn.innerHTML = 'Annuler';
+    cancelBtn.onclick = () => {
+      aborted = true;
+      controller.abort();
+    };
+
     try {
-      const result = await importDevisClient({ file, projetId: projet.id, type });
-      toast(`Devis ${type} importé · ${result.lignes_count || 0} lignes`, 'success', 5000);
+      const result = await importDevisClient({ file, projetId: projet.id, type, signal: controller.signal });
+      clearInterval(interval);
+      const lignes = result.lignes_count || result.zones_count || result.devis?.id ? 'OK' : '?';
+      toast(`Devis ${type} importé`, 'success', 5000);
       close();
       router();
     } catch (err) {
-      toast('Erreur import : ' + err.message, 'error', 7000);
+      clearInterval(interval);
+      if (aborted || err.name === 'AbortError') {
+        toast('Import annulé', 'info', 3000);
+      } else {
+        toast('Erreur import : ' + err.message, 'error', 8000);
+      }
       btn.disabled = false;
       btn.innerHTML = 'Importer';
+      cancelBtn.innerHTML = 'Annuler';
+      cancelBtn.onclick = close;
     }
   });
 }

@@ -851,9 +851,11 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
   // analyse le PDF (peut prendre 60-120s avec Sonnet 4.5 vision). Sans ça, Cloudflare
   // coupe à 100s sans byte reçu → HTTP 524.
   await withKeepAlive(req, res, async () => {
-    logger.info(`[devis/import] parsing ${req.file.originalname} (${req.file.size} bytes)`);
+    const t0 = Date.now();
+    logger.info(`[devis/import] START parsing ${req.file.originalname} (${req.file.size} bytes, type=${typeDevis}, projetId=${projetId||'auto'})`);
     const parsed = await parseDevisPdf(req.file.buffer);
-    logger.info(`[devis/import] ✓ parsed: ${parsed.lignes?.length || 0} lignes, ${parsed.zones?.length || 0} zones`);
+    const tParse = Date.now() - t0;
+    logger.info(`[devis/import] ✓ parsed in ${tParse}ms: ${parsed.lignes?.length || 0} lignes, ${parsed.zones?.length || 0} zones, ${parsed.echeances?.length || 0} échéances`);
 
     // 1. Création du Devis (header)
     const devisFields = {
@@ -1055,9 +1057,13 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
       if (echeancesBatch.length) await atCreateBatch(TABLES['echeances-devis'].id, echeancesBatch);
     }
 
+    const tTotal = Date.now() - t0;
+    logger.info(`[devis/import] DONE in ${tTotal}ms — devisId=${devisId}, ${parsed.lignes?.length||0} lignes, ${parsed.zones?.length||0} zones`);
+
     return {
       ok: true,
       devisId,
+      duration_ms: tTotal,
       parsed_summary: {
         numero: parsed.metadata?.numero_devis,
         total_ttc: parsed.totaux?.total_ttc,

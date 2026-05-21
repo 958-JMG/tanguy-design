@@ -137,13 +137,13 @@ export async function setProjetArtisans(projetId, artisanIds) {
 // IMPORTANT : withKeepAlive renvoie TOUJOURS HTTP 200 (même en erreur), car les
 // premiers bytes sont déjà flushés. Le payload contient {error: "..."} en cas
 // d'échec. On doit donc tester `j.error` EN PLUS de `r.ok`.
-export async function importDevisClient({ file, projetId = null, clientId = null, type = 'Principal' }) {
+export async function importDevisClient({ file, projetId = null, clientId = null, type = 'Principal', signal = null }) {
   const fd = new FormData();
   fd.append('pdf', file);
   if (projetId) fd.append('projetId', projetId);
   if (clientId) fd.append('clientId', clientId);
   fd.append('type', type);
-  const r = await fetch('/api/devis/import', { method: 'POST', credentials: 'same-origin', body: fd });
+  const r = await fetch('/api/devis/import', { method: 'POST', credentials: 'same-origin', body: fd, signal });
   if (!r.ok) {
     const e = await r.json().catch(() => ({}));
     throw new Error(e.error || r.statusText);
