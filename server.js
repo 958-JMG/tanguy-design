@@ -1246,13 +1246,22 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       }
     } catch (e) { /* best effort */ }
 
+    // Workflow JMG 2026-05-21 : il faut TOUJOURS prévoir un 4ème BC "Plan de travail"
+    // même si le devis Winner n'a aucune ligne plan de travail (le PT est mesuré
+    // sur chantier après pose meubles, le BC est complété manuellement par Virginie).
+    if (!totauxParCat['Plan de travail']) {
+      totauxParCat['Plan de travail'] = 0; // sentinel pour forcer la création
+    }
+
     for (const [type, montant] of Object.entries(totauxParCat)) {
-      if (montant <= 0) continue;
+      // On accepte montant=0 uniquement pour "Plan de travail" (BC vide à compléter sur chantier)
+      if (montant <= 0 && type !== 'Plan de travail') continue;
       const numCmd = clientNom
         ? `${clientNom} · ${type.toUpperCase()} · ${numero}-${idx}`
         : `${numero}-${type.slice(0,3).toUpperCase()}-${idx}`;
       const lignesType = lignesParType[type] || [];
       const { texte: tableauTexte } = buildBcTableau(lignesType);
+      const isPlanTravailVide = type === 'Plan de travail' && lignesType.length === 0;
       // Lignes structurées JSON pour édition future (front v3)
       const lignesStructured = lignesType.map(l => {
         const f = l.fields || {};
@@ -1270,12 +1279,16 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
           notes: String(f.Notes || ''),
         };
       });
-      const notesPrefill = `[Auto-généré depuis devis ${numero} signé le ${new Date().toLocaleDateString('fr-FR')}]\n\nContenu prévisionnel (à valider/ajuster avant envoi au fournisseur, SANS MONTANTS) :\n\n${tableauTexte}`;
+      const notesPrefill = isPlanTravailVide
+        ? `[Auto-généré depuis devis ${numero} signé le ${new Date().toLocaleDateString('fr-FR')}]\n\nBC à compléter APRÈS prise de mesures sur chantier :\n• Matériau / Coloris / Finition / Épaisseur\n• Dimensions exactes (longueur, largeur, profondeur, découpes évier/plaque)\n• Fournisseur final (Inalco, Compac, Silestone, Caesarstone, etc.)\n• Délai de livraison\n\nUne fois mesures prises, mettre à jour ce BC puis l'envoyer au fournisseur.`
+        : `[Auto-généré depuis devis ${numero} signé le ${new Date().toLocaleDateString('fr-FR')}]\n\nContenu prévisionnel (à valider/ajuster avant envoi au fournisseur, SANS MONTANTS) :\n\n${tableauTexte}`;
       const cf = {
         'Numéro': numCmd,
+        // "À compléter" pas dans le singleSelect Statut (PATCH choices 422), on garde
+        // "Créée" + mention explicite dans Notes pour le BC Plan de travail vide.
         'Statut': 'Créée',
         'Date création': new Date().toISOString().slice(0, 10),
-        'Montant HT': Math.round(montant * 100) / 100,
+        ...(montant > 0 ? { 'Montant HT': Math.round(montant * 100) / 100 } : {}),
         'Notes': notesPrefill,
         'Contremarque': clientNom || '',
         'Contact Tanguy': 'Solène',
