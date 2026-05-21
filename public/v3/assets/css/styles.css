@@ -41,6 +41,27 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; bo
 a { color: var(--info); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
+/* A11y v3.7 — Skip link "Aller au contenu" (WCAG 2.4.1) */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 8px;
+  background: var(--ink1);
+  color: white;
+  padding: 10px 16px;
+  border-radius: var(--r-sm);
+  z-index: 1000;
+  font-weight: 600;
+  font-size: 14px;
+  transition: top 100ms ease-out;
+}
+.skip-link:focus {
+  top: 8px;
+  text-decoration: none;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* Bannière v3 (avertissement preview) */
 .banner-v3 {
   background: var(--gold-lo);
@@ -828,7 +849,8 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   }
 }
 
-/* Stepper chips horizontaux scrollables — compactés (Sprint v3.3 polish header) */
+/* Stepper chips horizontaux scrollables — compactés (Sprint v3.3 polish header).
+   A11y v3.7 : touch targets ≥44px sur mobile + contrast bumpé pour AA. */
 .stepper-chips {
   list-style: none;
   display: flex;
@@ -838,6 +860,9 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   padding: 4px 0 6px 0;
   margin: 12px 0 0 0;
   -webkit-overflow-scrolling: touch;
+}
+@media (max-width: 767px) {
+  .stepper-chip { min-height: 44px; padding: 10px 14px; }
 }
 .stepper-chips::-webkit-scrollbar { height: 4px; }
 .stepper-chips::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
@@ -859,19 +884,23 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 }
 .stepper-chip svg { flex-shrink: 0; width: 13px; height: 13px; }
 .stepper-chip.is-done {
-  color: var(--green);
-  border-color: var(--green-lo);
+  /* A11y v3.7 : texte ink2 (9.5:1 sur green-lo) au lieu de --green (3.6:1) */
+  color: var(--ink2);
+  border-color: var(--green);
   background: var(--green-lo);
 }
+.stepper-chip.is-done svg { color: var(--green); }
 /* "À faire" = orange (gold) au lieu de rouge accent — JMG 2026-05-21 :
-   le rouge se lisait comme "danger" alors que c'est juste "next step en attente". */
+   le rouge se lisait comme "danger" alors que c'est juste "next step en attente".
+   A11y v3.7 : texte ink2 (9.2:1) au lieu de --gold (2.9:1). */
 .stepper-chip.is-cur {
-  color: var(--gold);
+  color: var(--ink2);
   border-color: var(--gold);
   background: var(--gold-lo);
   font-weight: 600;
   padding: 5px 10px 5px 8px;
 }
+.stepper-chip.is-cur svg { color: var(--gold); }
 .stepper-chip.is-cur::before {
   content: '';
   width: 6px;
@@ -1251,14 +1280,23 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 12px;
   background: white;
   border: 1px solid var(--line);
   border-left-width: 4px;
   border-radius: var(--r-sm);
   margin-bottom: 8px;
   cursor: pointer;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
   transition: background 100ms ease-out, transform 100ms ease-out;
+  min-height: 56px;
+}
+.tache-urgence-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .tache-urgence-item:hover {
   background: var(--paper);
