@@ -138,44 +138,67 @@ function computeNextActions({ projet, taches, devis, commandes, artisans, reunio
 
 function computeParcours(projet, taches, devis, commandes, echeances = []) {
   const pf = projet.fields || {};
-  const phase = pf['Phase commerciale'] || '';
   const chantier = pf['Statut chantier'] || '';
 
   // Helpers
-  const hasR1 = (state.projets || []).length > 0; // toujours OK pour data fictive
+  const hasR1 = (state.projets || []).length > 0;
   const devisSigne = devis.some(d => d.fields?.Statut === 'Signé');
   const taskDone = (titrePart) => taches.some(t => {
     const titre = (t.fields?.Titre || '').toLowerCase();
     return titre.includes(titrePart.toLowerCase()) && t.fields?.Statut === 'Terminée';
   });
   const planTechCount = (pf['Plan technique'] || []).length;
-  const datePose = pf['Date pose prévue'];
 
-  // Sprint v3.5 — Source de vérité pour les étapes facturation = échéances Airtable.
-  // Une échéance "Encaissé" passe l'étape correspondante en vert (done).
+  // Sprint v3.5/v3.11 — Source de vérité étapes facturation = échéances Airtable
+  // OU tâche de facturation liée terminée (Virginie a marqué la facture envoyée).
   const isEncaisse = e => e?.fields?.Statut === 'Encaissé';
   const findEch = (rx) => echeances.find(e => rx.test(e.fields?.['Libellé'] || ''));
   const echAcompte   = findEch(/acompte|signature/i);
   const echReception = findEch(/r[ée]ception|livraison/i);
   const echSolde     = findEch(/solde|fin\s+pose|fin\s+chantier/i);
+  const tacheLieeTerminee = (ech) => ech && taches.some(t =>
+    (t.fields?.Description || '').includes(`[echeance:${ech.id}]`) &&
+    t.fields?.Statut === 'Terminée'
+  );
 
-  return STEPS.map(s => {
-    let state_ = 'pending';
+  // Sprint v3.11 — Pass 1 : calculer si chaque étape est DONE (terminée).
+  // Pass 2 : la première étape pas done devient "cur", les suivantes restent "pending".
+  // Garantit qu'une seule étape soit en orange à la fois → workflow lisible.
+  const steps = STEPS.map(s => {
+    let done = false;
     switch (s.key) {
-      case 'decouverte': state_ = pf['Date découverte'] || hasR1 ? 'done' : 'pending'; break;
-      case 'devis':      state_ = devis.length > 0 ? 'done' : 'pending'; break;
-      case 'signature':  state_ = devisSigne ? 'done' : 'pending'; break;
-      case 'acompte':    state_ = isEncaisse(echAcompte) || taskDone('acompte') ? 'done' : (devisSigne ? 'cur' : 'pending'); break;
-      case 'plans_tech': state_ = planTechCount > 0 ? 'done' : (devisSigne ? 'cur' : 'pending'); break;
-      case 'commandes':  state_ = commandes.length > 0 ? 'done' : (devisSigne ? 'cur' : 'pending'); break;
-      case 'reception':  state_ = isEncaisse(echReception) || chantier === 'Pose en cours' || chantier === 'Terminé' ? 'done' : (chantier === 'Pré-pose' ? 'cur' : 'pending'); break;
-      case 'pose':       state_ = chantier === 'Pose en cours' ? 'cur' : (chantier === 'Terminé' ? 'done' : (datePose && new Date(datePose) < new Date() ? 'cur' : 'pending')); break;
-      case 'pv':         state_ = taskDone('pv') || taskDone('réception chantier') ? 'done' : 'pending'; break;
-      case 'solde':      state_ = isEncaisse(echSolde) || taskDone('solde') ? 'done' : 'pending'; break;
-      case 'avis':       state_ = taskDone('avis') ? 'done' : 'pending'; break;
-      case 'sav':        state_ = chantier === 'SAV' ? 'cur' : 'pending'; break;
+      case 'decouverte': done = !!pf['Date découverte'] || hasR1; break;
+      case 'devis':      done = devis.length > 0; break;
+      case 'signature':  done = devisSigne; break;
+      case 'acompte':    done = isEncaisse(echAcompte) || tacheLieeTerminee(echAcompte) || taskDone('acompte'); break;
+      case 'plans_tech': done = planTechCount > 0; break;
+      case 'commandes':  done = commandes.length > 0; break;
+      case 'reception':  done = commandes.length > 0 && commandes.every(c => ['Livrée', 'Posée'].includes(c.fields?.Statut)); break;
+      case 'pose':       done = chantier === 'Terminé'; break;
+      case 'pv':         done = taskDone('pv') || taskDone('réception chantier'); break;
+      case 'solde':      done = isEncaisse(echSolde) || tacheLieeTerminee(echSolde) || taskDone('solde'); break;
+      case 'avis':       done = taskDone('avis'); break;
+      case 'sav':        done = false; // jamais "done" (état terminal pour SAV en cours)
     }
-    return { ...s, state: state_ };
+    return { ...s, done };
+  });
+
+  // Étape "cur" = première étape NON done dans l'ordre du funnel.
+  // Cas SAV : si chantier === 'SAV', on force cur sur SAV en plus.
+  let curFound = false;
+  return steps.map(s => {
+    let state_;
+    if (s.done) {
+      state_ = 'done';
+    } else if (!curFound) {
+      state_ = 'cur';
+      curFound = true;
+    } else {
+      state_ = 'pending';
+    }
+    // SAV : override si chantier=SAV
+    if (s.key === 'sav' && chantier === 'SAV') state_ = 'cur';
+    return { key: s.key, label: s.label, icon: s.icon, state: state_ };
   });
 }
 
