@@ -787,9 +787,34 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
    sur desktop. En mobile, retourne en static (manque de hauteur). */
 .projet-sticky-header {
   background: var(--paper);
-  padding: 12px 0 16px 0;
+  padding: 8px 0 12px 0;
   border-bottom: 1px solid var(--line);
-  margin-bottom: 24px;
+  margin-bottom: 20px;
+}
+
+/* Ligne titre — nom projet à gauche, chip statut chantier + actions à droite.
+   On a retiré le "Phase: X · Chantier: Y" du sous-titre car redondant avec le stepper. */
+.projet-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.projet-title {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.1;
+}
+.projet-title-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+@media (min-width: 768px) {
+  .projet-title { font-size: 26px; }
 }
 @media (min-width: 1024px) {
   .projet-sticky-header {
@@ -802,14 +827,14 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   }
 }
 
-/* Stepper chips horizontaux scrollables — remplace l'ancien stepper en grille */
+/* Stepper chips horizontaux scrollables — compactés (Sprint v3.3 polish header) */
 .stepper-chips {
   list-style: none;
   display: flex;
-  gap: 8px;
+  gap: 6px;
   overflow-x: auto;
   scroll-snap-type: x proximity;
-  padding: 4px 0 8px 0;
+  padding: 4px 0 6px 0;
   margin: 12px 0 0 0;
   -webkit-overflow-scrolling: touch;
 }
@@ -820,44 +845,82 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   scroll-snap-align: start;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border-radius: 20px;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 14px;
   border: 1px solid var(--line);
   background: transparent;
-  color: var(--ink3);
-  font-size: 13px;
+  color: var(--ink4);
+  font-size: 12px;
   white-space: nowrap;
   font-weight: 500;
+  line-height: 1.2;
 }
-.stepper-chip svg { flex-shrink: 0; }
-.stepper-chip.is-done { color: var(--green); border-color: var(--green-lo); background: var(--green-lo); }
-.stepper-chip.is-cur  { color: var(--accent); border-color: var(--accent); background: var(--accent-lo); font-weight: 600; border-width: 2px; padding: 7px 11px; }
-.stepper-chip.is-pending { color: var(--ink4); }
+.stepper-chip svg { flex-shrink: 0; width: 13px; height: 13px; }
+.stepper-chip.is-done {
+  color: var(--green);
+  border-color: var(--green-lo);
+  background: var(--green-lo);
+}
+.stepper-chip.is-cur {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-lo);
+  font-weight: 600;
+  padding: 5px 10px 5px 8px;
+}
+.stepper-chip.is-cur::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 2px;
+  flex-shrink: 0;
+}
+.stepper-chip.is-pending {
+  color: var(--ink4);
+  background: transparent;
+}
 
-/* Bilan KPI row — passe en grid 2×2 mobile, 4 colonnes desktop */
-.projet-sticky-header .kpi-row {
+/* Bilan KPI row compactée (variant is-compact) — passe en grid 2×2 mobile, 4 cols desktop */
+.projet-sticky-header .kpi-row.is-compact {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-  margin-top: 16px;
+  gap: 8px;
+  margin-top: 12px;
 }
 @media (min-width: 768px) {
-  .projet-sticky-header .kpi-row { grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .projet-sticky-header .kpi-row.is-compact { grid-template-columns: repeat(4, 1fr); gap: 10px; }
 }
 .projet-sticky-header .kpi-card {
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  padding: 12px;
+  padding: 10px 12px;
 }
-.projet-sticky-header .kpi-card.is-negative { background: var(--accent-lo); border-color: var(--accent); }
+.projet-sticky-header .kpi-card.is-negative {
+  background: var(--accent-lo);
+  border-color: var(--accent);
+}
 .projet-sticky-header .kpi-card.is-negative .kpi-value { color: var(--accent); }
-.projet-sticky-header .kpi-value { font-size: 22px; font-weight: 700; line-height: 1.1; }
-.projet-sticky-header .kpi-label { font-size: 11px; color: var(--ink3); text-transform: uppercase; letter-spacing: 0.3px; margin-top: 4px; }
+.projet-sticky-header .kpi-value {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.projet-sticky-header .kpi-label {
+  font-size: 10px;
+  color: var(--ink3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+  font-weight: 500;
+}
 @media (min-width: 768px) {
-  .projet-sticky-header .kpi-value { font-size: 26px; }
-  .projet-sticky-header .kpi-label { font-size: 12px; }
+  .projet-sticky-header .kpi-value { font-size: 20px; }
+  .projet-sticky-header .kpi-label { font-size: 11px; }
 }
 
 /* Bandeau "À faire maintenant" — sous le header, au-dessus de la grid */

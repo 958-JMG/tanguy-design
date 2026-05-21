@@ -220,19 +220,12 @@ function renderFiche(app, data) {
         <strong>${esc(pf.Référence || '(sans référence)')}</strong>
       </nav>
 
-      <div class="client-header" style="margin-top:8px;border:none;padding:0;background:transparent">
-        <div class="client-header-left">
-          <div class="client-header-icon">${icon('folder', 32)}</div>
-          <div>
-            <h1 class="page-title" style="margin:0;font-size:24px">${esc(pf.Référence || '(sans référence)')}</h1>
-            <div class="muted" style="margin-top:2px;font-size:13px">
-              ${client ? `<strong>${esc(client.fields?.Nom)}</strong>` : '<em>Pas de client lié</em>'}
-              · Phase : <strong>${esc(phase)}</strong>
-              ${chantier ? ` · Chantier : <strong>${esc(chantier)}</strong>` : ''}
-            </div>
-          </div>
-        </div>
-        <div class="header-actions">
+      <!-- Ligne titre : nom projet à gauche, chips meta + actions à droite -->
+      <div class="projet-title-row">
+        <h1 class="page-title projet-title">${esc(pf.Référence || '(sans référence)')}</h1>
+        <div class="projet-title-meta">
+          ${chantier && chantier !== 'Archivé' ? `<span class="badge phase-haute" title="Statut chantier">${esc(chantier)}</span>` : ''}
+          ${chantier === 'Archivé' ? `<span class="badge" title="Statut chantier">Archivé</span>` : ''}
           <button class="btn btn-ghost btn-sm" id="btn-edit-projet" aria-label="Éditer le projet">${icon('edit', 14)} Éditer</button>
           ${chantier === 'Archivé'
             ? `<button class="btn btn-ghost btn-sm" id="btn-unarchive" aria-label="Désarchiver">${icon('arrowLeft', 14)} Désarchiver</button>`
@@ -240,22 +233,22 @@ function renderFiche(app, data) {
         </div>
       </div>
 
-      <!-- Stepper chips horizontaux (au lieu de la grille verticale) -->
+      <!-- Stepper chips horizontaux compactés -->
       <ol class="stepper-chips" aria-label="Parcours chantier">
         ${stepper.map((s, i) => `
           <li class="stepper-chip is-${s.state === 'cur' ? 'cur' : (s.state === 'done' ? 'done' : 'pending')}"
               ${s.state === 'cur' ? 'aria-current="step"' : ''}
               aria-label="Étape ${i+1} sur ${stepper.length} : ${esc(s.label)}">
-            ${icon(s.icon, 14)} ${esc(s.label)}
+            ${icon(s.icon, 13)} <span>${esc(s.label)}</span>
           </li>
         `).join('')}
       </ol>
 
-      <!-- Bilan KPIs -->
-      <div class="kpi-row" aria-label="Bilan financier prévisionnel">
+      <!-- Bilan KPIs compactés -->
+      <div class="kpi-row is-compact" aria-label="Bilan financier prévisionnel">
         <div class="kpi-card"><div class="kpi-value">${euros(caHT)}</div><div class="kpi-label">CA HT</div></div>
         <div class="kpi-card"><div class="kpi-value">${euros(coutFourn)}</div><div class="kpi-label">Fournisseurs</div></div>
-        <div class="kpi-card"><div class="kpi-value">${euros(coutArtisans - retro)}</div><div class="kpi-label">Artisans (− 5 % rétro)</div></div>
+        <div class="kpi-card"><div class="kpi-value">${euros(coutArtisans - retro)}</div><div class="kpi-label">Artisans (−5%)</div></div>
         <div class="kpi-card ${margeNegative ? 'is-negative' : ''}" ${margeNegative ? 'aria-label="Marge négative — attention"' : ''}>
           <div class="kpi-value">${euros(margeAbs)}</div>
           <div class="kpi-label">Marge ${margePct != null ? '(' + margePct.toFixed(1) + ' %)' : ''}</div>
