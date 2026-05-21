@@ -677,25 +677,10 @@ app.patch('/api/data/:table/:id', requireAuth, async (req, res) => {
     const fields = pickAllowedFields(req.params.table, req.body.fields);
     const rec = await atPatch(t.id, req.params.id, fields);
 
-    // Sprint v3.5 — Hook facturation : si une tâche passe à "Terminée" et que sa
-    // description contient un marqueur [echeance:recXXX], on passe l'échéance liée
-    // à "Encaissé" + stamp Date règlement = today.
-    if (req.params.table === 'taches' && fields.Statut === 'Terminée') {
-      const desc = rec.fields?.Description || '';
-      const m = desc.match(/\[echeance:(rec[A-Za-z0-9]+)\]/);
-      if (m) {
-        const echeanceId = m[1];
-        try {
-          await atPatch(TABLES['echeances-devis'].id, echeanceId, {
-            'Statut': 'Encaissé',
-            'Date règlement': new Date().toISOString().slice(0, 10),
-          });
-          logger.info({ tacheId: req.params.id, echeanceId }, 'tâche facture terminée → échéance Encaissé');
-        } catch (e) {
-          logger.warn({ err: e.message, echeanceId }, 'hook facture: update échéance échoué (non bloquant)');
-        }
-      }
-    }
+    // Sprint v3.6 (revu) — Pas de mutation auto du statut Airtable des échéances
+    // quand la tâche passe à "Terminée". Le statut "Envoyé" est déduit côté UI
+    // (présence d'une tâche liée terminée). Le passage à "Encaissé" reste une
+    // action manuelle explicite via le bouton "Marquer encaissée" (modale).
 
     res.json({ ok: true, record: rec });
   } catch (e) { res.status(500).json({ error: e.message }); }

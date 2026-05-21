@@ -175,7 +175,7 @@ function renderProjetsList(phase, projets, clientById) {
         const cId = (p.Client || [])[0];
         const c = cId ? clientById.get(cId) : null;
         return `
-        <button class="projet-card" onclick="window.navigateTo('clients', { id: '${cId || ''}' })">
+        <button class="projet-card" onclick="window.navigateTo('projet', { id: '${p.id}' })">
           <div class="projet-ref">${icon('folder', 16)} ${esc(p.Référence || '(sans référence)')}</div>
           <div class="projet-meta">
             ${c ? `<span><strong>${esc(c.Nom)}</strong></span>` : '<span class="muted">Sans client</span>'}

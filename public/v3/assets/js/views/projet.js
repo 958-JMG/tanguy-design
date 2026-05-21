@@ -10,7 +10,7 @@ import {
   fetchArtisans, setProjetArtisans,
   importDevisClient, signDevisTanguy,
   importDevisArtisan, parsePlaud,
-  genererTacheFacturation,
+  genererTacheFacturation, marquerEncaisse,
 } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 
@@ -357,8 +357,18 @@ function renderFiche(app, data) {
             }).join('')}</div>`}
         </section>
 
-        <!-- Facturation client (Sprint v3.5/v3.6 — 3 cards horizontales + CA signé) -->
-        ${renderFacturationSection(echeances, taches, devis)}
+        <!-- Facturation client (Sprint v3.5/v3.6 — cards horizontales + CA signé)
+             Filtre les échéances pour ne garder que celles du devis signé
+             (évite les doublons quand plusieurs devis sont liés au projet). -->
+        ${renderFacturationSection(
+          (() => {
+            const dSigne = devis.find(d => d.fields?.Statut === 'Signé');
+            if (!dSigne) return echeances;
+            const ids = new Set(dSigne.fields?.['Échéances devis'] || []);
+            return ids.size ? echeances.filter(e => ids.has(e.id)) : echeances;
+          })(),
+          taches, devis
+        )}
 
         <!-- Commandes fournisseurs -->
         <section class="projet-section" aria-label="Commandes fournisseurs" data-section="commandes">
@@ -547,6 +557,27 @@ function renderFiche(app, data) {
         toast('Erreur : ' + err.message, 'error', 5000);
         btn.disabled = false;
         btn.innerHTML = `${icon('plus', 14)} Créer la tâche pour Virginie`;
+      }
+    });
+  });
+
+  // Sprint v3.6 — Marquer encaissée (action manuelle quand le client a payé)
+  app.querySelectorAll('[data-action="encaisser"]').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.preventDefault();
+      const echeanceId = btn.dataset.echeance;
+      const ok = await confirmModal('Confirmer que le client a réglé cette facture ?', { okLabel: 'Marquer encaissée' });
+      if (!ok) return;
+      btn.disabled = true;
+      btn.innerHTML = 'Enregistrement…';
+      try {
+        await marquerEncaisse(echeanceId);
+        toast('Facture marquée encaissée', 'success');
+        router();
+      } catch (err) {
+        toast('Erreur : ' + err.message, 'error', 5000);
+        btn.disabled = false;
+        btn.innerHTML = `${icon('check', 12)} Marquer encaissée`;
       }
     });
   });
@@ -845,9 +876,12 @@ function openModalJournal(projet) {
   });
 }
 
-// Sprint v3.6 — Section Facturation client en 3 cards horizontales (style screenshot JMG).
-// Affiche CA signé HT en header + une card par échéance (Acompte / Réception / Solde)
-// avec pourcentage calculé sur le total.
+// Sprint v3.6 (refondu) — Section Facturation client : cards horizontales, mobile-first, a11y.
+// 4 états visuels :
+//   À encaisser : neutre, bouton "Créer tâche"
+//   Tâche créée : ambre/info, attente Virginie
+//   Envoyé      : jaune, tâche terminée mais pas encore payée, bouton "Marquer encaissée"
+//   Encaissé    : vert, paiement reçu
 function renderFacturationSection(echeances, taches, devis) {
   const devisSigne = devis.find(d => d.fields?.Statut === 'Signé');
   const caHT = devisSigne?.fields?.['Total HT final']
@@ -867,45 +901,60 @@ function renderFacturationSection(echeances, taches, devis) {
       </section>`;
   }
 
-  // Montant prévu est en HT (champ "Montant prévu" type currency). On calcule les
-  // pourcentages relatifs au total des échéances pour qu'ils somment à 100%.
   const totalPrevu = ordered.reduce((s, e) => s + (e.fields?.['Montant prévu'] || 0), 0);
 
   return `
     <section class="facturation-card-block" aria-label="Facturation client" data-section="facturation">
-      <div class="facturation-header">
+      <header class="facturation-header">
         <h3>${icon('mail', 14)} <span>Facturation client</span></h3>
-        ${caHT > 0 ? `<div class="muted facturation-ca">CA SIGNÉ HT : <strong>${euros(caHT)}</strong></div>` : ''}
-      </div>
-      <div class="facturation-grid">
+        ${caHT > 0 ? `<div class="facturation-ca">CA signé HT <strong>${euros(caHT)}</strong></div>` : ''}
+      </header>
+      <ul class="facturation-grid" role="list">
         ${ordered.map(e => {
           const ef = e.fields || {};
           const isEncaisse = ef.Statut === 'Encaissé';
-          const tacheEnCours = taches.find(t => {
-            const d = t.fields?.Description || '';
-            return d.includes(`[echeance:${e.id}]`) && t.fields?.Statut !== 'Terminée';
-          });
+          const tacheLiee = taches.find(t => (t.fields?.Description || '').includes(`[echeance:${e.id}]`));
+          const tacheTerminee = tacheLiee && tacheLiee.fields?.Statut === 'Terminée';
+          const tacheEnCours = tacheLiee && tacheLiee.fields?.Statut !== 'Terminée';
           const montantHt = ef['Montant prévu'] || 0;
           const pct = totalPrevu > 0 ? Math.round((montantHt / totalPrevu) * 100) : null;
-          const stateCls = isEncaisse ? 'is-encaisse' : (tacheEnCours ? 'is-tache' : 'is-pending');
+
+          let stateCls, badge, meta, action = '';
+          if (isEncaisse) {
+            stateCls = 'is-encaisse';
+            badge = `<span class="facturation-badge fb-encaisse">${icon('check', 11)} Encaissée</span>`;
+            meta = ef['Date règlement'] ? `Réglée le ${esc(ef['Date règlement'])}` : 'Encaissée';
+          } else if (tacheTerminee) {
+            stateCls = 'is-envoye';
+            badge = `<span class="facturation-badge fb-envoye">${icon('mail', 11)} Envoyée</span>`;
+            meta = 'Facture envoyée au client';
+            action = `<button class="btn btn-primary btn-sm facturation-action" data-action="encaisser" data-echeance="${esc(e.id)}">${icon('check', 12)} Marquer encaissée</button>`;
+          } else if (tacheEnCours) {
+            stateCls = 'is-tache';
+            badge = `<span class="facturation-badge fb-tache">${icon('clock', 11)} Tâche en cours</span>`;
+            meta = `${esc(tacheLiee.fields?.['Assignée à'] || 'Virginie')}${tacheLiee.fields?.Échéance ? ' · ' + esc(tacheLiee.fields.Échéance) : ''}`;
+          } else {
+            stateCls = 'is-pending';
+            badge = `<span class="facturation-badge fb-pending">À encaisser</span>`;
+            meta = ef['Date prévue'] ? `Prévue le ${esc(ef['Date prévue'])}` : '';
+            action = `<button class="btn btn-primary btn-sm facturation-action" data-action="facturer" data-echeance="${esc(e.id)}">${icon('plus', 12)} Créer la tâche pour Virginie</button>`;
+          }
+
           return `
-            <div class="facturation-item ${stateCls}" data-echeance-id="${esc(e.id)}">
-              <div class="facturation-item-head">
-                <strong>${icon('file', 13)} ${esc(ef['Libellé'] || '?')}</strong>
-                ${isEncaisse ? `<span class="badge phase-signe">Encaissé</span>` : (tacheEnCours ? `<span class="badge phase-en-cours">Tâche</span>` : '')}
+            <li class="facturation-item ${stateCls}" data-echeance-id="${esc(e.id)}">
+              <div class="facturation-item-top">
+                <div class="facturation-item-label">${icon('file', 12)} ${esc(ef['Libellé'] || '?')}</div>
+                ${badge}
               </div>
               <div class="facturation-item-amount">
-                <strong>${euros(montantHt)}</strong>
-                <span class="muted">HT${pct != null ? ' (' + pct + '%)' : ''}</span>
+                <span class="facturation-amount-value">${euros(montantHt)}</span>
+                <span class="facturation-amount-unit">HT${pct != null ? ' · ' + pct + ' %' : ''}</span>
               </div>
-              ${isEncaisse
-                ? `<div class="muted facturation-item-meta">Réglée ${ef['Date règlement'] ? 'le ' + esc(ef['Date règlement']) : ''}</div>`
-                : (tacheEnCours
-                  ? `<div class="muted facturation-item-meta">${esc(tacheEnCours.fields?.['Assignée à'] || 'Virginie')}${tacheEnCours.fields?.Échéance ? ' · ' + esc(tacheEnCours.fields.Échéance) : ''}</div>`
-                  : `<button class="btn btn-primary btn-sm facturation-item-btn" data-action="facturer" data-echeance="${esc(e.id)}">${icon('plus', 12)} Créer tâche</button>`)}
-            </div>`;
+              ${meta ? `<div class="facturation-item-meta">${meta}</div>` : ''}
+              ${action}
+            </li>`;
         }).join('')}
-      </div>
+      </ul>
     </section>`;
 }
 

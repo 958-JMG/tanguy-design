@@ -178,6 +178,20 @@ export async function importDevisArtisan({ file, projetId, artisanId = null }) {
   return j;
 }
 
+// Sprint v3.6 — Marque une échéance comme Encaissé (paiement reçu).
+// Action manuelle déclenchée après que la facture a été envoyée et que le client a payé.
+export async function marquerEncaisse(echeanceId) {
+  return api(`/api/data/echeances-devis/${encodeURIComponent(echeanceId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      fields: {
+        'Statut': 'Encaissé',
+        'Date règlement': new Date().toISOString().slice(0, 10),
+      },
+    }),
+  });
+}
+
 // Sprint v3.5 — Crée une tâche de facturation pour Virginie liée à une échéance.
 // Quand Virginie marque la tâche "Terminée", l'échéance passe à "Encaissé" auto
 // (hook backend dans PATCH /api/data/taches/:id).
