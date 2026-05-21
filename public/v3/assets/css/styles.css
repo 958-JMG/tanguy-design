@@ -1100,6 +1100,152 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   color: var(--ink2);
 }
 
+/* Sprint v3.6 — Facturation client en card avec 3 items horizontaux (Acompte / Réception / Solde) */
+.facturation-card-block {
+  background: var(--gold-lo);
+  border: 1px solid var(--gold);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  margin-bottom: 24px;
+}
+.facturation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.facturation-header h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--ink2);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.facturation-header h3 svg { color: var(--gold); }
+.facturation-ca {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--ink3);
+}
+.facturation-ca strong { color: var(--gold); font-weight: 700; }
+.facturation-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+@media (min-width: 640px) {
+  .facturation-grid { grid-template-columns: repeat(3, 1fr); }
+}
+.facturation-item {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.facturation-item.is-encaisse { border-color: var(--green); background: var(--green-lo); }
+.facturation-item.is-tache { border-color: var(--gold); background: white; }
+.facturation-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+.facturation-item-head strong {
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.facturation-item-amount {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.facturation-item-amount .muted {
+  font-size: 11px;
+  margin-left: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.facturation-item-meta {
+  font-size: 11px;
+  margin-top: 2px;
+}
+.facturation-item-btn {
+  margin-top: 4px;
+  align-self: flex-start;
+}
+
+/* Sprint v3.6 — Dashboard : section "Mes tâches" avec urgence couleurs */
+.mes-taches-card {
+  margin-bottom: 24px;
+}
+.tache-urgence-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: white;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: var(--r-sm);
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: background 100ms ease-out, transform 100ms ease-out;
+}
+.tache-urgence-item:hover {
+  background: var(--paper);
+  transform: translateX(2px);
+}
+.tache-urgence-item.urgence-retard   { border-left-color: var(--accent); }
+.tache-urgence-item.urgence-urgent   { border-left-color: var(--gold); }
+.tache-urgence-item.urgence-bientot  { border-left-color: var(--info); }
+.tache-urgence-item.urgence-normal   { border-left-color: var(--line2); }
+.tache-urgence-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  flex-shrink: 0;
+}
+.tache-urgence-item.urgence-retard  .tache-urgence-dot { background: var(--accent); }
+.tache-urgence-item.urgence-urgent  .tache-urgence-dot { background: var(--gold); }
+.tache-urgence-item.urgence-bientot .tache-urgence-dot { background: var(--info); }
+.tache-urgence-item.urgence-normal  .tache-urgence-dot { background: var(--ink4); }
+.tache-urgence-content { flex: 1; min-width: 0; }
+.tache-urgence-titre {
+  font-weight: 500;
+  font-size: 14px;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tache-urgence-meta {
+  font-size: 12px;
+  color: var(--ink3);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tache-urgence-meta .badge { font-size: 10px; padding: 2px 6px; }
+.tache-urgence-deadline {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.tache-urgence-item.urgence-retard  .tache-urgence-deadline { color: var(--accent); }
+.tache-urgence-item.urgence-urgent  .tache-urgence-deadline { color: var(--gold); }
+.tache-urgence-item.urgence-bientot .tache-urgence-deadline { color: var(--info); }
+
 /* Respect prefers-reduced-motion */
 @media (prefers-reduced-motion: reduce) {
   .next-action-item, .card-devis-link, .card-devis-link::after, .btn-icon-danger {

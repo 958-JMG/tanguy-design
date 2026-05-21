@@ -357,43 +357,8 @@ function renderFiche(app, data) {
             }).join('')}</div>`}
         </section>
 
-        <!-- Facturation client (Sprint v3.5 — workflow tâche → encaissement) -->
-        <section class="projet-section" aria-label="Facturation client" data-section="facturation">
-          <div class="projet-section-header">
-            <h2>Facturation client <span class="count">(${echeances.length})</span></h2>
-          </div>
-          ${echeances.length === 0
-            ? `<div class="compact-empty"><span>Échéances générées à l'import du devis</span></div>`
-            : `<div class="commandes-list">${echeances
-                .sort((a,b) => (a.fields?.Ordre||0) - (b.fields?.Ordre||0))
-                .map(e => {
-                  const ef = e.fields || {};
-                  const isEncaisse = ef.Statut === 'Encaissé';
-                  const tacheEnCours = taches.find(t => {
-                    const d = t.fields?.Description || '';
-                    return d.includes(`[echeance:${e.id}]`) && t.fields?.Statut !== 'Terminée';
-                  });
-                  const statutLabel = isEncaisse ? 'Encaissé' : (tacheEnCours ? 'Tâche créée' : (ef.Statut || 'À encaisser'));
-                  const statutClass = isEncaisse ? 'phase-signe' : (tacheEnCours ? 'phase-en-cours' : '');
-                  return `
-                  <div class="card commande-card" data-echeance-id="${esc(e.id)}">
-                    <div class="commande-head">
-                      <div><strong>${esc(ef['Libellé'] || '?')}</strong>
-                        <span class="badge ${statutClass}" style="margin-left:8px">${esc(statutLabel)}</span>
-                      </div>
-                      <div style="text-align:right">
-                        <div><strong>${euros(ef['Montant prévu'])}</strong></div>
-                        ${ef['Date prévue'] ? `<div class="muted" style="font-size:11px">prévu ${esc(ef['Date prévue'])}</div>` : ''}
-                      </div>
-                    </div>
-                    ${isEncaisse
-                      ? `<div class="muted" style="margin-top:4px;font-size:12px">${icon('check', 12)} Réglée ${ef['Date règlement'] ? 'le ' + esc(ef['Date règlement']) : ''}</div>`
-                      : (tacheEnCours
-                        ? `<div class="muted" style="margin-top:4px;font-size:12px">${icon('user', 12)} ${esc(tacheEnCours.fields?.['Assignée à'] || 'Virginie')} — tâche en cours${tacheEnCours.fields?.Échéance ? ' (échéance ' + esc(tacheEnCours.fields.Échéance) + ')' : ''}</div>`
-                        : `<div style="margin-top:8px"><button class="btn btn-primary btn-sm" data-action="facturer" data-echeance="${esc(e.id)}">${icon('plus', 14)} Créer la tâche pour Virginie</button></div>`)}
-                  </div>`;
-                }).join('')}</div>`}
-        </section>
+        <!-- Facturation client (Sprint v3.5/v3.6 — 3 cards horizontales + CA signé) -->
+        ${renderFacturationSection(echeances, taches, devis)}
 
         <!-- Commandes fournisseurs -->
         <section class="projet-section" aria-label="Commandes fournisseurs" data-section="commandes">
@@ -878,6 +843,70 @@ function openModalJournal(projet) {
       router();
     } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
   });
+}
+
+// Sprint v3.6 — Section Facturation client en 3 cards horizontales (style screenshot JMG).
+// Affiche CA signé HT en header + une card par échéance (Acompte / Réception / Solde)
+// avec pourcentage calculé sur le total.
+function renderFacturationSection(echeances, taches, devis) {
+  const devisSigne = devis.find(d => d.fields?.Statut === 'Signé');
+  const caHT = devisSigne?.fields?.['Total HT final']
+    || devisSigne?.fields?.['Total HT après remise']
+    || devisSigne?.fields?.['Total HT articles']
+    || 0;
+
+  const ordered = (echeances || []).slice().sort((a,b) => (a.fields?.Ordre||0) - (b.fields?.Ordre||0));
+
+  if (ordered.length === 0) {
+    return `
+      <section class="projet-section" aria-label="Facturation client" data-section="facturation">
+        <div class="projet-section-header">
+          <h2>Facturation client</h2>
+        </div>
+        <div class="compact-empty"><span>Échéances générées à l'import du devis Winner</span></div>
+      </section>`;
+  }
+
+  const totalPrevu = ordered.reduce((s, e) => s + (e.fields?.['Montant prévu'] || 0), 0);
+  const baseTotalHT = caHT || totalPrevu / 1.2; // fallback si pas de Total HT explicite
+
+  return `
+    <section class="facturation-card-block" aria-label="Facturation client" data-section="facturation">
+      <div class="facturation-header">
+        <h3>${icon('mail', 14)} <span>Facturation client</span></h3>
+        ${caHT > 0 ? `<div class="muted facturation-ca">CA SIGNÉ HT : <strong>${euros(caHT)}</strong></div>` : ''}
+      </div>
+      <div class="facturation-grid">
+        ${ordered.map(e => {
+          const ef = e.fields || {};
+          const isEncaisse = ef.Statut === 'Encaissé';
+          const tacheEnCours = taches.find(t => {
+            const d = t.fields?.Description || '';
+            return d.includes(`[echeance:${e.id}]`) && t.fields?.Statut !== 'Terminée';
+          });
+          const montantPrevu = ef['Montant prévu'] || 0;
+          const montantHt = montantPrevu / 1.2; // approx HT depuis TTC (TVA 20%)
+          const pct = baseTotalHT > 0 ? Math.round((montantHt / baseTotalHT) * 100) : null;
+          const stateCls = isEncaisse ? 'is-encaisse' : (tacheEnCours ? 'is-tache' : 'is-pending');
+          return `
+            <div class="facturation-item ${stateCls}" data-echeance-id="${esc(e.id)}">
+              <div class="facturation-item-head">
+                <strong>${icon('file', 13)} ${esc(ef['Libellé'] || '?')}</strong>
+                ${isEncaisse ? `<span class="badge phase-signe">Encaissé</span>` : (tacheEnCours ? `<span class="badge phase-en-cours">Tâche</span>` : '')}
+              </div>
+              <div class="facturation-item-amount">
+                <strong>${euros(montantHt)}</strong>
+                <span class="muted">HT${pct != null ? ' (' + pct + '%)' : ''}</span>
+              </div>
+              ${isEncaisse
+                ? `<div class="muted facturation-item-meta">Réglée ${ef['Date règlement'] ? 'le ' + esc(ef['Date règlement']) : ''}</div>`
+                : (tacheEnCours
+                  ? `<div class="muted facturation-item-meta">${esc(tacheEnCours.fields?.['Assignée à'] || 'Virginie')}${tacheEnCours.fields?.Échéance ? ' · ' + esc(tacheEnCours.fields.Échéance) : ''}</div>`
+                  : `<button class="btn btn-primary btn-sm facturation-item-btn" data-action="facturer" data-echeance="${esc(e.id)}">${icon('plus', 12)} Créer tâche</button>`)}
+            </div>`;
+        }).join('')}
+      </div>
+    </section>`;
 }
 
 async function archiveProjet(projet, newChantier) {

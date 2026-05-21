@@ -1,9 +1,42 @@
-// Dashboard v3 — KPI + funnel cliquable + alertes + prochains jalons
+// Dashboard v3 — KPI + funnel cliquable + Mes tâches (urgence) + alertes
 // Compteurs branchés sur state.clients + state.projets.
 
 import { state } from '../core/state.js';
 import { navigateTo } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
+
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+
+// Map login système (lowercase, sans accents) → nom Airtable "Assignée à"
+const LOGIN_TO_ASSIGNEE = {
+  'virginie':  'Virginie',
+  'solene':    'Solène',
+  'sebastien': 'Sébastien',
+  'marine':    'Marine',
+};
+
+// Calcule l'urgence d'une tâche : retard / urgent / bientôt / normal
+function tacheUrgence(t) {
+  const f = t.fields || {};
+  if (f.Statut === 'Terminée') return null;
+  const ech = f.Échéance;
+  if (!ech) return { level: 'normal', daysLeft: null };
+  const today = new Date(); today.setHours(0,0,0,0);
+  const d = new Date(ech); d.setHours(0,0,0,0);
+  const days = Math.round((d - today) / 86400000);
+  if (days < 0) return { level: 'retard', daysLeft: days };
+  if (days <= 2) return { level: 'urgent', daysLeft: days };
+  if (days <= 7) return { level: 'bientot', daysLeft: days };
+  return { level: 'normal', daysLeft: days };
+}
+
+const URGENCE_ORDER = { retard: 0, urgent: 1, bientot: 2, normal: 3 };
+const URGENCE_LABEL = {
+  retard:  d => `en retard de ${Math.abs(d)} j`,
+  urgent:  d => d === 0 ? 'aujourd\'hui' : (d === 1 ? 'demain' : `dans ${d} j`),
+  bientot: d => `dans ${d} j`,
+  normal:  d => d != null ? `dans ${d} j` : '',
+};
 
 const PHASES = [
   { key: 'Découverte',          icon: 'compass', pct: 0 },
@@ -15,9 +48,11 @@ const PHASES = [
 
 const euros = n => (n == null || isNaN(n)) ? '—' : Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
 
-export function renderDashboard(app) {
+export async function renderDashboard(app) {
   const clients = state.clients || [];
   const projets = state.projets || [];
+  const userLogin = (state.user || '').toLowerCase();
+  const assigneeName = LOGIN_TO_ASSIGNEE[userLogin] || state.user;
 
   // Stats projets
   const enCours = projets.filter(p => {
@@ -58,7 +93,7 @@ export function renderDashboard(app) {
   }
 
   app.innerHTML = `
-    <h1 class="page-title">Dashboard</h1>
+    <h1 class="page-title">Dashboard${assigneeName ? ' — ' + esc(assigneeName) : ''}</h1>
 
     <div class="kpi-row">
       <div class="kpi-card">
@@ -77,6 +112,11 @@ export function renderDashboard(app) {
         <div class="kpi-value">${margesValides.length ? margeAvgPct.toFixed(1) + ' %' : '—'}</div>
         <div class="kpi-label">Marge prévi moyenne</div>
       </div>
+    </div>
+
+    <h2 class="section-title">Mes tâches ${assigneeName ? '— ' + esc(assigneeName) : ''}</h2>
+    <div id="mes-taches-container" class="card mes-taches-card">
+      <p class="muted">Chargement des tâches…</p>
     </div>
 
     <h2 class="section-title">Pipeline commercial</h2>
@@ -106,6 +146,83 @@ export function renderDashboard(app) {
   `;
 
   hydrateIcons(app);
+
+  // Sprint v3.6 — Charge les tâches assignées à l'user connecté et les affiche par urgence
+  await loadMesTaches(assigneeName);
+}
+
+async function loadMesTaches(assigneeName) {
+  const container = document.getElementById('mes-taches-container');
+  if (!container) return;
+  if (!assigneeName) {
+    container.innerHTML = '<p class="muted">Connecte-toi avec un compte mappé (Virginie / Solène / Sébastien / Marine) pour voir tes tâches.</p>';
+    return;
+  }
+  try {
+    const r = await fetch('/api/data/taches');
+    if (!r.ok) throw new Error('chargement tâches');
+    const d = await r.json();
+    const taches = (d.records || [])
+      .filter(t => (t.fields?.['Assignée à'] === assigneeName) && t.fields?.Statut !== 'Terminée');
+
+    if (taches.length === 0) {
+      container.innerHTML = '<p class="muted">Aucune tâche en cours assignée. ✨</p>';
+      hydrateIcons(container);
+      return;
+    }
+
+    // Calcul urgence + tri
+    const enrichies = taches.map(t => ({ tache: t, urgence: tacheUrgence(t) }))
+      .filter(x => x.urgence)
+      .sort((a, b) => {
+        const oa = URGENCE_ORDER[a.urgence.level];
+        const ob = URGENCE_ORDER[b.urgence.level];
+        if (oa !== ob) return oa - ob;
+        return (a.urgence.daysLeft ?? 999) - (b.urgence.daysLeft ?? 999);
+      });
+
+    // Stats par niveau
+    const stats = { retard: 0, urgent: 0, bientot: 0, normal: 0 };
+    for (const x of enrichies) stats[x.urgence.level]++;
+
+    container.innerHTML = `
+      <div class="mes-taches-stats" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;font-size:12px">
+        ${stats.retard  > 0 ? `<span class="badge" style="background:var(--accent-lo);color:var(--accent)">${icon('alert', 11)} ${stats.retard} en retard</span>` : ''}
+        ${stats.urgent  > 0 ? `<span class="badge" style="background:var(--gold-lo);color:var(--gold)">${icon('clock', 11)} ${stats.urgent} urgent${stats.urgent>1?'es':''}</span>` : ''}
+        ${stats.bientot > 0 ? `<span class="badge" style="background:var(--info-lo);color:var(--info)">${icon('calendar', 11)} ${stats.bientot} cette semaine</span>` : ''}
+        ${stats.normal  > 0 ? `<span class="badge">${stats.normal} normale${stats.normal>1?'s':''}</span>` : ''}
+      </div>
+      ${enrichies.slice(0, 12).map(({ tache: t, urgence: u }) => {
+        const f = t.fields || {};
+        const projetId = (f.Projet || [])[0];
+        const label = URGENCE_LABEL[u.level](u.daysLeft);
+        return `
+          <div class="tache-urgence-item urgence-${u.level}" data-projet="${esc(projetId || '')}">
+            <span class="tache-urgence-dot" aria-hidden="true"></span>
+            <div class="tache-urgence-content">
+              <div class="tache-urgence-titre">${esc(f.Titre || '?')}</div>
+              <div class="tache-urgence-meta">
+                ${f.Priorité ? `<span class="badge">${esc(f.Priorité)}</span>` : ''}
+                ${f.Échéance ? `<span>${icon('calendar', 11)} ${esc(f.Échéance)}</span>` : ''}
+              </div>
+            </div>
+            <div class="tache-urgence-deadline">${esc(label)}</div>
+          </div>`;
+      }).join('')}
+      ${enrichies.length > 12 ? `<p class="muted" style="margin-top:8px;font-size:12px;text-align:center">+ ${enrichies.length - 12} autres tâches</p>` : ''}
+    `;
+    hydrateIcons(container);
+
+    // Bindings : clic sur une tâche → ouvre le projet
+    container.querySelectorAll('.tache-urgence-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const projetId = el.dataset.projet;
+        if (projetId) location.hash = '#projet/' + projetId;
+      });
+    });
+  } catch (err) {
+    container.innerHTML = `<p class="muted">Erreur chargement tâches : ${esc(err.message)}</p>`;
+  }
 }
 
 // Mapping legacy fallback pour les projets sans Phase commerciale (avant migration v3)
