@@ -598,13 +598,19 @@ Sois concret, factuel, pas creux. Cible Tanguy ou Virginie qui lisent ça en 30 
   });
 });
 
-// --- Support feedback (Sprint 4 P2) ---
-// Bouton flottant v3 → POST ici. On log structuré JSON, JMG suit dans Scaleway Logs Browser.
-// Champs : message (requis), url, context (optionnel).
+// --- Support feedback (Sprint 4 P2 / v3.20) ---
+// Bouton flottant v3 → POST ici. On log structuré JSON (Scaleway Logs Browser)
+// ET on forwarde au webhook 9·58 si configuré, pour créer un ticket dans le
+// cockpit central (Airtable TICKETS_TBL → zone Pilotage 958).
+//
+// JMG 2026-05-21 : "Le bouton SAV en bas à droite ne m'envoie pas de
+// notification sur mon cockpit comme avant" → réintégration du forward webhook.
 app.post('/api/support/feedback', requireAuth, async (req, res) => {
   const { message, url, context } = req.body || {};
   if (!message || message.length < 5) return res.status(400).json({ error: 'message requis (≥ 5 chars)' });
   if (message.length > 2000) return res.status(400).json({ error: 'message trop long (≤ 2000 chars)' });
+
+  // 1. Log structuré local (toujours, même si webhook KO)
   logger.warn({
     user: req.session?.user,
     url: String(url || '').slice(0, 200),
@@ -613,7 +619,46 @@ app.post('/api/support/feedback', requireAuth, async (req, res) => {
     ip: clientIp(req),
     userAgent: String(req.headers['user-agent'] || '').slice(0, 200),
   }, '[support] feedback utilisateur');
-  res.json({ ok: true });
+
+  // 2. Forward webhook 9·58 si configuré → ticket dans le cockpit central
+  let ticketId = null, notificationId = null;
+  if (SAV_WEBHOOK_URL && SAV_WEBHOOK_SECRET) {
+    try {
+      const payload = {
+        client_slug: SAV_CLIENT_SLUG,
+        cockpit_source: SAV_COCKPIT_SOURCE,
+        abonnement: SAV_ABONNEMENT,
+        categorie: 'Feedback cockpit',
+        urgence: 'P3',
+        titre: `[${req.session?.user || 'user'}] ${String(message).slice(0, 80)}`,
+        description: `Message :\n${String(message).slice(0, 2000)}\n\nURL : ${String(url || '').slice(0, 200)}\nContext : ${String(context || '').slice(0, 500)}`,
+        auteur_email: req.session?.user ? `${req.session.user}@tanguydesign.local` : '',
+      };
+      const r = await fetch(SAV_WEBHOOK_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-958-Secret': SAV_WEBHOOK_SECRET,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (r.ok) {
+        const data = await r.json().catch(() => ({}));
+        ticketId = data.ticket_id || null;
+        notificationId = data.notification_id || null;
+        logger.info({ ticketId, notificationId }, '[support] forwardé au cockpit 9·58');
+      } else {
+        const txt = await r.text().catch(() => '');
+        logger.warn(`[support] webhook 9·58 ${r.status}: ${txt.slice(0,200)} (feedback loggé localement quand même)`);
+      }
+    } catch (e) {
+      logger.warn(`[support] forward webhook 9·58 échoué : ${e.message} (feedback loggé localement)`);
+    }
+  } else {
+    logger.warn('[support] SAV_WEBHOOK_URL ou SAV_WEBHOOK_SECRET non configurés — pas de forward 9·58');
+  }
+
+  res.json({ ok: true, ticket_id: ticketId, notification_id: notificationId });
 });
 
 // --- Auth ---
