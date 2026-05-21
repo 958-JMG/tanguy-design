@@ -625,16 +625,17 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   align-items: stretch;
 }
 @media (min-width: 600px) {
-  .attachments-grid { grid-template-columns: repeat(2, 1fr); }
+  .attachments-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (min-width: 1200px) {
-  .attachments-grid { grid-template-columns: repeat(4, 1fr); }
+  .attachments-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 .attachment-card {
   display: flex;
   flex-direction: column;
   height: 280px; /* Sprint v3.14 — hauteur fixe identique sur tous les blocs */
   padding: 14px;
+  min-width: 0; /* Sprint v3.16 — neutralise min-content imposé par les labels longs */
 }
 .attachment-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; min-height: 24px; }
 .attachment-head h3 {
@@ -1215,7 +1216,7 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 /* Sprint v3.15 — JMG : "1/3 - 1/3 - 1/3, plus joli".
    Stack mobile, 3 colonnes strictes dès qu'on a la place (≥640px). */
 @media (min-width: 640px) {
-  .facturation-grid { grid-template-columns: repeat(3, 1fr); }
+  .facturation-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 .facturation-item {
   background: white;
@@ -1226,6 +1227,7 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   flex-direction: column;
   gap: 6px;
   height: 170px; /* hauteur fixe identique sur les 3 cards (vs min-height qui laissait varier) */
+  min-width: 0; /* Sprint v3.16 — autorise truncation du label "À la fin de la pose" */
   transition: border-color 100ms ease-out, box-shadow 100ms ease-out;
 }
 .facturation-item.is-encaisse { border-color: var(--green); background: var(--green-lo); }
@@ -1238,20 +1240,22 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   justify-content: space-between;
   align-items: flex-start;
   gap: 8px;
-  min-height: 22px;
+  min-height: 38px; /* Sprint v3.16 — hauteur stable même si label sur 2 lignes */
 }
 .facturation-item-label {
   font-size: 13px;
   font-weight: 600;
   color: var(--ink2);
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.25;
   flex: 1;
   min-width: 0;
+  gap: 5px;
 }
-.facturation-item-label svg { flex-shrink: 0; color: var(--ink3); }
+.facturation-item-label svg { flex-shrink: 0; color: var(--ink3); margin-right: 4px; vertical-align: -2px; }
 
 .facturation-badge {
   font-size: 10px;
