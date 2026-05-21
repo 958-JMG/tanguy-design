@@ -133,6 +133,10 @@ export async function setProjetArtisans(projetId, artisanIds) {
 // Upload + parse PDF devis client Winner (Principal ou Additif).
 // Le backend gère le parsing Claude + création devis + zones + lignes + échéances.
 // withKeepAlive côté serveur pour éviter le 524 Cloudflare (parse Claude 60-120s).
+//
+// IMPORTANT : withKeepAlive renvoie TOUJOURS HTTP 200 (même en erreur), car les
+// premiers bytes sont déjà flushés. Le payload contient {error: "..."} en cas
+// d'échec. On doit donc tester `j.error` EN PLUS de `r.ok`.
 export async function importDevisClient({ file, projetId = null, clientId = null, type = 'Principal' }) {
   const fd = new FormData();
   fd.append('pdf', file);
@@ -144,7 +148,9 @@ export async function importDevisClient({ file, projetId = null, clientId = null
     const e = await r.json().catch(() => ({}));
     throw new Error(e.error || r.statusText);
   }
-  return r.json();
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  return j;
 }
 
 // Signature d'un devis Tanguy → backend crée les commandes fournisseurs avec rétro-planning
@@ -156,6 +162,7 @@ export async function signDevisTanguy(devisId) {
 
 // Upload + parse PDF devis artisan → calcul auto rétro-commission 5% côté backend,
 // crée le record dans devis-artisans, attache le PDF, ajoute auto l'artisan au projet.
+// (withKeepAlive → check j.error en plus de r.ok, cf. importDevisClient.)
 export async function importDevisArtisan({ file, projetId, artisanId = null }) {
   const fd = new FormData();
   fd.append('pdf', file);
@@ -166,15 +173,27 @@ export async function importDevisArtisan({ file, projetId, artisanId = null }) {
     const e = await r.json().catch(() => ({}));
     throw new Error(e.error || r.statusText);
   }
-  return r.json();
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  return j;
 }
 
 // Parse Plaud R1/R2 → création réunion + tâches auto depuis prochaines_actions[].
 // niveau: 'R1' (découverte) ou 'R2' (chantier). type_reunion: 'Découverte', 'Présentation devis',
 // 'Suivi chantier', 'SAV'.
+// (withKeepAlive → check j.error explicitement, cf. importDevisClient.)
 export async function parsePlaud({ transcript, projetId = null, clientId = null, type_reunion = 'Découverte', niveau = null }) {
-  return api('/api/plaud/parse', {
+  const r = await fetch('/api/plaud/parse', {
     method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ transcript, projetId, clientId, type_reunion, niveau }),
   });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e.error || r.statusText);
+  }
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  return j;
 }
