@@ -199,8 +199,10 @@ async function openMetaEditor(commande, fournisseur, refresh) {
       <form id="form-meta">
         <label>Fournisseur (à qui envoyer ce BC)
           <select name="Fournisseur" id="meta-fournisseur">
-            <option value="">— Aucun (à rattacher) —</option>
-            <option disabled>Chargement…</option>
+            ${currentFournId
+              ? `<option value="${esc(currentFournId)}" selected>${esc(fournisseur?.fields?.Nom || fournisseur?.Nom || 'Fournisseur actuel')}</option>`
+              : '<option value="" selected>— Aucun (à rattacher) —</option>'}
+            <option disabled>Chargement de la liste…</option>
           </select>
         </label>
         <label>Référence courte (code fournisseur sur BC)
