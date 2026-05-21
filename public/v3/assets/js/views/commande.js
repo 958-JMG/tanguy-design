@@ -64,6 +64,7 @@ function drawCommande(app, detail, html, cmdId) {
         <button class="btn btn-ghost" id="btn-edit-lignes">${icon('edit', 14)} Lignes</button>
         <button class="btn btn-ghost" id="btn-print">${icon('file', 14)} Imprimer</button>
         <button class="btn btn-primary" id="btn-mail">${icon('mail', 14)} Envoyer mail</button>
+        <button class="btn btn-ghost" id="btn-delete" style="color:var(--accent)" aria-label="Supprimer la commande">${icon('trash', 14)} Supprimer</button>
       </div>
     </div>
 
@@ -78,6 +79,31 @@ function drawCommande(app, detail, html, cmdId) {
   document.getElementById('btn-edit-lignes').addEventListener('click', () => openLignesEditor(cmdId, lignes, () => renderCommande(app, cmdId)));
   document.getElementById('btn-print').addEventListener('click', () => doPrint(html));
   document.getElementById('btn-mail').addEventListener('click', () => doMail(commande, fournisseur, lignes));
+  document.getElementById('btn-delete').addEventListener('click', () => deleteCommande(cmdId, cf, projetId));
+}
+
+// Sprint v3.4 — suppression d'une commande (admin only via ACL).
+// Cas d'usage : JMG signale 2026-05-21 qu'il doit pouvoir annuler les BC générés
+// à une signature erronée pour pouvoir re-signer proprement.
+async function deleteCommande(cmdId, cf, projetId) {
+  const num = cf['Numéro'] || cmdId;
+  const ok = await confirmModal(
+    `Supprimer définitivement la commande "${num}" ?\n\nCette action est irréversible. Les lignes BC stockées dans le record sont perdues. Le devis lié n'est pas affecté.`,
+    { okLabel: 'Supprimer', danger: true }
+  );
+  if (!ok) return;
+  try {
+    const r = await fetch(`/api/data/commandes/${cmdId}`, { method: 'DELETE', credentials: 'same-origin' });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || r.statusText);
+    }
+    toast(`Commande ${num} supprimée`, 'success');
+    if (projetId) location.hash = '#projet/' + projetId;
+    else location.hash = '#dashboard';
+  } catch (err) {
+    toast('Erreur suppression : ' + err.message, 'error', 7000);
+  }
 }
 
 function doPrint(html) {
