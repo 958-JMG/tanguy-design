@@ -43,7 +43,7 @@ const FIELD_WHITELIST = {
   fournisseurs:        ['Nom', 'Famille', 'Email', 'Téléphone', 'Adresse', 'Notes'],
   'devis-artisans':    ['Numéro devis', 'Statut', 'Montant HT', 'Montant TTC', 'Rétro-commission HT', 'Notes', 'Projet', 'Artisan', 'Date devis', 'Description travaux', 'Adresse chantier', 'Date démarrage prévue'],
   stock:               ['Nom', 'Quantité', 'Prix unitaire', 'Famille', 'Notes'],
-  devis:               ['Statut', 'Type devis', 'Notes', "Valable jusqu'au"],
+  devis:               ['Statut', 'Type devis', 'Notes', "Valable jusqu'au", 'Numéro devis', 'Date devis'],
   'zones-devis':       ['Nom', 'Ordre', 'Notes'],
   'lignes-devis':      ['Notes', 'Alertes'],
   'echeances-devis':   ['Statut', 'Date prévue', 'Date encaissement', 'Notes', 'Montant prévu'],

@@ -778,3 +778,268 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   .nav-admin-only { display: var(--admin-display, none); }
   .user-info { font-size: 12px; }
 }
+
+/* =============================================================================
+   Sprint v3.3 — Refonte fiche projet (sticky header + grid 2 cols + dense)
+   ============================================================================= */
+
+/* Header sticky : breadcrumb + titre + stepper + KPIs visibles en permanence
+   sur desktop. En mobile, retourne en static (manque de hauteur). */
+.projet-sticky-header {
+  background: var(--paper);
+  padding: 12px 0 16px 0;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 24px;
+}
+@media (min-width: 1024px) {
+  .projet-sticky-header {
+    position: sticky;
+    top: 56px; /* sous topbar */
+    z-index: 10;
+  }
+  .projet-sticky-header.is-scrolled {
+    box-shadow: 0 4px 8px -4px rgba(0,0,0,0.08);
+  }
+}
+
+/* Stepper chips horizontaux scrollables — remplace l'ancien stepper en grille */
+.stepper-chips {
+  list-style: none;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  padding: 4px 0 8px 0;
+  margin: 12px 0 0 0;
+  -webkit-overflow-scrolling: touch;
+}
+.stepper-chips::-webkit-scrollbar { height: 4px; }
+.stepper-chips::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
+.stepper-chip {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink3);
+  font-size: 13px;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.stepper-chip svg { flex-shrink: 0; }
+.stepper-chip.is-done { color: var(--green); border-color: var(--green-lo); background: var(--green-lo); }
+.stepper-chip.is-cur  { color: var(--accent); border-color: var(--accent); background: var(--accent-lo); font-weight: 600; border-width: 2px; padding: 7px 11px; }
+.stepper-chip.is-pending { color: var(--ink4); }
+
+/* Bilan KPI row — passe en grid 2×2 mobile, 4 colonnes desktop */
+.projet-sticky-header .kpi-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 16px;
+}
+@media (min-width: 768px) {
+  .projet-sticky-header .kpi-row { grid-template-columns: repeat(4, 1fr); gap: 12px; }
+}
+.projet-sticky-header .kpi-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 12px;
+}
+.projet-sticky-header .kpi-card.is-negative { background: var(--accent-lo); border-color: var(--accent); }
+.projet-sticky-header .kpi-card.is-negative .kpi-value { color: var(--accent); }
+.projet-sticky-header .kpi-value { font-size: 22px; font-weight: 700; line-height: 1.1; }
+.projet-sticky-header .kpi-label { font-size: 11px; color: var(--ink3); text-transform: uppercase; letter-spacing: 0.3px; margin-top: 4px; }
+@media (min-width: 768px) {
+  .projet-sticky-header .kpi-value { font-size: 26px; }
+  .projet-sticky-header .kpi-label { font-size: 12px; }
+}
+
+/* Bandeau "À faire maintenant" — sous le header, au-dessus de la grid */
+.next-actions-card {
+  background: var(--accent-lo);
+  border: 1px solid var(--accent);
+  border-left-width: 4px;
+  border-radius: var(--r-sm);
+  padding: 12px 16px;
+  margin-bottom: 24px;
+}
+.next-actions-card.is-quiet { background: var(--green-lo); border-color: var(--green); }
+.next-actions-card h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--ink3);
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.next-actions-card ul { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.next-action-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  background: transparent;
+  text-align: left;
+  width: 100%;
+  border: none;
+  font-size: 14px;
+  color: var(--ink1);
+  transition: background 100ms ease-out, transform 100ms ease-out;
+}
+.next-action-item:hover { background: rgba(255,255,255,0.5); transform: translateX(2px); }
+.next-action-item.is-urgent { font-weight: 600; }
+.next-action-item.is-urgent::before {
+  content: '';
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+.next-action-item svg { color: var(--ink2); flex-shrink: 0; }
+
+/* Grid 2 colonnes desktop — sections opérationnelles à gauche, références à droite */
+.projet-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+}
+@media (min-width: 1024px) {
+  .projet-grid { grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
+}
+.projet-col { display: flex; flex-direction: column; gap: 24px; }
+
+/* Section avec header (h2 + bouton action à droite) */
+.projet-section { margin: 0; }
+.projet-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.projet-section-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  margin: 0;
+}
+.projet-section-header h2 .count { color: var(--ink3); font-weight: 500; }
+
+/* Empty-state compact : 1 ligne au lieu d'une card pleine taille */
+.compact-empty {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: white;
+  border: 1px dashed var(--line2);
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  color: var(--ink3);
+}
+.compact-empty span { flex: 1; min-width: 0; }
+
+/* Card devis cliquable — link complet avec chevron */
+.card-devis-link {
+  display: block;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 12px 16px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 120ms ease-out, background 120ms ease-out, transform 120ms ease-out;
+  position: relative;
+}
+.card-devis-link:hover {
+  border-color: var(--accent);
+  background: var(--paper);
+  text-decoration: none;
+  transform: translateX(2px);
+}
+.card-devis-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.card-devis-link::after {
+  content: '›';
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 20px;
+  color: var(--ink4);
+  transition: transform 120ms ease-out, color 120ms ease-out;
+}
+.card-devis-link:hover::after { color: var(--accent); right: 11px; }
+
+/* Boutons croix retrait — touch target 44×44 sur mobile */
+.btn-icon-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--ink3);
+  transition: background 120ms ease-out, color 120ms ease-out;
+}
+.btn-icon-danger:hover { background: var(--accent-lo); color: var(--accent); border-color: var(--accent); }
+@media (max-width: 760px) {
+  .btn-icon-danger { width: 44px; height: 44px; }
+}
+
+/* Vue détail devis — réutilise client-header existant mais ajoute des sous-tables */
+.devis-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 8px;
+}
+.devis-detail-table th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--ink3);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.devis-detail-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.devis-detail-table tr:hover td { background: var(--paper); }
+.devis-detail-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.devis-zone-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 16px 0 4px 0;
+  padding-bottom: 4px;
+  border-bottom: 2px solid var(--accent-lo);
+  color: var(--ink2);
+}
+
+/* Respect prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .next-action-item, .card-devis-link, .card-devis-link::after, .btn-icon-danger {
+    transition: none !important;
+  }
+  .next-action-item:hover, .card-devis-link:hover {
+    transform: none !important;
+  }
+}

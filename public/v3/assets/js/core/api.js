@@ -178,6 +178,20 @@ export async function importDevisArtisan({ file, projetId, artisanId = null }) {
   return j;
 }
 
+// Sprint v3.3 — détail complet d'un devis (header + zones + lignes + échéances).
+// Endpoint backend : GET /api/devis/:id/detail (déjà existant).
+export async function fetchDevisDetail(devisId) {
+  return api(`/api/devis/${devisId}/detail`);
+}
+
+// PATCH champs header devis (Numéro, Type, Statut, Date, Notes…).
+export async function patchDevis(devisId, fields) {
+  return api(`/api/data/devis/${devisId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ fields }),
+  });
+}
+
 // Parse Plaud R1/R2 → création réunion + tâches auto depuis prochaines_actions[].
 // niveau: 'R1' (découverte) ou 'R2' (chantier). type_reunion: 'Découverte', 'Présentation devis',
 // 'Suivi chantier', 'SAV'.

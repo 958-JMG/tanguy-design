@@ -5,6 +5,7 @@ import { renderDashboard } from '../views/dashboard.js';
 import { renderClientsList, renderClientDetail } from '../views/clients.js';
 import { renderProjet } from '../views/projet.js';
 import { renderCommande } from '../views/commande.js';
+import { renderDevis } from '../views/devis.js';
 import { renderPipeline } from '../views/pipeline.js';
 import { renderCalendar } from '../views/calendar.js';
 import { renderAdmin } from '../views/admin.js';
@@ -34,6 +35,7 @@ export function router() {
       case 'clients':          return rest.length ? renderClientDetail(app, decodeURIComponent(rest[0])) : renderClientsList(app);
       case 'projet':           return rest.length ? renderProjet(app, decodeURIComponent(rest[0])) : renderDashboard(app);
       case 'commande':         return rest.length ? renderCommande(app, decodeURIComponent(rest[0])) : renderDashboard(app);
+      case 'devis':            return rest.length ? renderDevis(app, decodeURIComponent(rest[0])) : renderDashboard(app);
       case 'pipeline':         return renderPipeline(app, rest.length ? decodeURIComponent(rest.join('/')) : null);
       case 'calendar':         return renderCalendar(app);
       case 'admin':            return renderAdmin(app);

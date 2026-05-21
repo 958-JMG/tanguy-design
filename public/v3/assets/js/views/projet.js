@@ -37,6 +37,104 @@ function euros(n) {
   return Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
 }
 
+// Sprint v3.3 — calcule 3 à 5 actions prioritaires selon la phase du projet.
+// Trié : urgent > normal, puis ordre métier (suit le funnel découverte → signature → pose).
+function computeNextActions({ projet, taches, devis, commandes, artisans, reunionsPlaud }) {
+  const pf = projet.fields || {};
+  const phase = pf['Phase commerciale'] || pf.Statut || '';
+  const items = [];
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  // Tâches en retard — toujours en premier (toutes phases)
+  const tachesRetard = taches.filter(t =>
+    t.fields?.Statut !== 'Terminée' &&
+    t.fields?.Échéance && t.fields.Échéance < todayIso
+  );
+  if (tachesRetard.length) {
+    items.push({
+      icon: 'wrench', severity: 'urgent',
+      label: `${tachesRetard.length} tâche${tachesRetard.length>1?'s':''} en retard`,
+      scrollTo: '[data-section="taches"]',
+    });
+  }
+
+  // Phase Découverte sans R1
+  const hasR1 = reunionsPlaud.some(r => r.fields?.Niveau === 'R1');
+  if (phase === 'Découverte' && !hasR1) {
+    items.push({
+      icon: 'mail', severity: 'normal',
+      label: 'Importer transcript Plaud R1 (découverte)',
+      action: 'btn-new-plaud',
+    });
+  }
+
+  // R1 fait mais pas de devis
+  if (hasR1 && devis.length === 0) {
+    items.push({
+      icon: 'file', severity: 'normal',
+      label: 'Importer le devis Winner',
+      action: 'btn-import-devis',
+    });
+  }
+
+  // Devis Brouillon (existe mais pas signé)
+  const devisBrouillon = devis.find(d => d.fields?.Statut === 'Brouillon');
+  if (devisBrouillon) {
+    items.push({
+      icon: 'check', severity: 'normal',
+      label: `Signer le devis ${devisBrouillon.fields?.['Numéro devis'] || ''}`,
+      navigateTo: `devis/${devisBrouillon.id}`,
+    });
+  }
+
+  // Phase ≥ Signé sans artisans
+  if (['Signé', 'Commandes', 'Pose'].includes(phase) && artisans.length === 0) {
+    items.push({
+      icon: 'user', severity: 'normal',
+      label: 'Affecter les artisans contractuels',
+      action: 'btn-add-artisan',
+    });
+  }
+
+  // Commandes sans fournisseur rattaché (phase commandes ou pose)
+  if (['Signé', 'Commandes', 'Pose'].includes(phase)) {
+    const cmdSansFourn = commandes.filter(c => !(c.fields?.Fournisseur || []).length);
+    if (cmdSansFourn.length) {
+      items.push({
+        icon: 'archive', severity: 'normal',
+        label: `${cmdSansFourn.length} BC sans fournisseur rattaché`,
+        scrollTo: '[data-section="commandes"]',
+      });
+    }
+  }
+
+  // Phase Signé sans date pose
+  if (['Signé', 'Commandes'].includes(phase) && !pf['Date pose prévue']) {
+    items.push({
+      icon: 'calendar', severity: 'normal',
+      label: 'Définir la date de pose prévue',
+      action: 'btn-edit-projet',
+    });
+  }
+
+  // Pose passée sans PV réception
+  if (pf['Date pose prévue'] && pf['Date pose prévue'] < todayIso) {
+    const pvDone = taches.some(t => /pv|réception/i.test(t.fields?.Titre || '') && t.fields?.Statut === 'Terminée');
+    if (!pvDone) {
+      items.push({
+        icon: 'check', severity: 'normal',
+        label: 'PV de réception chantier',
+        action: 'btn-new-tache',
+      });
+    }
+  }
+
+  // Tri urgent first puis ordre d'insertion (= ordre métier naturel)
+  return items.sort((a, b) =>
+    (a.severity === 'urgent' ? 0 : 1) - (b.severity === 'urgent' ? 0 : 1)
+  ).slice(0, 5);
+}
+
 function computeParcours(projet, taches, devis, commandes) {
   const pf = projet.fields || {};
   const phase = pf['Phase commerciale'] || '';
@@ -109,224 +207,257 @@ function renderFiche(app, data) {
   const margeAbs = caHT - coutFourn - coutArtisans + retro;
   const margePct = caHT > 0 ? (margeAbs / caHT) * 100 : null;
 
+  // Calcul des actions prioritaires selon la phase (Sprint v3.3)
+  const nextActions = computeNextActions({ projet, taches, devis, commandes, artisans, reunionsPlaud });
+  const hasUrgent = nextActions.some(a => a.severity === 'urgent');
+  const margeNegative = margeAbs < 0;
+
   app.innerHTML = `
-    <nav class="breadcrumb">
-      <a href="#clients">Clients</a> &rsaquo;
-      ${client ? `<a href="#clients/${encodeURIComponent(client.id)}">${esc(client.fields?.Nom)}</a> &rsaquo;` : ''}
-      <strong>${esc(pf.Référence || '(sans référence)')}</strong>
-    </nav>
+    <header role="banner" class="projet-sticky-header" id="projet-sticky-header">
+      <nav class="breadcrumb" aria-label="Fil d'Ariane">
+        <a href="#clients">Clients</a> &rsaquo;
+        ${client ? `<a href="#clients/${encodeURIComponent(client.id)}">${esc(client.fields?.Nom)}</a> &rsaquo;` : ''}
+        <strong>${esc(pf.Référence || '(sans référence)')}</strong>
+      </nav>
 
-    <div class="client-header">
-      <div class="client-header-left">
-        <div class="client-header-icon">${icon('folder', 36)}</div>
-        <div>
-          <h1 class="page-title" style="margin:0">${esc(pf.Référence || '(sans référence)')}</h1>
-          <div class="muted" style="margin-top:4px">
-            ${client ? `Client : <strong>${esc(client.fields?.Nom)}</strong>` : 'Pas de client lié'}
-            · Phase : <strong>${esc(phase)}</strong>
-            ${chantier ? ` · Chantier : <strong>${esc(chantier)}</strong>` : ''}
+      <div class="client-header" style="margin-top:8px;border:none;padding:0;background:transparent">
+        <div class="client-header-left">
+          <div class="client-header-icon">${icon('folder', 32)}</div>
+          <div>
+            <h1 class="page-title" style="margin:0;font-size:24px">${esc(pf.Référence || '(sans référence)')}</h1>
+            <div class="muted" style="margin-top:2px;font-size:13px">
+              ${client ? `<strong>${esc(client.fields?.Nom)}</strong>` : '<em>Pas de client lié</em>'}
+              · Phase : <strong>${esc(phase)}</strong>
+              ${chantier ? ` · Chantier : <strong>${esc(chantier)}</strong>` : ''}
+            </div>
           </div>
         </div>
-      </div>
-      <div class="header-actions">
-        <button class="btn btn-ghost" id="btn-edit-projet">${icon('edit', 16)} Éditer</button>
-        ${chantier === 'Archivé'
-          ? `<button class="btn btn-ghost" id="btn-unarchive">${icon('arrowLeft', 16)} Désarchiver</button>`
-          : `<button class="btn btn-ghost" id="btn-archive">${icon('archive', 16)} Archiver</button>`}
-      </div>
-    </div>
-
-    <!-- Stepper 12 étapes -->
-    <h2 class="section-title">Parcours chantier</h2>
-    <div class="stepper">
-      ${stepper.map(s => `
-        <div class="step step-${s.state}" title="${esc(s.label)}">
-          <div class="step-icon">${icon(s.icon, 18)}</div>
-          <div class="step-label">${esc(s.label)}</div>
+        <div class="header-actions">
+          <button class="btn btn-ghost btn-sm" id="btn-edit-projet" aria-label="Éditer le projet">${icon('edit', 14)} Éditer</button>
+          ${chantier === 'Archivé'
+            ? `<button class="btn btn-ghost btn-sm" id="btn-unarchive" aria-label="Désarchiver">${icon('arrowLeft', 14)} Désarchiver</button>`
+            : `<button class="btn btn-ghost btn-sm" id="btn-archive" aria-label="Archiver">${icon('archive', 14)} Archiver</button>`}
         </div>
-      `).join('')}
-    </div>
+      </div>
 
-    <!-- Bilan financier -->
-    <h2 class="section-title">Bilan financier prévisionnel</h2>
-    <div class="kpi-row" style="margin-bottom:24px">
-      <div class="kpi-card"><div class="kpi-value">${euros(caHT)}</div><div class="kpi-label">CA HT</div></div>
-      <div class="kpi-card"><div class="kpi-value">${euros(coutFourn)}</div><div class="kpi-label">Fournisseurs</div></div>
-      <div class="kpi-card"><div class="kpi-value">${euros(coutArtisans - retro)}</div><div class="kpi-label">Artisans (− 5 % rétro)</div></div>
-      <div class="kpi-card"${margeAbs < 0 ? ' style="background:var(--accent-lo)"' : ''}>
-        <div class="kpi-value">${euros(margeAbs)}</div>
-        <div class="kpi-label">Marge ${margePct != null ? '(' + margePct.toFixed(1) + ' %)' : ''}</div>
+      <!-- Stepper chips horizontaux (au lieu de la grille verticale) -->
+      <ol class="stepper-chips" aria-label="Parcours chantier">
+        ${stepper.map((s, i) => `
+          <li class="stepper-chip is-${s.state === 'cur' ? 'cur' : (s.state === 'done' ? 'done' : 'pending')}"
+              ${s.state === 'cur' ? 'aria-current="step"' : ''}
+              aria-label="Étape ${i+1} sur ${stepper.length} : ${esc(s.label)}">
+            ${icon(s.icon, 14)} ${esc(s.label)}
+          </li>
+        `).join('')}
+      </ol>
+
+      <!-- Bilan KPIs -->
+      <div class="kpi-row" aria-label="Bilan financier prévisionnel">
+        <div class="kpi-card"><div class="kpi-value">${euros(caHT)}</div><div class="kpi-label">CA HT</div></div>
+        <div class="kpi-card"><div class="kpi-value">${euros(coutFourn)}</div><div class="kpi-label">Fournisseurs</div></div>
+        <div class="kpi-card"><div class="kpi-value">${euros(coutArtisans - retro)}</div><div class="kpi-label">Artisans (− 5 % rétro)</div></div>
+        <div class="kpi-card ${margeNegative ? 'is-negative' : ''}" ${margeNegative ? 'aria-label="Marge négative — attention"' : ''}>
+          <div class="kpi-value">${euros(margeAbs)}</div>
+          <div class="kpi-label">Marge ${margePct != null ? '(' + margePct.toFixed(1) + ' %)' : ''}</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Bandeau "À faire maintenant" -->
+    ${nextActions.length > 0 ? `
+    <section class="next-actions-card ${hasUrgent ? '' : 'is-quiet'}" aria-label="À faire maintenant">
+      <h3>À faire maintenant</h3>
+      <ul>
+        ${nextActions.map((a, i) => `
+          <li>
+            <button class="next-action-item ${a.severity === 'urgent' ? 'is-urgent' : ''}"
+                    data-next-action-idx="${i}">
+              ${icon(a.icon, 16)} <span>${esc(a.label)}</span>
+            </button>
+          </li>
+        `).join('')}
+      </ul>
+    </section>` : ''}
+
+    <!-- Grid 2 colonnes : opérationnel à gauche, références à droite -->
+    <div class="projet-grid">
+      <div class="projet-col projet-col-left">
+
+        <!-- Tâches -->
+        <section class="projet-section" aria-label="Tâches" data-section="taches">
+          <div class="projet-section-header">
+            <h2>Tâches <span class="count">(${taches.length})</span></h2>
+            <button class="btn btn-primary btn-sm" id="btn-new-tache">${icon('plus', 14)} Nouvelle</button>
+          </div>
+          ${taches.length === 0
+            ? `<div class="compact-empty"><span>Aucune tâche</span></div>`
+            : `<div class="taches-list">${taches.map(t => renderTacheRow(t)).join('')}</div>`}
+        </section>
+
+        <!-- Journal chantier -->
+        <section class="projet-section" aria-label="Journal chantier" data-section="journal">
+          <div class="projet-section-header">
+            <h2>Journal chantier</h2>
+            <button class="btn btn-ghost btn-sm" id="btn-add-journal">${icon('plus', 14)} Entrée</button>
+          </div>
+          ${pf['Journal chantier']
+            ? `<div class="card"><pre class="journal" style="white-space:pre-wrap;font-family:'DM Mono',monospace;font-size:12px;margin:0">${esc(pf['Journal chantier'])}</pre></div>`
+            : `<div class="compact-empty"><span>Pas encore d'entrée</span></div>`}
+        </section>
+
+        <!-- Réunions Plaud R1/R2 -->
+        <section class="projet-section" aria-label="Réunions Plaud" data-section="plaud">
+          <div class="projet-section-header">
+            <h2>Réunions Plaud <span class="count">(${reunionsPlaud.length})</span></h2>
+            <button class="btn btn-primary btn-sm" id="btn-new-plaud">${icon('plus', 14)} Nouvelle</button>
+          </div>
+          ${reunionsPlaud.length === 0
+            ? `<div class="compact-empty"><span>R1 découverte ou R2 chantier — tâches créées auto</span></div>`
+            : `<div class="commandes-list">${reunionsPlaud.map(r => `
+              <div class="card">
+                <div class="commande-head">
+                  <div><strong>${esc(r.fields?.Niveau || '?')}</strong> ${esc(r.fields?.['Type réunion'] || '')}
+                    ${r.fields?.['Date heure'] ? `<span class="muted"> · ${esc(r.fields['Date heure'])}</span>` : ''}
+                    ${r.fields?.Lieu ? `<span class="muted"> · ${esc(r.fields.Lieu)}</span>` : ''}
+                  </div>
+                </div>
+                ${r.fields?.Synthèse ? `<details><summary>Synthèse</summary><p style="white-space:pre-line;margin-top:8px">${esc(r.fields.Synthèse)}</p></details>` : ''}
+                ${r.fields?.Attentes ? `<details><summary>Attentes</summary><p style="white-space:pre-line;margin-top:8px">${esc(r.fields.Attentes)}</p></details>` : ''}
+                ${r.fields?.['Tâches identifiées'] ? `<details><summary>Tâches identifiées</summary><p style="white-space:pre-line;margin-top:8px">${esc(r.fields['Tâches identifiées'])}</p></details>` : ''}
+              </div>
+            `).join('')}</div>`}
+        </section>
+
+      </div>
+      <div class="projet-col projet-col-right">
+
+        <!-- Devis Tanguy (cliquable, route #devis/<id>) -->
+        <section class="projet-section" aria-label="Devis Tanguy" data-section="devis">
+          <div class="projet-section-header">
+            <h2>Devis Tanguy <span class="count">(${devis.length})</span></h2>
+            <button class="btn btn-primary btn-sm" id="btn-import-devis">${icon('plus', 14)} Importer PDF</button>
+          </div>
+          ${devis.length === 0
+            ? `<div class="compact-empty"><span>Aucun devis. Importer un PDF Winner pour déclencher le workflow.</span></div>`
+            : `<div class="commandes-list">${devis.map(d => {
+              const f = d.fields || {};
+              const isSigned = f.Statut === 'Signé';
+              return `
+              <a class="card-devis-link" href="#devis/${encodeURIComponent(d.id)}" data-devis-id="${esc(d.id)}">
+                <div class="commande-head" style="padding-right:24px">
+                  <div><strong>${esc(f['Numéro devis'] || '?')}</strong>
+                    <span class="badge" style="margin-left:6px">${esc(f['Type devis'] || 'Principal')}</span>
+                    <span class="badge ${isSigned ? 'phase-signe' : ''}" style="margin-left:4px">${esc(f.Statut || '—')}</span>
+                  </div>
+                  <div><strong>${euros(f['Total TTC'])}</strong> <span class="muted" style="font-size:11px">TTC</span></div>
+                </div>
+                ${f['Date devis'] ? `<div class="muted" style="font-size:12px;margin-top:4px">Daté du ${esc(f['Date devis'])}</div>` : ''}
+              </a>`;
+            }).join('')}</div>`}
+        </section>
+
+        <!-- Commandes fournisseurs -->
+        <section class="projet-section" aria-label="Commandes fournisseurs" data-section="commandes">
+          <div class="projet-section-header">
+            <h2>Commandes fournisseurs <span class="count">(${commandes.length})</span></h2>
+          </div>
+          ${commandes.length === 0
+            ? `<div class="compact-empty"><span>Les BC sont générés à la signature du devis</span></div>`
+            : `<div class="commandes-list">${commandes.map(c => {
+              const fIds = c.fields?.Fournisseur || [];
+              const fNoms = fIds.map(id => fournisseurs.find(f => f.id === id)?.fields?.Nom || id).join(', ');
+              const refCourte = c.fields?.['Référence courte'] || c.fields?.Type || '?';
+              return `
+              <a class="card commande-card commande-link" href="#commande/${encodeURIComponent(c.id)}">
+                <div class="commande-head">
+                  <div><strong>${esc(c.fields?.['Numéro'] || '?')}</strong>
+                    <span class="muted" style="margin-left:6px">${esc(refCourte)}</span>
+                    ${fNoms ? ` · ${esc(fNoms)}` : ' · <em class="muted">fournisseur non rattaché</em>'}
+                  </div>
+                  <span class="badge">${esc(c.fields?.Statut || '—')}</span>
+                </div>
+                ${c.fields?.['Modèle choisi'] ? `<div class="muted" style="margin-top:6px;font-size:12px">${esc(c.fields['Modèle choisi'].split('\n')[0])}</div>` : ''}
+              </a>`;
+            }).join('')}</div>`}
+        </section>
+
+        <!-- Artisans affectés -->
+        <section class="projet-section" aria-label="Artisans affectés" data-section="artisans">
+          <div class="projet-section-header">
+            <h2>Artisans affectés <span class="count">(${artisans.length})</span></h2>
+            <button class="btn btn-primary btn-sm" id="btn-add-artisan">${icon('plus', 14)} Affecter</button>
+          </div>
+          ${artisans.length === 0
+            ? `<div class="compact-empty"><span>Aucun artisan rattaché</span></div>`
+            : `<div class="commandes-list">${artisans.map(a => {
+              const af = a.fields || {};
+              return `
+              <div class="card commande-card" data-artisan-id="${esc(a.id)}">
+                <div class="commande-head">
+                  <div><strong>${esc(af.Nom || '?')}</strong>
+                    ${af.Spécialité ? `<span class="muted"> · ${esc(af.Spécialité)}</span>` : ''}
+                    ${af.Contractuel ? '<span class="badge phase-signe" style="margin-left:8px">Contractuel (−5%)</span>' : '<span class="badge" style="margin-left:8px">Non contractuel</span>'}
+                  </div>
+                  <button class="btn-icon-danger" data-action="remove-artisan" data-id="${esc(a.id)}" aria-label="Retirer ${esc(af.Nom || 'artisan')} du projet">${icon('trash', 14)}</button>
+                </div>
+                ${af.Téléphone || af.Email ? `<div class="muted" style="margin-top:4px;font-size:12px">${esc(af.Téléphone || '')}${af.Téléphone && af.Email ? ' · ' : ''}${esc(af.Email || '')}</div>` : ''}
+              </div>`;
+            }).join('')}</div>`}
+        </section>
+
+        <!-- Devis artisans + rétro 5% -->
+        <section class="projet-section" aria-label="Devis artisans" data-section="devis-artisans">
+          <div class="projet-section-header">
+            <h2>Devis artisans <span class="count">(${devisArtisans.length})</span></h2>
+            <button class="btn btn-primary btn-sm" id="btn-import-devis-artisan">${icon('plus', 14)} Importer PDF</button>
+          </div>
+          ${devisArtisans.length === 0
+            ? `<div class="compact-empty"><span>Rétro 5% calculée auto sur contractuels</span></div>`
+            : `<div class="commandes-list">${devisArtisans.map(d => {
+              const df = d.fields || {};
+              const aId = (df.Artisan || [])[0];
+              const a = aId ? allArtisans.find(x => x.id === aId) : null;
+              const aNom = a?.fields?.Nom || '?';
+              const isContractuel = a?.fields?.Contractuel;
+              const montantHT = df['Montant HT'] || 0;
+              const retroCom = df['Rétro-commission HT'] || (isContractuel ? montantHT * 0.05 : 0);
+              return `
+              <div class="card commande-card">
+                <div class="commande-head">
+                  <div><strong>${esc(aNom)}</strong>
+                    ${isContractuel ? '<span class="badge phase-signe" style="margin-left:8px">Contractuel</span>' : ''}
+                    <span class="badge" style="margin-left:6px">${esc(df.Statut || 'À valider')}</span>
+                  </div>
+                  <div style="text-align:right">
+                    <div><strong>${euros(montantHT)}</strong> <span class="muted" style="font-size:11px">HT</span></div>
+                    ${isContractuel ? `<div class="muted" style="font-size:12px">Rétro 5% : <strong>${euros(retroCom)}</strong></div>` : ''}
+                  </div>
+                </div>
+                ${df['Description travaux'] ? `<div class="muted" style="margin-top:4px;font-size:12px">${esc(String(df['Description travaux']).slice(0,150))}${df['Description travaux'].length > 150 ? '…' : ''}</div>` : ''}
+              </div>`;
+            }).join('')}</div>`}
+        </section>
+
+        <!-- Documents (attachments) -->
+        <section class="projet-section" aria-label="Documents" data-section="documents">
+          <div class="projet-section-header">
+            <h2>Documents</h2>
+          </div>
+          <div class="attachments-grid" style="grid-template-columns:repeat(2,1fr);gap:12px">
+            ${renderAttachmentsCard('Plan 3D', pf['Plan 3D'], projet.id)}
+            ${renderAttachmentsCard('Plan technique', pf['Plan technique'], projet.id)}
+            ${renderAttachmentsCard('Images', pf['Images'], projet.id)}
+            ${renderAttachmentsCard('Documents projet', pf['Documents projet'], projet.id)}
+          </div>
+          <p class="muted" style="margin-top:8px;font-size:11px">Drag & drop ou clic « + » · Limite Airtable 5 MB par fichier.</p>
+        </section>
+
       </div>
     </div>
-
-    <!-- Tâches -->
-    <div class="section-header">
-      <h2 class="section-title">Tâches (${taches.length})</h2>
-      <button class="btn btn-primary btn-sm" id="btn-new-tache">${icon('plus', 14)} Nouvelle tâche</button>
-    </div>
-    <div class="taches-list">
-      ${taches.length === 0
-        ? `<div class="card"><p class="muted">Pas de tâche pour ce projet.</p></div>`
-        : taches.map(t => renderTacheRow(t)).join('')}
-    </div>
-
-    <!-- Commandes -->
-    ${commandes.length > 0 ? `
-    <h2 class="section-title">Commandes fournisseurs (${commandes.length})</h2>
-    <div class="commandes-list">
-      ${commandes.map(c => {
-        const fIds = c.fields?.Fournisseur || [];
-        const fNoms = fIds.map(id => fournisseurs.find(f => f.id === id)?.fields?.Nom || id).join(', ');
-        const refCourte = c.fields?.['Référence courte'] || c.fields?.Type || '?';
-        return `
-        <a class="card commande-card commande-link" href="#commande/${encodeURIComponent(c.id)}">
-          <div class="commande-head">
-            <div><strong>${esc(c.fields?.['Numéro'] || '?')}</strong>
-              <span class="muted" style="margin-left:6px">${esc(refCourte)}</span>
-              ${fNoms ? ` · ${esc(fNoms)}` : ' · <em class="muted">fournisseur non rattaché</em>'}
-            </div>
-            <span class="badge">${esc(c.fields?.Statut || '—')}</span>
-          </div>
-          ${c.fields?.['Modèle choisi'] ? `<div class="muted" style="margin-top:6px;font-size:12px">${esc(c.fields['Modèle choisi'].split('\n')[0])}</div>` : ''}
-        </a>`;
-      }).join('')}
-    </div>
-    ` : ''}
-
-    <!-- Devis Tanguy (Sprint v3.2 — import PDF Winner + signature → rétro-planning) -->
-    <div class="section-header">
-      <h2 class="section-title">Devis Tanguy (${devis.length})</h2>
-      <button class="btn btn-primary btn-sm" id="btn-import-devis">${icon('plus', 14)} Importer devis Winner</button>
-    </div>
-    <div class="commandes-list">
-      ${devis.length === 0
-        ? `<div class="card"><p class="muted">Aucun devis. Importer un PDF Winner pour créer le devis et déclencher le workflow complet.</p></div>`
-        : devis.map(d => {
-          const f = d.fields || {};
-          const isSigned = f.Statut === 'Signé';
-          return `
-        <div class="card commande-card" data-devis-id="${esc(d.id)}">
-          <div class="commande-head">
-            <div><strong>${esc(f['Numéro devis'] || '?')}</strong>
-              <span class="badge">${esc(f['Type devis'] || 'Principal')}</span>
-              <span class="badge ${isSigned ? 'phase-signe' : ''}">${esc(f.Statut || '—')}</span>
-            </div>
-            <div><strong>${euros(f['Total TTC'])}</strong> TTC</div>
-          </div>
-          ${f['Date devis'] ? `<div class="muted">Daté du ${esc(f['Date devis'])}</div>` : ''}
-          ${!isSigned ? `
-            <div style="margin-top:10px;display:flex;gap:8px">
-              <button class="btn btn-primary btn-sm" data-action="sign-devis" data-id="${esc(d.id)}">${icon('check', 14)} Signer ce devis</button>
-              <span class="muted" style="font-size:12px;align-self:center">→ génère commandes + tâches + planning chantier</span>
-            </div>
-          ` : ''}
-        </div>`;
-      }).join('')}
-    </div>
-
-    <!-- Artisans affectés (Sprint v3.2) -->
-    <div class="section-header">
-      <h2 class="section-title">Artisans affectés (${artisans.length})</h2>
-      <button class="btn btn-primary btn-sm" id="btn-add-artisan">${icon('plus', 14)} Affecter un artisan</button>
-    </div>
-    <div class="commandes-list">
-      ${artisans.length === 0
-        ? `<div class="card"><p class="muted">Aucun artisan rattaché à ce projet.</p></div>`
-        : artisans.map(a => {
-          const af = a.fields || {};
-          return `
-        <div class="card commande-card" data-artisan-id="${esc(a.id)}">
-          <div class="commande-head">
-            <div><strong>${esc(af.Nom || '?')}</strong>
-              ${af.Spécialité ? `<span class="muted"> · ${esc(af.Spécialité)}</span>` : ''}
-              ${af.Contractuel ? '<span class="badge phase-signe" style="margin-left:8px">Contractuel (−5%)</span>' : '<span class="badge" style="margin-left:8px">Non contractuel</span>'}
-            </div>
-            <button class="btn btn-ghost btn-sm" data-action="remove-artisan" data-id="${esc(a.id)}" aria-label="Retirer">${icon('trash', 14)}</button>
-          </div>
-          ${af.Téléphone || af.Email ? `<div class="muted" style="margin-top:6px;font-size:12px">${esc(af.Téléphone || '')}${af.Téléphone && af.Email ? ' · ' : ''}${esc(af.Email || '')}</div>` : ''}
-        </div>`;
-      }).join('')}
-    </div>
-
-    <!-- Devis Artisans (Sprint v3.2 — import PDF + calcul auto rétro-commission 5%) -->
-    <div class="section-header">
-      <h2 class="section-title">Devis artisans (${devisArtisans.length})</h2>
-      <button class="btn btn-primary btn-sm" id="btn-import-devis-artisan">${icon('plus', 14)} Importer PDF devis artisan</button>
-    </div>
-    <div class="commandes-list">
-      ${devisArtisans.length === 0
-        ? `<div class="card"><p class="muted">Aucun devis artisan. Le calcul rétro 5% se fait auto sur les contractuels.</p></div>`
-        : devisArtisans.map(d => {
-          const df = d.fields || {};
-          const aId = (df.Artisan || [])[0];
-          // Lookup sur allArtisans (un devis peut référencer un artisan détaché du projet).
-          const a = aId ? allArtisans.find(x => x.id === aId) : null;
-          const aNom = a?.fields?.Nom || '?';
-          const isContractuel = a?.fields?.Contractuel;
-          const montantHT = df['Montant HT'] || 0;
-          const retroCom = df['Rétro-commission HT'] || (isContractuel ? montantHT * 0.05 : 0);
-          return `
-        <div class="card commande-card">
-          <div class="commande-head">
-            <div><strong>${esc(aNom)}</strong>
-              ${isContractuel ? '<span class="badge phase-signe" style="margin-left:8px">Contractuel</span>' : ''}
-              ${df['Numéro devis'] ? `<span class="muted" style="margin-left:8px">· ${esc(df['Numéro devis'])}</span>` : ''}
-              <span class="badge" style="margin-left:8px">${esc(df.Statut || 'À valider')}</span>
-            </div>
-            <div style="text-align:right">
-              <div><strong>${euros(montantHT)}</strong> HT</div>
-              ${isContractuel ? `<div class="muted" style="font-size:12px">Rétro 5 % : <strong>${euros(retroCom)}</strong></div>` : ''}
-            </div>
-          </div>
-          ${df['Description travaux'] ? `<div class="muted" style="margin-top:6px;font-size:12px;max-width:80ch">${esc(String(df['Description travaux']).slice(0,200))}${df['Description travaux'].length > 200 ? '…' : ''}</div>` : ''}
-        </div>`;
-      }).join('')}
-    </div>
-
-    <!-- Réunions Plaud R1/R2 (Sprint v3.2 — bouton "Nouvelle réunion" qui parse transcript) -->
-    <div class="section-header">
-      <h2 class="section-title">Réunions Plaud (${reunionsPlaud.length})</h2>
-      <button class="btn btn-primary btn-sm" id="btn-new-plaud">${icon('plus', 14)} Nouvelle réunion</button>
-    </div>
-    <div class="commandes-list">
-      ${reunionsPlaud.length === 0
-        ? `<div class="card"><p class="muted">Aucune réunion. Importer un transcript Plaud (R1 découverte ou R2 chantier) — les tâches sont créées automatiquement.</p></div>`
-        : reunionsPlaud.map(r => `
-        <div class="card">
-          <div class="commande-head">
-            <div><strong>${esc(r.fields?.Niveau || '?')}</strong> ${esc(r.fields?.['Type réunion'] || '')}
-              ${r.fields?.['Date heure'] ? `<span class="muted"> · ${esc(r.fields['Date heure'])}</span>` : ''}
-              ${r.fields?.Lieu ? `<span class="muted"> · ${esc(r.fields.Lieu)}</span>` : ''}
-            </div>
-          </div>
-          ${r.fields?.Synthèse ? `<details><summary>Synthèse</summary><p style="white-space:pre-line;margin-top:8px">${esc(r.fields.Synthèse)}</p></details>` : ''}
-          ${r.fields?.Attentes ? `<details><summary>Attentes</summary><p style="white-space:pre-line;margin-top:8px">${esc(r.fields.Attentes)}</p></details>` : ''}
-          ${r.fields?.['Tâches identifiées'] ? `<details><summary>Tâches identifiées</summary><p style="white-space:pre-line;margin-top:8px">${esc(r.fields['Tâches identifiées'])}</p></details>` : ''}
-        </div>
-      `).join('')}
-    </div>
-
-    <!-- Journal chantier -->
-    <div class="section-header">
-      <h2 class="section-title">Journal chantier</h2>
-      <button class="btn btn-ghost btn-sm" id="btn-add-journal">${icon('plus', 14)} Ajouter entrée</button>
-    </div>
-    <div class="card">
-      ${pf['Journal chantier']
-        ? `<pre class="journal" style="white-space:pre-wrap;font-family:'DM Mono',monospace;font-size:12px">${esc(pf['Journal chantier'])}</pre>`
-        : `<p class="muted">Pas encore d'entrée. Cliquez sur « Ajouter entrée » pour démarrer.</p>`}
-    </div>
-
-    <!-- Attachments -->
-    <h2 class="section-title">Documents</h2>
-    <div class="attachments-grid">
-      ${renderAttachmentsCard('Plan 3D', pf['Plan 3D'], projet.id)}
-      ${renderAttachmentsCard('Plan technique', pf['Plan technique'], projet.id)}
-      ${renderAttachmentsCard('Images', pf['Images'], projet.id)}
-      ${renderAttachmentsCard('Documents projet', pf['Documents projet'], projet.id)}
-    </div>
-    <p class="muted" style="margin-top:8px;font-size:12px">Drag & drop ou clic « + » sur chaque zone. Limite Airtable : 5 MB par fichier.</p>
   `;
+
+  // Stocke les actions pour les bindings post-render
+  app._nextActions = nextActions;
 
   hydrateIcons(app);
   bindAttachmentCards(app, projet.id);
@@ -343,6 +474,33 @@ function renderFiche(app, data) {
   document.getElementById('btn-add-artisan')?.addEventListener('click', () => openModalAddArtisan(projet, artisans));
   document.getElementById('btn-import-devis-artisan')?.addEventListener('click', () => openModalImportDevisArtisan(projet, artisans));
   document.getElementById('btn-new-plaud')?.addEventListener('click', () => openModalPlaud(projet, client));
+
+  // Sprint v3.3 — bandeau next-actions : router les clics vers le bon handler
+  app.querySelectorAll('[data-next-action-idx]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      const idx = parseInt(btn.dataset.nextActionIdx, 10);
+      const a = app._nextActions?.[idx];
+      if (!a) return;
+      if (a.scrollTo) {
+        document.querySelector(a.scrollTo)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (a.action) {
+        document.getElementById(a.action)?.click();
+      } else if (a.navigateTo) {
+        location.hash = '#' + a.navigateTo;
+      }
+    });
+  });
+
+  // Sprint v3.3 — shadow sur sticky header au scroll
+  const stickyHeader = document.getElementById('projet-sticky-header');
+  if (stickyHeader && window.matchMedia('(min-width: 1024px)').matches) {
+    const onScroll = () => {
+      stickyHeader.classList.toggle('is-scrolled', window.scrollY > 8);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+  }
 
   // Signature devis (bouton sur chaque card devis non signé)
   app.querySelectorAll('[data-action="sign-devis"]').forEach(btn => {
