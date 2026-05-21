@@ -114,3 +114,67 @@ export async function deleteAttachment(projetId, field, attachmentId) {
     body: JSON.stringify({ field, attachmentId }),
   });
 }
+
+// ============================================================================
+// Sprint v3.2 — Wrappers feature parity v1 (artisans, devis Tanguy, devis artisan, Plaud)
+// ============================================================================
+
+// Liste des artisans (utilisée par les modales d'affectation).
+export async function fetchArtisans() {
+  const d = await api('/api/data/artisans');
+  return (d.records || []).map(r => ({ id: r.id, ...r.fields }));
+}
+
+// Affecter un (ou plusieurs) artisans à un projet — PATCH avec union des IDs existants.
+export async function setProjetArtisans(projetId, artisanIds) {
+  return patchProjet(projetId, { 'Artisans': artisanIds });
+}
+
+// Upload + parse PDF devis client Winner (Principal ou Additif).
+// Le backend gère le parsing Claude + création devis + zones + lignes + échéances.
+// withKeepAlive côté serveur pour éviter le 524 Cloudflare (parse Claude 60-120s).
+export async function importDevisClient({ file, projetId = null, clientId = null, type = 'Principal' }) {
+  const fd = new FormData();
+  fd.append('pdf', file);
+  if (projetId) fd.append('projetId', projetId);
+  if (clientId) fd.append('clientId', clientId);
+  fd.append('type', type);
+  const r = await fetch('/api/devis/import', { method: 'POST', credentials: 'same-origin', body: fd });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e.error || r.statusText);
+  }
+  return r.json();
+}
+
+// Signature d'un devis Tanguy → backend crée les commandes fournisseurs avec rétro-planning
+// (date envoi = date pose - 105 jours), génère 4 tâches (acompte, BC, notif artisans, planning J+60),
+// passe le devis à Signé + projet à Commandes.
+export async function signDevisTanguy(devisId) {
+  return api(`/api/devis/${devisId}/sign`, { method: 'POST', body: JSON.stringify({}) });
+}
+
+// Upload + parse PDF devis artisan → calcul auto rétro-commission 5% côté backend,
+// crée le record dans devis-artisans, attache le PDF, ajoute auto l'artisan au projet.
+export async function importDevisArtisan({ file, projetId, artisanId = null }) {
+  const fd = new FormData();
+  fd.append('pdf', file);
+  if (projetId) fd.append('projetId', projetId);
+  if (artisanId) fd.append('artisanId', artisanId);
+  const r = await fetch('/api/artisan-devis/import', { method: 'POST', credentials: 'same-origin', body: fd });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e.error || r.statusText);
+  }
+  return r.json();
+}
+
+// Parse Plaud R1/R2 → création réunion + tâches auto depuis prochaines_actions[].
+// niveau: 'R1' (découverte) ou 'R2' (chantier). type_reunion: 'Découverte', 'Présentation devis',
+// 'Suivi chantier', 'SAV'.
+export async function parsePlaud({ transcript, projetId = null, clientId = null, type_reunion = 'Découverte', niveau = null }) {
+  return api('/api/plaud/parse', {
+    method: 'POST',
+    body: JSON.stringify({ transcript, projetId, clientId, type_reunion, niveau }),
+  });
+}

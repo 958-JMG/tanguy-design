@@ -6,7 +6,10 @@ import { navigateTo, router } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
 import {
   fetchProjetDetail, patchProjet, patchTache, createTache, deleteTache,
-  appendJournalEntry, uploadAttachment, deleteAttachment
+  appendJournalEntry, uploadAttachment, deleteAttachment,
+  fetchArtisans, setProjetArtisans,
+  importDevisClient, signDevisTanguy,
+  importDevisArtisan, parsePlaud,
 } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 
@@ -184,54 +187,109 @@ function renderFiche(app, data) {
     </div>
     ` : ''}
 
-    <!-- Devis Tanguy -->
-    ${devis.length > 0 ? `
-    <h2 class="section-title">Devis Tanguy (${devis.length})</h2>
-    <div class="commandes-list">
-      ${devis.map(d => `
-        <div class="card commande-card">
-          <div class="commande-head">
-            <div><strong>${esc(d.fields?.['Numéro devis'] || '?')}</strong>
-              <span class="badge">${esc(d.fields?.['Type devis'] || 'Principal')}</span>
-              <span class="badge">${esc(d.fields?.Statut || '—')}</span>
-            </div>
-            <div><strong>${euros(d.fields?.['Total TTC'])}</strong> TTC</div>
-          </div>
-          ${d.fields?.['Date devis'] ? `<div class="muted">Daté du ${esc(d.fields['Date devis'])}</div>` : ''}
-        </div>
-      `).join('')}
+    <!-- Devis Tanguy (Sprint v3.2 — import PDF Winner + signature → rétro-planning) -->
+    <div class="section-header">
+      <h2 class="section-title">Devis Tanguy (${devis.length})</h2>
+      <button class="btn btn-primary btn-sm" id="btn-import-devis">${icon('plus', 14)} Importer devis Winner</button>
     </div>
-    ` : ''}
-
-    <!-- Devis Artisans -->
-    ${devisArtisans.length > 0 ? `
-    <h2 class="section-title">Devis artisans (${devisArtisans.length})</h2>
     <div class="commandes-list">
-      ${devisArtisans.map(d => {
-        const aId = (d.fields?.Artisan || [])[0];
-        const a = aId ? artisans.find(x => x.id === aId) : null;
-        const aNom = a?.fields?.Nom || '?';
-        const contractuel = a?.fields?.Contractuel ? ' · contractuel (− 5 %)' : '';
-        return `
-        <div class="card commande-card">
+      ${devis.length === 0
+        ? `<div class="card"><p class="muted">Aucun devis. Importer un PDF Winner pour créer le devis et déclencher le workflow complet.</p></div>`
+        : devis.map(d => {
+          const f = d.fields || {};
+          const isSigned = f.Statut === 'Signé';
+          return `
+        <div class="card commande-card" data-devis-id="${esc(d.id)}">
           <div class="commande-head">
-            <div><strong>${esc(aNom)}</strong><span class="muted">${esc(contractuel)}</span></div>
-            <div><strong>${euros(d.fields?.['Montant HT'])}</strong> HT</div>
+            <div><strong>${esc(f['Numéro devis'] || '?')}</strong>
+              <span class="badge">${esc(f['Type devis'] || 'Principal')}</span>
+              <span class="badge ${isSigned ? 'phase-signe' : ''}">${esc(f.Statut || '—')}</span>
+            </div>
+            <div><strong>${euros(f['Total TTC'])}</strong> TTC</div>
           </div>
+          ${f['Date devis'] ? `<div class="muted">Daté du ${esc(f['Date devis'])}</div>` : ''}
+          ${!isSigned ? `
+            <div style="margin-top:10px;display:flex;gap:8px">
+              <button class="btn btn-primary btn-sm" data-action="sign-devis" data-id="${esc(d.id)}">${icon('check', 14)} Signer ce devis</button>
+              <span class="muted" style="font-size:12px;align-self:center">→ génère commandes + tâches + planning chantier</span>
+            </div>
+          ` : ''}
         </div>`;
       }).join('')}
     </div>
-    ` : ''}
 
-    <!-- Réunions Plaud R1/R2 -->
-    ${reunionsPlaud.length > 0 ? `
-    <h2 class="section-title">Réunions Plaud (${reunionsPlaud.length})</h2>
+    <!-- Artisans affectés (Sprint v3.2) -->
+    <div class="section-header">
+      <h2 class="section-title">Artisans affectés (${artisans.length})</h2>
+      <button class="btn btn-primary btn-sm" id="btn-add-artisan">${icon('plus', 14)} Affecter un artisan</button>
+    </div>
     <div class="commandes-list">
-      ${reunionsPlaud.map(r => `
+      ${artisans.length === 0
+        ? `<div class="card"><p class="muted">Aucun artisan rattaché à ce projet.</p></div>`
+        : artisans.map(a => {
+          const af = a.fields || {};
+          return `
+        <div class="card commande-card" data-artisan-id="${esc(a.id)}">
+          <div class="commande-head">
+            <div><strong>${esc(af.Nom || '?')}</strong>
+              ${af.Spécialité ? `<span class="muted"> · ${esc(af.Spécialité)}</span>` : ''}
+              ${af.Contractuel ? '<span class="badge phase-signe" style="margin-left:8px">Contractuel (−5%)</span>' : '<span class="badge" style="margin-left:8px">Non contractuel</span>'}
+            </div>
+            <button class="btn btn-ghost btn-sm" data-action="remove-artisan" data-id="${esc(a.id)}" aria-label="Retirer">${icon('trash', 14)}</button>
+          </div>
+          ${af.Téléphone || af.Email ? `<div class="muted" style="margin-top:6px;font-size:12px">${esc(af.Téléphone || '')}${af.Téléphone && af.Email ? ' · ' : ''}${esc(af.Email || '')}</div>` : ''}
+        </div>`;
+      }).join('')}
+    </div>
+
+    <!-- Devis Artisans (Sprint v3.2 — import PDF + calcul auto rétro-commission 5%) -->
+    <div class="section-header">
+      <h2 class="section-title">Devis artisans (${devisArtisans.length})</h2>
+      <button class="btn btn-primary btn-sm" id="btn-import-devis-artisan">${icon('plus', 14)} Importer PDF devis artisan</button>
+    </div>
+    <div class="commandes-list">
+      ${devisArtisans.length === 0
+        ? `<div class="card"><p class="muted">Aucun devis artisan. Le calcul rétro 5% se fait auto sur les contractuels.</p></div>`
+        : devisArtisans.map(d => {
+          const df = d.fields || {};
+          const aId = (df.Artisan || [])[0];
+          const a = aId ? artisans.find(x => x.id === aId) : null;
+          const aNom = a?.fields?.Nom || '?';
+          const isContractuel = a?.fields?.Contractuel;
+          const montantHT = df['Montant HT'] || 0;
+          const retroCom = df['Rétro-commission HT'] || (isContractuel ? montantHT * 0.05 : 0);
+          return `
+        <div class="card commande-card">
+          <div class="commande-head">
+            <div><strong>${esc(aNom)}</strong>
+              ${isContractuel ? '<span class="badge phase-signe" style="margin-left:8px">Contractuel</span>' : ''}
+              ${df['Numéro devis'] ? `<span class="muted" style="margin-left:8px">· ${esc(df['Numéro devis'])}</span>` : ''}
+              <span class="badge" style="margin-left:8px">${esc(df.Statut || 'À valider')}</span>
+            </div>
+            <div style="text-align:right">
+              <div><strong>${euros(montantHT)}</strong> HT</div>
+              ${isContractuel ? `<div class="muted" style="font-size:12px">Rétro 5 % : <strong>${euros(retroCom)}</strong></div>` : ''}
+            </div>
+          </div>
+          ${df['Description travaux'] ? `<div class="muted" style="margin-top:6px;font-size:12px;max-width:80ch">${esc(String(df['Description travaux']).slice(0,200))}${df['Description travaux'].length > 200 ? '…' : ''}</div>` : ''}
+        </div>`;
+      }).join('')}
+    </div>
+
+    <!-- Réunions Plaud R1/R2 (Sprint v3.2 — bouton "Nouvelle réunion" qui parse transcript) -->
+    <div class="section-header">
+      <h2 class="section-title">Réunions Plaud (${reunionsPlaud.length})</h2>
+      <button class="btn btn-primary btn-sm" id="btn-new-plaud">${icon('plus', 14)} Nouvelle réunion</button>
+    </div>
+    <div class="commandes-list">
+      ${reunionsPlaud.length === 0
+        ? `<div class="card"><p class="muted">Aucune réunion. Importer un transcript Plaud (R1 découverte ou R2 chantier) — les tâches sont créées automatiquement.</p></div>`
+        : reunionsPlaud.map(r => `
         <div class="card">
           <div class="commande-head">
             <div><strong>${esc(r.fields?.Niveau || '?')}</strong> ${esc(r.fields?.['Type réunion'] || '')}
-              ${r.fields?.['Date heure'] ? `<span class="muted">${esc(r.fields['Date heure'])}</span>` : ''}
+              ${r.fields?.['Date heure'] ? `<span class="muted"> · ${esc(r.fields['Date heure'])}</span>` : ''}
+              ${r.fields?.Lieu ? `<span class="muted"> · ${esc(r.fields.Lieu)}</span>` : ''}
             </div>
           </div>
           ${r.fields?.Synthèse ? `<details><summary>Synthèse</summary><p style="white-space:pre-line;margin-top:8px">${esc(r.fields.Synthèse)}</p></details>` : ''}
@@ -240,7 +298,6 @@ function renderFiche(app, data) {
         </div>
       `).join('')}
     </div>
-    ` : ''}
 
     <!-- Journal chantier -->
     <div class="section-header">
@@ -273,6 +330,58 @@ function renderFiche(app, data) {
   document.getElementById('btn-unarchive')?.addEventListener('click', () => archiveProjet(projet, ''));
   document.getElementById('btn-new-tache')?.addEventListener('click', () => openModalTache(null, projet, client));
   document.getElementById('btn-add-journal')?.addEventListener('click', () => openModalJournal(projet));
+
+  // Sprint v3.2 — actions nouvelles
+  document.getElementById('btn-import-devis')?.addEventListener('click', () => openModalImportDevis(projet, devis));
+  document.getElementById('btn-add-artisan')?.addEventListener('click', () => openModalAddArtisan(projet, artisans));
+  document.getElementById('btn-import-devis-artisan')?.addEventListener('click', () => openModalImportDevisArtisan(projet, artisans));
+  document.getElementById('btn-new-plaud')?.addEventListener('click', () => openModalPlaud(projet, client));
+
+  // Signature devis (bouton sur chaque card devis non signé)
+  app.querySelectorAll('[data-action="sign-devis"]').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.preventDefault();
+      const devisId = btn.dataset.id;
+      const d = devis.find(x => x.id === devisId);
+      const num = d?.fields?.['Numéro devis'] || devisId;
+      const ok = await confirmModal(
+        `Signer le devis ${num} ?\nCela va : créer les commandes fournisseurs avec rétro-planning, générer les tâches de suivi (acompte, BC, notif artisans, planning chantier J+60), passer le devis à « Signé » et le projet à « Commandes ».`,
+        { okLabel: 'Signer', danger: false }
+      );
+      if (!ok) return;
+      btn.disabled = true;
+      btn.innerHTML = 'Signature en cours…';
+      try {
+        const result = await signDevisTanguy(devisId);
+        toast(`Devis signé · ${result.commandes_creees} commande(s) · ${result.taches_creees} tâche(s)`, 'success', 5000);
+        router();
+      } catch (err) {
+        toast('Erreur signature : ' + err.message, 'error', 5000);
+        btn.disabled = false;
+        btn.innerHTML = '<span>Signer ce devis</span>';
+      }
+    });
+  });
+
+  // Retrait artisan (croix sur chaque artisan affecté)
+  app.querySelectorAll('[data-action="remove-artisan"]').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.preventDefault();
+      const artisanId = btn.dataset.id;
+      const a = artisans.find(x => x.id === artisanId);
+      const nom = a?.fields?.Nom || '?';
+      const ok = await confirmModal(`Retirer ${nom} de ce projet ?`, { okLabel: 'Retirer', danger: true });
+      if (!ok) return;
+      try {
+        const remaining = artisans.filter(x => x.id !== artisanId).map(x => x.id);
+        await setProjetArtisans(projet.id, remaining);
+        toast(`${nom} retiré`, 'success');
+        router();
+      } catch (err) {
+        toast('Erreur retrait : ' + err.message, 'error', 5000);
+      }
+    });
+  });
 
   // Tâches : checkbox + click row → édition
   document.querySelectorAll('[data-tache-id]').forEach(row => {
@@ -558,4 +667,238 @@ async function archiveProjet(projet, newChantier) {
   } catch (e) {
     toast(`Erreur ${label} : ${e.message}`, 'error', 5000);
   }
+}
+
+// =============================================================================
+// Sprint v3.2 — 4 modales feature parity v1 (devis client, artisan, devis artisan, plaud)
+// =============================================================================
+
+// Import devis client Winner (PDF) — Principal ou Additif.
+// Le parsing Claude prend 60-120s côté backend (withKeepAlive).
+function openModalImportDevis(projet, devisExistants) {
+  const hasPrincipal = devisExistants.some(d => (d.fields?.['Type devis'] || 'Principal') === 'Principal');
+  const typeParDefaut = hasPrincipal ? 'Additif' : 'Principal';
+  const { modal, close } = modalShell('Importer devis Winner', `
+    <form id="form-import-devis">
+      <p class="muted" style="margin-top:0">PDF Winner. Le devis (header + zones + lignes + échéances) sera créé et lié à ce projet.</p>
+      <label>Type de devis
+        <select name="type">
+          <option value="Principal" ${typeParDefaut === 'Principal' ? 'selected' : ''}>Principal (premier devis)</option>
+          <option value="Additif" ${typeParDefaut === 'Additif' ? 'selected' : ''}>Additif (augmentation de scope)</option>
+        </select>
+      </label>
+      <label>Fichier PDF
+        <input type="file" name="pdf" accept="application/pdf" required>
+      </label>
+      <p class="muted" style="font-size:12px">Le parsing Claude peut prendre 1 à 2 minutes — ne ferme pas la modale.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancel">Annuler</button>
+        <button type="submit" class="btn btn-primary" id="submit-btn">Importer</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('cancel').onclick = close;
+  document.getElementById('form-import-devis').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const file = fd.get('pdf');
+    const type = fd.get('type');
+    if (!file || file.size === 0) return;
+    const btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.innerHTML = 'Parsing PDF (1-2 min)…';
+    try {
+      const result = await importDevisClient({ file, projetId: projet.id, type });
+      toast(`Devis ${type} importé · ${result.lignes_count || 0} lignes`, 'success', 5000);
+      close();
+      router();
+    } catch (err) {
+      toast('Erreur import : ' + err.message, 'error', 7000);
+      btn.disabled = false;
+      btn.innerHTML = 'Importer';
+    }
+  });
+}
+
+// Affecter un artisan : sélection depuis liste complète (hors déjà affectés).
+async function openModalAddArtisan(projet, artisansCourants) {
+  const { modal, close } = modalShell('Affecter un artisan', `
+    <form id="form-add-artisan">
+      <p class="muted" style="margin-top:0">Choisis l'artisan à rattacher au projet. Une fois rattaché, il pourra envoyer son devis (rétro 5% auto sur les contractuels).</p>
+      <div id="artisans-list" style="max-height:300px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;padding:8px">
+        <p class="muted">Chargement…</p>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancel">Annuler</button>
+        <button type="submit" class="btn btn-primary" id="submit-btn" disabled>Affecter</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('cancel').onclick = close;
+
+  // Charge la liste des artisans
+  let selectedId = null;
+  try {
+    const allArtisans = await fetchArtisans();
+    const dejaAffecteIds = new Set(artisansCourants.map(a => a.id));
+    const disponibles = allArtisans.filter(a => !dejaAffecteIds.has(a.id));
+    const list = document.getElementById('artisans-list');
+    if (disponibles.length === 0) {
+      list.innerHTML = '<p class="muted">Tous les artisans sont déjà affectés à ce projet.</p>';
+      return;
+    }
+    list.innerHTML = disponibles.map(a => `
+      <label style="display:flex;align-items:center;gap:8px;padding:8px;cursor:pointer;border-radius:4px" class="artisan-item">
+        <input type="radio" name="artisan" value="${esc(a.id)}">
+        <div style="flex:1">
+          <strong>${esc(a.Nom || '?')}</strong>
+          ${a.Spécialité ? `<span class="muted"> · ${esc(a.Spécialité)}</span>` : ''}
+          ${a.Contractuel ? '<span class="badge phase-signe" style="margin-left:8px;font-size:10px">Contractuel</span>' : ''}
+        </div>
+      </label>
+    `).join('');
+    list.querySelectorAll('input[name="artisan"]').forEach(r => {
+      r.addEventListener('change', () => {
+        selectedId = r.value;
+        document.getElementById('submit-btn').disabled = false;
+      });
+    });
+  } catch (err) {
+    document.getElementById('artisans-list').innerHTML = `<p class="muted">Erreur chargement : ${esc(err.message)}</p>`;
+    return;
+  }
+
+  document.getElementById('form-add-artisan').addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!selectedId) return;
+    try {
+      const newIds = [...artisansCourants.map(a => a.id), selectedId];
+      await setProjetArtisans(projet.id, newIds);
+      toast('Artisan affecté', 'success');
+      close();
+      router();
+    } catch (err) {
+      toast('Erreur : ' + err.message, 'error', 5000);
+    }
+  });
+}
+
+// Import devis artisan PDF (calcul auto rétro 5% côté backend + auto-affectation au projet).
+function openModalImportDevisArtisan(projet, artisansCourants) {
+  const optionsArtisans = artisansCourants.map(a =>
+    `<option value="${esc(a.id)}">${esc(a.fields?.Nom || '?')}${a.fields?.Contractuel ? ' (contractuel)' : ''}</option>`
+  ).join('');
+  const { modal, close } = modalShell('Importer devis artisan', `
+    <form id="form-import-devis-artisan">
+      <p class="muted" style="margin-top:0">PDF du devis artisan. Le montant HT, la rétro-commission 5% et le statut sont remplis automatiquement.</p>
+      <label>Artisan (optionnel — sinon match auto par nom d'entreprise)
+        <select name="artisanId">
+          <option value="">— Auto-match —</option>
+          ${optionsArtisans}
+        </select>
+      </label>
+      <label>Fichier PDF
+        <input type="file" name="pdf" accept="application/pdf" required>
+      </label>
+      <p class="muted" style="font-size:12px">Parsing Claude 1-2 min.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancel">Annuler</button>
+        <button type="submit" class="btn btn-primary" id="submit-btn">Importer</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('cancel').onclick = close;
+  document.getElementById('form-import-devis-artisan').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const file = fd.get('pdf');
+    const artisanId = fd.get('artisanId') || null;
+    if (!file || file.size === 0) return;
+    const btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.innerHTML = 'Parsing PDF (1-2 min)…';
+    try {
+      const result = await importDevisArtisan({ file, projetId: projet.id, artisanId });
+      const retro = result.parsed_summary?.retrocommission || 0;
+      toast(`Devis artisan importé · Rétro 5% : ${retro} €`, 'success', 5000);
+      close();
+      router();
+    } catch (err) {
+      toast('Erreur import : ' + err.message, 'error', 7000);
+      btn.disabled = false;
+      btn.innerHTML = 'Importer';
+    }
+  });
+}
+
+// Nouvelle réunion Plaud R1/R2 — paste transcript ou upload .txt.
+// Le backend parse via Claude, structure synthese/contexte/attentes/etc, crée la réunion,
+// et crée auto les tâches depuis prochaines_actions[].
+function openModalPlaud(projet, client) {
+  const { modal, close } = modalShell('Nouvelle réunion Plaud', `
+    <form id="form-plaud">
+      <p class="muted" style="margin-top:0">Colle le transcript Plaud ou charge un .txt. Le parsing structure la fiche projet et crée les tâches automatiquement.</p>
+      <label>Niveau / Type
+        <select name="niveau_type">
+          <option value="R1|Découverte">R1 — Découverte (avant signature)</option>
+          <option value="R1|Présentation devis">R1 — Présentation devis</option>
+          <option value="R2|Suivi chantier">R2 — Suivi chantier</option>
+          <option value="R2|SAV">R2 — SAV</option>
+        </select>
+      </label>
+      <label>Fichier .txt (optionnel — sinon coller le texte ci-dessous)
+        <input type="file" name="txt" accept=".txt,text/plain">
+      </label>
+      <label>Transcript (texte brut)
+        <textarea name="transcript" rows="10" placeholder="Coller ici le transcript Plaud…" style="font-family:'DM Mono',monospace;font-size:12px"></textarea>
+      </label>
+      <p class="muted" style="font-size:12px">Parsing Claude 30-60s. Les tâches identifiées seront créées sur ce projet.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancel">Annuler</button>
+        <button type="submit" class="btn btn-primary" id="submit-btn">Importer & parser</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('cancel').onclick = close;
+
+  // Auto-lecture du .txt dans le textarea
+  const fileInput = modal.querySelector('input[name="txt"]');
+  const textarea = modal.querySelector('textarea[name="transcript"]');
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files?.[0];
+    if (!f) return;
+    if (f.size > 1024 * 1024) {
+      toast('Fichier trop volumineux (> 1 MB)', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = e => { textarea.value = e.target.result; };
+    reader.readAsText(f, 'UTF-8');
+  });
+
+  document.getElementById('form-plaud').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const transcript = (fd.get('transcript') || '').trim();
+    if (!transcript) {
+      toast('Transcript vide', 'error');
+      return;
+    }
+    const [niveau, type_reunion] = (fd.get('niveau_type') || 'R1|Découverte').split('|');
+    const btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.innerHTML = 'Parsing (30-60s)…';
+    try {
+      const clientId = client?.id || null;
+      const result = await parsePlaud({ transcript, projetId: projet.id, clientId, niveau, type_reunion });
+      const nTaches = result.tachesCreees?.length || 0;
+      toast(`Réunion ${niveau} créée · ${nTaches} tâche(s) auto`, 'success', 5000);
+      close();
+      router();
+    } catch (err) {
+      toast('Erreur parsing : ' + err.message, 'error', 7000);
+      btn.disabled = false;
+      btn.innerHTML = 'Importer & parser';
+    }
+  });
 }

@@ -1140,15 +1140,21 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
 
     if (dv.Statut === 'Signé') return res.status(400).json({ error: 'Déjà signé' });
 
-    // 1bis. Récup nom client (via projet → client) pour préfixer les numéros de commande.
-    // Convention : `<NOMCLIENT> · <TYPE> · <num devis>-<idx>` — scan visuel rapide à 100+ commandes.
+    // 1bis. Récup nom client + date pose + artisans contractuels via projet
+    // Convention numéro commande : `<NOMCLIENT> · <TYPE> · <num devis>-<idx>` — scan visuel rapide.
+    // Date pose : sert au rétro-planning des commandes (date envoi = date pose - 105 jours / 3,5 mois).
+    // Artisans contractuels : pour la tâche "Notifier artisans — devis signé".
     let clientNom = '';
+    let datePose = null;
+    let artisansContractuelsNoms = [];
     if (projetId) {
       try {
         const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`, { headers: { Authorization: `Bearer ${AT_KEY}` } });
         if (pr.ok) {
           const pjson = await pr.json();
-          const clientIds = Array.isArray(pjson.fields?.Client) ? pjson.fields.Client : [];
+          const pfields = pjson.fields || {};
+          datePose = pfields['Date pose prévue'] || null;
+          const clientIds = Array.isArray(pfields.Client) ? pfields.Client : [];
           if (clientIds.length) {
             const cr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.clients.id}/${clientIds[0]}`, { headers: { Authorization: `Bearer ${AT_KEY}` } });
             if (cr.ok) {
@@ -1156,8 +1162,28 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
               clientNom = (cjson.fields?.Nom || '').toUpperCase().trim();
             }
           }
+          // Récup artisans contractuels du projet (pour la tâche de notif post-signature)
+          const artisanIds = Array.isArray(pfields.Artisans) ? pfields.Artisans : [];
+          if (artisanIds.length) {
+            try {
+              const artisans = await atFetchByIds(TABLES.artisans.id, artisanIds);
+              artisansContractuelsNoms = artisans
+                .filter(a => a.fields?.Contractuel === true)
+                .map(a => a.fields?.Nom || '?');
+            } catch(e) { /* non bloquant */ }
+          }
         }
       } catch(e) { /* fallback silencieux : pas de nom client → format legacy */ }
+    }
+    // Rétro-planning : date envoi prévue commandes = date pose - 105 jours (3,5 mois).
+    // Si la date calculée est dans le passé, on fallback à today (le BC sort tout de suite).
+    let dateEnvoiCommande = null;
+    if (datePose) {
+      const d = new Date(datePose + 'T00:00:00Z');
+      d.setUTCDate(d.getUTCDate() - 105);
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const calculated = d.toISOString().slice(0, 10);
+      dateEnvoiCommande = calculated < todayIso ? todayIso : calculated;
     }
 
     // 2. Récup les lignes du devis (par IDs liés depuis le devis, évite le scan complet de la table)
@@ -1249,6 +1275,9 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
         'Référence courte': TYPE_TO_REFERENCE_COURTE[type] || type.toUpperCase(),
         // Modèle choisi + détails uniquement pour les commandes Meubles (utile sur le BC)
         ...(type === 'Meubles' ? { 'Modèle choisi': modeleHeader, 'Détails modèle': detailsModele } : {}),
+        // Rétro-planning : date envoi = date pose - 3,5 mois (cf. demande JMG 2026-05-21).
+        // Si pas de date pose connue, le champ reste vide et Virginie le remplira manuellement.
+        ...(dateEnvoiCommande ? { 'Date envoi': dateEnvoiCommande } : {}),
         'Lignes BC': JSON.stringify(lignesStructured, null, 2),
       };
       if (projetId) cf['Projet'] = [projetId];
@@ -1259,13 +1288,22 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       idx++;
     }
 
-    // 5. Création des tâches de suivi
+    // 5. Création des tâches de suivi (Sprint v3.2 — workflow signature complet)
     const today = new Date().toISOString().slice(0,10);
     const plus7 = new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+    const plus60 = new Date(Date.now()+60*86400000).toISOString().slice(0,10);
+    const dateEnvoiTxt = dateEnvoiCommande ? ` (date envoi prévue : ${dateEnvoiCommande})` : '';
+    const artisansNoms = artisansContractuelsNoms.length
+      ? artisansContractuelsNoms.join(', ')
+      : 'aucun artisan contractuel rattaché — vérifier la fiche projet';
     const tachesFields = [
       { 'Titre': `Envoyer facture acompte — ${numero}`, 'Assignée à': 'Virginie', 'Priorité': 'Haute', 'Statut': 'À faire', 'Échéance': today, 'Description': `BC signé ${numero}. Générer et envoyer facture acompte (30%) au client.` },
-      { 'Titre': `Envoyer commandes fournisseurs — ${numero}`, 'Assignée à': 'Virginie', 'Priorité': 'Haute', 'Statut': 'À faire', 'Échéance': plus7, 'Description': `${commandesCreees.length} commande(s) à envoyer : ${commandesCreees.map(c=>c.type).join(', ')}.` },
-      { 'Titre': `Planifier pose — ${numero}`, 'Assignée à': 'Sébastien', 'Priorité': 'Moyenne', 'Statut': 'À faire', 'Description': `Définir la date de pose et affecter l'équipe pour le BC ${numero}.` }
+      { 'Titre': `Envoyer commandes fournisseurs — ${numero}`, 'Assignée à': 'Virginie', 'Priorité': 'Haute', 'Statut': 'À faire', 'Échéance': plus7, 'Description': `${commandesCreees.length} commande(s) à envoyer${dateEnvoiTxt} : ${commandesCreees.map(c=>c.type).join(', ')}.` },
+      // Workflow JMG 2026-05-21 : à signature, notifier les artisans contractuels que leur devis est OK
+      // et qu'ils peuvent émettre leurs factures, en annonçant le rappel planning à 2 mois.
+      { 'Titre': `Notifier artisans contractuels — devis ${numero} signé`, 'Assignée à': 'Virginie', 'Priorité': 'Haute', 'Statut': 'À faire', 'Échéance': today, 'Description': `Devis client ${numero} signé. Prévenir ${artisansNoms} : devis artisan OK → peuvent envoyer leurs factures. Annoncer que nous reviendrons dans 2 mois pour la planification chantier exacte.` },
+      // Rappel planification chantier auto à J+60 — workflow découverte → signature → ... → planning à 2 mois.
+      { 'Titre': `Planifier chantier — devis ${numero}`, 'Assignée à': 'Sébastien', 'Priorité': 'Moyenne', 'Statut': 'À faire', 'Échéance': plus60, 'Description': `Définir le planning exact du chantier (équipe + dates intervention) pour le BC ${numero}. Recontacter les artisans contractuels pour caler leurs créneaux.` },
     ];
     if (projetId) tachesFields.forEach(t => t['Projet'] = [projetId]);
     await atCreateBatch(TABLES.taches.id, tachesFields);
