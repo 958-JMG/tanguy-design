@@ -867,8 +867,9 @@ function renderFacturationSection(echeances, taches, devis) {
       </section>`;
   }
 
+  // Montant prévu est en HT (champ "Montant prévu" type currency). On calcule les
+  // pourcentages relatifs au total des échéances pour qu'ils somment à 100%.
   const totalPrevu = ordered.reduce((s, e) => s + (e.fields?.['Montant prévu'] || 0), 0);
-  const baseTotalHT = caHT || totalPrevu / 1.2; // fallback si pas de Total HT explicite
 
   return `
     <section class="facturation-card-block" aria-label="Facturation client" data-section="facturation">
@@ -884,9 +885,8 @@ function renderFacturationSection(echeances, taches, devis) {
             const d = t.fields?.Description || '';
             return d.includes(`[echeance:${e.id}]`) && t.fields?.Statut !== 'Terminée';
           });
-          const montantPrevu = ef['Montant prévu'] || 0;
-          const montantHt = montantPrevu / 1.2; // approx HT depuis TTC (TVA 20%)
-          const pct = baseTotalHT > 0 ? Math.round((montantHt / baseTotalHT) * 100) : null;
+          const montantHt = ef['Montant prévu'] || 0;
+          const pct = totalPrevu > 0 ? Math.round((montantHt / totalPrevu) * 100) : null;
           const stateCls = isEncaisse ? 'is-encaisse' : (tacheEnCours ? 'is-tache' : 'is-pending');
           return `
             <div class="facturation-item ${stateCls}" data-echeance-id="${esc(e.id)}">
