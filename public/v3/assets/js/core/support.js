@@ -39,8 +39,20 @@ export function openSupport() {
   });
   document.getElementById('support-cancel').onclick = close;
 
+  // Sprint v3.21 — Protection double-submit : disable bouton + feedback immédiat
+  // pour éviter que le user clique en rafale (cas vu 2026-05-21 : 6 tickets
+  // identiques créés côté cockpit 9·58 parce que le user a cliqué plusieurs fois).
+  let isSubmitting = false;
   document.getElementById('form-support').addEventListener('submit', async e => {
     e.preventDefault();
+    if (isSubmitting) return;
+    isSubmitting = true;
+    const submitBtn = document.querySelector('#form-support button[type="submit"]');
+    const originalLabel = submitBtn?.innerHTML;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = 'Envoi en cours…';
+    }
     const fd = new FormData(e.target);
     try {
       const r = await fetch('/api/support/feedback', {
@@ -58,14 +70,19 @@ export function openSupport() {
         throw new Error(err.error || r.statusText);
       }
       close();
-      // Toast simple
-      const toast = document.createElement('div');
-      toast.className = 'support-toast';
-      toast.textContent = 'Message envoyé. Merci !';
-      document.body.appendChild(toast);
-      setTimeout(() => toast.remove(), 3000);
+      const t = document.createElement('div');
+      t.className = 'support-toast';
+      t.textContent = 'Message envoyé à JMG. Merci !';
+      document.body.appendChild(t);
+      setTimeout(() => t.remove(), 3000);
     } catch (err) {
       toast('Erreur envoi : ' + err.message, 'error', 5000);
+      // Restaure le bouton pour permettre un retry après erreur
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalLabel;
+      }
+      isSubmitting = false;
     }
   });
 }
