@@ -62,8 +62,9 @@ function drawCommande(app, detail, html, cmdId) {
       <div class="header-actions">
         <button class="btn btn-ghost" id="btn-edit-meta">${icon('edit', 14)} Méta</button>
         <button class="btn btn-ghost" id="btn-edit-lignes">${icon('edit', 14)} Lignes</button>
-        <button class="btn btn-ghost" id="btn-print">${icon('file', 14)} Imprimer</button>
-        <button class="btn btn-primary" id="btn-mail">${icon('mail', 14)} Envoyer mail</button>
+        <button class="btn btn-primary" id="btn-pdf">${icon('file', 14)} Télécharger PDF</button>
+        <button class="btn btn-ghost" id="btn-mail">${icon('mail', 14)} Préparer mail</button>
+        <button class="btn btn-ghost" id="btn-print">${icon('file', 14)} Aperçu</button>
         <button class="btn btn-ghost" id="btn-delete" style="color:var(--accent)" aria-label="Supprimer la commande">${icon('trash', 14)} Supprimer</button>
       </div>
     </div>
@@ -77,9 +78,40 @@ function drawCommande(app, detail, html, cmdId) {
 
   document.getElementById('btn-edit-meta').addEventListener('click', () => openMetaEditor(commande, fournisseur, () => renderCommande(app, cmdId)));
   document.getElementById('btn-edit-lignes').addEventListener('click', () => openLignesEditor(cmdId, lignes, () => renderCommande(app, cmdId)));
+  document.getElementById('btn-pdf').addEventListener('click', () => doDownloadPdf(cmdId, cf));
   document.getElementById('btn-print').addEventListener('click', () => doPrint(html));
-  document.getElementById('btn-mail').addEventListener('click', () => doMail(commande, fournisseur, lignes));
+  document.getElementById('btn-mail').addEventListener('click', () => doMail(commande, fournisseur));
   document.getElementById('btn-delete').addEventListener('click', () => deleteCommande(cmdId, cf, projetId));
+}
+
+// Sprint v3.9 — Téléchargement du PDF propre du BC (généré côté serveur via pdfkit).
+async function doDownloadPdf(cmdId, cf) {
+  const btn = document.getElementById('btn-pdf');
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = 'Génération PDF…';
+  try {
+    const r = await fetch(`/api/commandes/${encodeURIComponent(cmdId)}/pdf`, { credentials: 'same-origin' });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || r.statusText);
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `BC_${(cf['Numéro'] || cmdId).replace(/[^a-zA-Z0-9-_.]/g, '_')}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('PDF téléchargé', 'success');
+  } catch (err) {
+    toast('Erreur PDF : ' + err.message, 'error', 6000);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = original;
+  }
 }
 
 // Sprint v3.4 — suppression d'une commande (admin only via ACL).
@@ -113,57 +145,42 @@ function doPrint(html) {
   w.document.close();
 }
 
-function doMail(commande, fournisseur, lignes) {
+// Sprint v3.9 — Mail simplifié : juste un corps court d'accompagnement.
+// Le détail (tableau lignes, dimensions, modèle) est dans le PDF que JMG joint
+// manuellement à son client mail. Plus de tableau ASCII aplati par Gmail.
+function doMail(commande, fournisseur) {
   const cf = commande.fields || {};
   const email = fournisseur?.fields?.Email || '';
-  const subject = `Commande ${cf.Numéro || ''} — ${cf.Contremarque || ''}`.trim();
+  const subject = `Commande ${cf.Numéro || ''}${cf.Contremarque ? ' — ' + cf.Contremarque : ''}`.trim();
 
   const lines = [];
-  lines.push(`Bonjour,`);
+  lines.push(`Bonjour${fournisseur?.fields?.Contact ? ' ' + fournisseur.fields.Contact : ''},`);
   lines.push('');
-  lines.push(`Veuillez trouver ci-dessous notre commande ${cf.Numéro} pour le chantier ${cf.Contremarque || ''}.`);
-  if (cf['Livraison semaine']) lines.push(`Livraison souhaitée : ${cf['Livraison semaine']}.`);
+  lines.push(`Veuillez trouver ci-joint notre bon de commande ${cf.Numéro || ''}${cf.Contremarque ? ' pour le chantier ' + cf.Contremarque : ''}.`);
+  if (cf['Livraison semaine']) {
+    lines.push('');
+    lines.push(`Livraison souhaitée : ${cf['Livraison semaine']}`);
+  }
   lines.push('');
-  if (cf['Modèle choisi']) {
-    lines.push(`Choix du modèle :`);
-    lines.push(cf['Modèle choisi']);
-    lines.push('');
-  }
-  if (cf['Détails modèle']) {
-    lines.push(`Détail :`);
-    lines.push(cf['Détails modèle']);
-    lines.push('');
-  }
-  if (Array.isArray(lignes) && lignes.length) {
-    const widths = {
-      pos: Math.max(3, ...lignes.map(l => String(l.pos || '').length)),
-      code: Math.max(4, ...lignes.map(l => String(l.code || '').length)),
-      desc: Math.min(50, Math.max(11, ...lignes.map(l => String(l.description || '').length))),
-      sens: 4,
-      cote: 5,
-      qte: 7,
-    };
-    const pad = (s, n) => String(s).padEnd(n).slice(0, n);
-    lines.push(`${pad('Pos', widths.pos)} | ${pad('Code', widths.code)} | ${pad('Description', widths.desc)} | ${pad('SENS', widths.sens)} | ${pad('Cote', widths.cote)} | Qté`);
-    lines.push(`${'-'.repeat(widths.pos)}-+-${'-'.repeat(widths.code)}-+-${'-'.repeat(widths.desc)}-+-${'-'.repeat(widths.sens)}-+-${'-'.repeat(widths.cote)}-+-----`);
-    for (const l of lignes) {
-      const qte = (l.quantite != null ? l.quantite : '') + (l.unite ? ' ' + l.unite : '');
-      lines.push(`${pad(l.pos || '', widths.pos)} | ${pad(l.code || '', widths.code)} | ${pad((l.description || '').replace(/\s+/g, ' ').slice(0, 80), widths.desc)} | ${pad(l.sens || '', widths.sens)} | ${pad(l.coteVisible || '', widths.cote)} | ${qte}`);
-    }
-    lines.push('');
-  }
   lines.push(`Livraison à : Tanguy Design, 4 Rue Louis Blériot, ZA Toul Garros, 56400 AURAY (Tél. 02 97 56 28 53).`);
   lines.push('');
-  lines.push(`Merci de votre retour.`);
+  lines.push(`Merci de votre confirmation.`);
   lines.push(`Cordialement,`);
-  lines.push(`${cf['Contact Tanguy'] || 'Solène LORHO'}`);
+  lines.push(`${cf['Contact Tanguy'] || 'Solène'}`);
   lines.push(`Tanguy Design`);
 
   const body = lines.join('\n');
   const mailto = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  // Le body est court (<800 chars), pas de risque de dépasser la limite mailto
+
+  // Rappel à JMG : il faut joindre le PDF manuellement (mailto: ne supporte
+  // pas les pièces jointes pour des raisons de sécurité du navigateur).
+  toast('Mail prêt — n\'oublie pas de joindre le PDF téléchargé', 'info', 6000);
+
+  // Si le mailto dépasse exceptionnellement la limite, fallback presse-papier
   if (mailto.length > 8000) {
     navigator.clipboard.writeText(body).then(() => {
-      toast('Mailto trop long, contenu copié dans le presse-papier — colle-le dans ton mail', 'info', 6000);
+      toast('Mailto trop long, contenu copié dans le presse-papier', 'info', 6000);
       window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}`;
     });
     return;

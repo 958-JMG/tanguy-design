@@ -11,6 +11,7 @@ const pinoHttp = require('pino-http');
 const { parseDevisPdf, parsePlaudTranscript } = require('./services/devis-parser');
 const { parseArtisanDevisPdf } = require('./services/artisan-devis-parser');
 const { generateFicheMission } = require('./services/fiche-mission-generator');
+const { generateBcPdf } = require('./services/bc-pdf-generator');
 const { enrichEcheancesAvecDates } = require('./services/echeances-helper');
 const { canAccess, pickAllowedFields } = require('./services/acl');
 const logger = require('./services/logger');
@@ -1836,6 +1837,45 @@ app.get('/api/commandes/:id/render', requireAuth, async (req, res) => {
     res.json({ ok: true, html });
   } catch (e) {
     logger.error({ err: e.message, cmdId }, '[commandes/render] error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Sprint v3.9 — Génère + sert le PDF d'un BC (téléchargement direct).
+// JMG 2026-05-21 : "Quand je clique sur Envoyer Mail, le mail généré ne va pas.
+// Il faudrait mieux un PDF ou en tout cas un doc propre".
+app.get('/api/commandes/:id/pdf', requireAuth, async (req, res) => {
+  const cmdId = req.params.id;
+  try {
+    const cr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.commandes.id}/${cmdId}`, {
+      headers: { Authorization: `Bearer ${AT_KEY}` },
+    });
+    if (!cr.ok) return res.status(404).json({ error: 'Commande introuvable' });
+    const commande = await cr.json();
+    const cf = commande.fields || {};
+
+    const fournisseurId = (cf.Fournisseur || [])[0];
+    let fournisseur = null;
+    if (fournisseurId) {
+      try {
+        const fr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.fournisseurs.id}/${fournisseurId}`, {
+          headers: { Authorization: `Bearer ${AT_KEY}` },
+        });
+        if (fr.ok) fournisseur = await fr.json();
+      } catch (e) { /* non bloquant */ }
+    }
+
+    let lignes = [];
+    try { if (cf['Lignes BC']) lignes = JSON.parse(cf['Lignes BC']); } catch (e) { /* */ }
+
+    const pdfBuffer = await generateBcPdf({ commande: cf, fournisseur, lignes });
+    const safeNumero = (cf['Numéro'] || cmdId).replace(/[^a-zA-Z0-9-_.]/g, '_');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="BC_${safeNumero}.pdf"`);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(pdfBuffer);
+  } catch (e) {
+    logger.error({ err: e.message, cmdId }, '[commandes/pdf] error');
     res.status(500).json({ error: e.message });
   }
 });
