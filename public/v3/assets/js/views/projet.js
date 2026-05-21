@@ -316,6 +316,17 @@ function renderFiche(app, data) {
       </ul>
     </section>` : ''}
 
+    <!-- Sprint v3.17 — Facturation client en pleine largeur (vs col droite étroite avant) -->
+    ${renderFacturationSection(
+      (() => {
+        const dSigne = devis.find(d => d.fields?.Statut === 'Signé');
+        if (!dSigne) return echeances;
+        const ids = new Set(dSigne.fields?.['Échéances devis'] || []);
+        return ids.size ? echeances.filter(e => ids.has(e.id)) : echeances;
+      })(),
+      taches, devis
+    )}
+
     <!-- Grid 2 colonnes : opérationnel à gauche, références à droite -->
     <div class="projet-grid">
       <div class="projet-col projet-col-left">
@@ -410,19 +421,6 @@ function renderFiche(app, data) {
             }).join('')}</div>`}
         </section>
 
-        <!-- Facturation client (Sprint v3.5/v3.6 — cards horizontales + CA signé)
-             Filtre les échéances pour ne garder que celles du devis signé
-             (évite les doublons quand plusieurs devis sont liés au projet). -->
-        ${renderFacturationSection(
-          (() => {
-            const dSigne = devis.find(d => d.fields?.Statut === 'Signé');
-            if (!dSigne) return echeances;
-            const ids = new Set(dSigne.fields?.['Échéances devis'] || []);
-            return ids.size ? echeances.filter(e => ids.has(e.id)) : echeances;
-          })(),
-          taches, devis
-        )}
-
         <!-- Commandes fournisseurs -->
         <section class="projet-section" aria-label="Commandes fournisseurs" data-section="commandes">
           <div class="projet-section-header">
@@ -505,22 +503,24 @@ function renderFiche(app, data) {
             }).join('')}</div>`}
         </section>
 
-        <!-- Documents (attachments) -->
-        <section class="projet-section" aria-label="Documents" data-section="documents">
-          <div class="projet-section-header">
-            <h2>Documents</h2>
-          </div>
-          <div class="attachments-grid">
-            ${renderAttachmentsCard('Plan 3D', pf['Plan 3D'], projet.id)}
-            ${renderAttachmentsCard('Plan technique', pf['Plan technique'], projet.id)}
-            ${renderAttachmentsCard('Images', pf['Images'], projet.id)}
-            ${renderAttachmentsCard('Documents projet', pf['Documents projet'], projet.id)}
-          </div>
-          <p class="muted" style="margin-top:8px;font-size:11px">Drag & drop ou clic « + » · Limite Airtable 5 MB par fichier.</p>
-        </section>
-
       </div>
     </div>
+
+    <!-- Documents (attachments) — Sprint v3.17 : sortie du grid 2 cols pour
+         occuper toute la largeur disponible (4 cards de 200-300px au lieu
+         de 150px étranglés dans la col droite) -->
+    <section class="projet-section projet-section-full" aria-label="Documents" data-section="documents">
+      <div class="projet-section-header">
+        <h2>Documents</h2>
+        <span class="muted" style="font-size:12px">Drag & drop ou clic « + » · Limite Airtable 5 MB par fichier</span>
+      </div>
+      <div class="attachments-grid">
+        ${renderAttachmentsCard('Plan 3D', pf['Plan 3D'], projet.id)}
+        ${renderAttachmentsCard('Plan technique', pf['Plan technique'], projet.id)}
+        ${renderAttachmentsCard('Images', pf['Images'], projet.id)}
+        ${renderAttachmentsCard('Documents projet', pf['Documents projet'], projet.id)}
+      </div>
+    </section>
   `;
 
   // Stocke les actions pour les bindings post-render

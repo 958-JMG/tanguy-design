@@ -1050,6 +1050,10 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 
 /* Section avec header (h2 + bouton action à droite) */
 .projet-section { margin: 0; }
+/* Sprint v3.17 — Section en pleine largeur (hors grid 2 cols) */
+.projet-section-full {
+  margin-top: 24px;
+}
 .projet-section-header {
   display: flex;
   justify-content: space-between;
@@ -1226,8 +1230,8 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   display: flex;
   flex-direction: column;
   gap: 6px;
-  height: 170px; /* hauteur fixe identique sur les 3 cards (vs min-height qui laissait varier) */
-  min-width: 0; /* Sprint v3.16 — autorise truncation du label "À la fin de la pose" */
+  height: 150px; /* Sprint v3.17 — réduit (label sur 1 ligne suffit, pas besoin de 170) */
+  min-width: 0;
   transition: border-color 100ms ease-out, box-shadow 100ms ease-out;
 }
 .facturation-item.is-encaisse { border-color: var(--green); background: var(--green-lo); }
@@ -1235,27 +1239,33 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 .facturation-item.is-tache    { border-color: var(--info);  background: #FCFDFF; }
 .facturation-item.is-pending  { border-color: var(--line2); }
 
+/* Sprint v3.17 — JMG "Fait plus simple" : label sur 1 ligne strictement
+   avec ellipsis si trop long. Plus de wrap qui décale le contenu. */
 .facturation-item-top {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
-  min-height: 38px; /* Sprint v3.16 — hauteur stable même si label sur 2 lignes */
+  min-height: 24px;
 }
 .facturation-item-label {
   font-size: 13px;
   font-weight: 600;
   color: var(--ink2);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
   line-height: 1.25;
   flex: 1;
   min-width: 0;
-  gap: 5px;
 }
-.facturation-item-label svg { flex-shrink: 0; color: var(--ink3); margin-right: 4px; vertical-align: -2px; }
+.facturation-item-label svg {
+  flex-shrink: 0;
+  color: var(--ink3);
+  margin-right: 4px;
+  display: inline-block;
+  vertical-align: middle;
+}
 
 .facturation-badge {
   font-size: 10px;
