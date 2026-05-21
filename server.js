@@ -633,6 +633,10 @@ app.post('/api/support/feedback', requireAuth, async (req, res) => {
         titre: `[${req.session?.user || 'user'}] ${String(message).slice(0, 80)}`,
         description: `Message :\n${String(message).slice(0, 2000)}\n\nURL : ${String(url || '').slice(0, 200)}\nContext : ${String(context || '').slice(0, 500)}`,
         auteur_email: req.session?.user ? `${req.session.user}@tanguydesign.local` : '',
+        // Sprint v3.23 — Standard inter-cockpits : chaque cockpit déclare son
+        // URL de callback. n8n stocke ça dans le ticket et l'appelle à la
+        // résolution. Plus de mapping centralisé à maintenir côté 9·58.
+        callback_url: SAV_CALLBACK_URL,
       };
       const r = await fetch(SAV_WEBHOOK_URL, {
         method: 'POST',
@@ -2330,6 +2334,12 @@ const SAV_WEBHOOK_SECRET = process.env.SAV_WEBHOOK_SECRET || '';
 const SAV_CLIENT_SLUG    = process.env.SAV_CLIENT_SLUG    || 'tanguy';
 const SAV_COCKPIT_SOURCE = process.env.SAV_COCKPIT_SOURCE || 'Cockpit Tanguy Design';
 const SAV_ABONNEMENT     = process.env.SAV_ABONNEMENT     || 'Build';
+// Sprint v3.23 — Standard inter-cockpits : chaque cockpit déclare son URL de
+// callback dans le payload initial. n8n la stocke dans le ticket et l'appelle
+// à la résolution. Convention : <cockpit-domain>/api/sav/callback.
+// PUBLIC_BASE_URL peut être set en env (sinon construit depuis le domain Scaleway).
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'https://tanguydesign.958.fr';
+const SAV_CALLBACK_URL = `${PUBLIC_BASE_URL}/api/sav/callback`;
 
 app.post('/api/sav/submit', requireAuth, async (req, res) => {
   // RC Pro 2026 : refuser si URL ou secret webhook manquant (au lieu de fallback hardcodé)
@@ -2353,6 +2363,8 @@ app.post('/api/sav/submit', requireAuth, async (req, res) => {
       titre: String(titre).slice(0, 200),
       description: String(description).slice(0, 5000),
       auteur_email: req.session?.user ? `${req.session.user}@tanguydesign.local` : '',
+      // Sprint v3.23 — Standard inter-cockpits : callback_url dans le payload
+      callback_url: SAV_CALLBACK_URL,
     };
     const r = await fetch(SAV_WEBHOOK_URL, {
       method: 'POST',
