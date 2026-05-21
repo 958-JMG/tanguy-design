@@ -6,7 +6,7 @@ import { navigateTo, router } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
 import {
   fetchProjetDetail, patchProjet, patchTache, createTache, deleteTache,
-  appendJournalEntry, uploadAttachment, deleteAttachment,
+  appendJournalEntry, deleteJournalEntry, uploadAttachment, deleteAttachment,
   fetchArtisans, setProjetArtisans,
   importDevisClient, signDevisTanguy,
   importDevisArtisan, parsePlaud,
@@ -295,14 +295,31 @@ function renderFiche(app, data) {
             : `<div class="taches-list">${taches.map(t => renderTacheRow(t)).join('')}</div>`}
         </section>
 
-        <!-- Journal chantier -->
+        <!-- Journal chantier (Sprint v3.8 — entrées supprimables individuellement) -->
         <section class="projet-section" aria-label="Journal chantier" data-section="journal">
           <div class="projet-section-header">
             <h2>Journal chantier</h2>
             <button class="btn btn-ghost btn-sm" id="btn-add-journal">${icon('plus', 14)} Entrée</button>
           </div>
           ${pf['Journal chantier']
-            ? `<div class="card"><pre class="journal" style="white-space:pre-wrap;font-family:'DM Mono',monospace;font-size:12px;margin:0">${esc(pf['Journal chantier'])}</pre></div>`
+            ? `<ul class="journal-list" role="list">${
+                pf['Journal chantier']
+                  .split('\n')
+                  .map(l => l.trim())
+                  .filter(l => l.length > 0)
+                  .map(line => {
+                    // Format attendu : "[YYYY-MM-DD HH:MM — Auteur] texte"
+                    const m = line.match(/^\[([^\]]+)\]\s*(.*)$/);
+                    const meta = m ? m[1] : '';
+                    const body = m ? m[2] : line;
+                    return `
+                      <li class="journal-entry">
+                        ${meta ? `<div class="journal-entry-meta">${esc(meta)}</div>` : ''}
+                        <div class="journal-entry-body">${esc(body)}</div>
+                        <button class="btn-icon-danger journal-entry-del" data-action="del-journal" data-entry="${esc(line)}" aria-label="Supprimer cette entrée">${icon('trash', 12)}</button>
+                      </li>`;
+                  }).join('')
+              }</ul>`
             : `<div class="compact-empty"><span>Pas encore d'entrée</span></div>`}
         </section>
 
@@ -557,6 +574,24 @@ function renderFiche(app, data) {
         toast('Erreur : ' + err.message, 'error', 5000);
         btn.disabled = false;
         btn.innerHTML = `${icon('plus', 14)} Créer la tâche pour Virginie`;
+      }
+    });
+  });
+
+  // Sprint v3.8 — Suppression d'une entrée journal individuelle
+  app.querySelectorAll('[data-action="del-journal"]').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.preventDefault();
+      const entry = btn.dataset.entry;
+      const preview = entry.length > 80 ? entry.slice(0, 80) + '…' : entry;
+      const ok = await confirmModal(`Supprimer cette entrée du journal ?\n\n${preview}`, { okLabel: 'Supprimer', danger: true });
+      if (!ok) return;
+      try {
+        await deleteJournalEntry(projet.id, entry);
+        toast('Entrée supprimée', 'success');
+        router();
+      } catch (err) {
+        toast('Erreur : ' + err.message, 'error', 5000);
       }
     });
   });

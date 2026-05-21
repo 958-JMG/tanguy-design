@@ -1342,6 +1342,54 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 .tache-urgence-item.urgence-urgent  .tache-urgence-deadline { color: var(--gold); }
 .tache-urgence-item.urgence-bientot .tache-urgence-deadline { color: var(--info); }
 
+/* Sprint v3.8 — Journal chantier en liste d'entrées supprimables individuellement */
+.journal-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.journal-entry {
+  position: relative;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 10px 44px 10px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.journal-entry-meta {
+  font-size: 11px;
+  color: var(--ink3);
+  font-family: 'DM Mono', monospace;
+  margin-bottom: 2px;
+}
+.journal-entry-body {
+  color: var(--ink1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.journal-entry-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  opacity: 0;
+  transition: opacity 100ms ease-out;
+}
+.journal-entry:hover .journal-entry-del,
+.journal-entry:focus-within .journal-entry-del {
+  opacity: 1;
+}
+@media (max-width: 767px) {
+  /* Toujours visible sur mobile (pas de hover) + touch target 44px */
+  .journal-entry-del { opacity: 1; width: 36px; height: 36px; }
+  .journal-entry { padding-right: 48px; }
+}
+
 /* Respect prefers-reduced-motion */
 @media (prefers-reduced-motion: reduce) {
   .next-action-item, .card-devis-link, .card-devis-link::after, .btn-icon-danger {

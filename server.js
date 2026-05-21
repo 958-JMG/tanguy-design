@@ -2038,6 +2038,33 @@ app.post('/api/projets/:id/journal', requireAuth, async (req, res) => {
   }
 });
 
+// Sprint v3.8 — Suppression d'une entrée journal par contenu exact.
+// JMG 2026-05-21 : "On doit pouvoir supprimer une entrée dans le journal chantier".
+// Le journal est stocké en texte multiligne, on identifie l'entrée à supprimer
+// par son contenu exact (l'UI envoie la ligne complète).
+app.delete('/api/projets/:id/journal', requireAuth, async (req, res) => {
+  const projetId = req.params.id;
+  const entryToDelete = (req.body?.entry || '').trim();
+  if (!entryToDelete) return res.status(400).json({ error: 'entry requis' });
+  try {
+    const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`,
+      { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!pr.ok) throw new Error('projet introuvable');
+    const current = ((await pr.json()).fields?.['Journal chantier']) || '';
+    const lines = current.split('\n');
+    const idx = lines.findIndex(l => l.trim() === entryToDelete);
+    if (idx === -1) return res.status(404).json({ error: 'Entrée introuvable dans le journal' });
+    lines.splice(idx, 1);
+    const next = lines.join('\n');
+    await atPatch(TABLES.projets.id, projetId, { 'Journal chantier': next });
+    logger.info({ projetId, entry: entryToDelete.slice(0, 60) }, 'journal entry deleted');
+    res.json({ ok: true, removed: entryToDelete });
+  } catch (e) {
+    logger.error('[projets/journal] DELETE error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.delete('/api/projets/:id/attachments', requireAuth, async (req, res) => {
   const projetId = req.params.id;
   const { field, attachmentId } = req.body || {};

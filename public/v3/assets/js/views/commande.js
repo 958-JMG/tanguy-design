@@ -171,14 +171,21 @@ function doMail(commande, fournisseur, lignes) {
   window.location.href = mailto;
 }
 
-function openMetaEditor(commande, fournisseur, refresh) {
+async function openMetaEditor(commande, fournisseur, refresh) {
   const cf = commande.fields || {};
+  const currentFournId = (cf.Fournisseur || [])[0] || '';
   const modal = document.createElement('div');
   modal.className = 'modal-bg';
   modal.innerHTML = `
-    <div class="modal" role="dialog" aria-modal="true">
-      <h2>Méta commande</h2>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="meta-title">
+      <h2 id="meta-title">Méta commande</h2>
       <form id="form-meta">
+        <label>Fournisseur (à qui envoyer ce BC)
+          <select name="Fournisseur" id="meta-fournisseur">
+            <option value="">— Aucun (à rattacher) —</option>
+            <option disabled>Chargement…</option>
+          </select>
+        </label>
         <label>Référence courte (code fournisseur sur BC)
           <input name="Référence courte" value="${esc(cf['Référence courte'] || '')}" placeholder="ex : NOVA_CUC, BORA">
         </label>
@@ -195,8 +202,11 @@ function openMetaEditor(commande, fournisseur, refresh) {
         </label>
         <label>Statut
           <select name="Statut">
-            ${['Créée','Envoyée','Confirmée','Reçue','Annulée'].map(v => `<option ${cf.Statut === v ? 'selected' : ''}>${v}</option>`).join('')}
+            ${['Créée','Envoyée','Confirmée','Livrée','Posée'].map(v => `<option ${cf.Statut === v ? 'selected' : ''}>${v}</option>`).join('')}
           </select>
+        </label>
+        <label>Date envoi (auto = date pose − 105 j, modifiable)
+          <input name="Date envoi" type="date" value="${esc(cf['Date envoi'] || '')}">
         </label>
         <label>Date livraison prévue
           <input name="Date livraison prévue" type="date" value="${esc(cf['Date livraison prévue'] || '')}">
@@ -221,11 +231,35 @@ function openMetaEditor(commande, fournisseur, refresh) {
   document.addEventListener('keydown', function k(e) {
     if (e.key === 'Escape') { close(); document.removeEventListener('keydown', k); }
   });
+
+  // Sprint v3.8 — Charger les fournisseurs et peupler le select
+  try {
+    const r = await fetch('/api/data/fournisseurs', { credentials: 'same-origin' });
+    if (r.ok) {
+      const d = await r.json();
+      const fournisseurs = (d.records || [])
+        .map(f => ({ id: f.id, nom: f.fields?.Nom || '?', famille: f.fields?.Famille || '' }))
+        .sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+      const sel = document.getElementById('meta-fournisseur');
+      sel.innerHTML = `
+        <option value="">— Aucun (à rattacher) —</option>
+        ${fournisseurs.map(f => `<option value="${esc(f.id)}" ${f.id === currentFournId ? 'selected' : ''}>${esc(f.nom)}${f.famille ? ' · ' + esc(f.famille) : ''}</option>`).join('')}
+      `;
+    }
+  } catch (e) { /* fallback : le select reste vide, le user peut quand même sauver les autres champs */ }
+
   document.getElementById('form-meta').addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const fields = {};
-    for (const [k, v] of fd.entries()) fields[k] = v;
+    for (const [k, v] of fd.entries()) {
+      if (k === 'Fournisseur') {
+        // Champ linked : on envoie un array de 1 id (ou [] pour détacher)
+        fields[k] = v ? [v] : [];
+      } else {
+        fields[k] = v;
+      }
+    }
     try {
       await api(`/api/data/commandes/${commande.id}`, {
         method: 'PATCH',

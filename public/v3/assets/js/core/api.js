@@ -92,6 +92,14 @@ export async function appendJournalEntry(projetId, text) {
   });
 }
 
+// Sprint v3.8 — Suppression d'une entrée journal (identifiée par son contenu exact).
+export async function deleteJournalEntry(projetId, entry) {
+  return api(`/api/projets/${projetId}/journal`, {
+    method: 'DELETE',
+    body: JSON.stringify({ entry }),
+  });
+}
+
 export async function uploadAttachment(projetId, field, file) {
   const fd = new FormData();
   fd.append('field', field);
