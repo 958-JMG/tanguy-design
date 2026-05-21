@@ -2263,7 +2263,12 @@ app.post('/api/sav/submit', requireAuth, async (req, res) => {
 });
 
 // --- Static ---
-app.get('/', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+// Sprint v3.12 — Cutover : la racine sert désormais le cockpit v3 (nouveau défaut).
+// L'ancien cockpit v2 reste accessible via /v2/ pour rollback temporaire pendant
+// la transition. Une fois la v3 stabilisée pour toute l'équipe, /v2/ pourra être
+// supprimé et public/index.html déplacé en archive.
+app.get('/v2', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get('/v2/', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
 app.use('/img', express.static(path.join(__dirname, 'public', 'img')));
 
@@ -2290,8 +2295,10 @@ const v3Index = (req, res) => {
   res.setHeader('Cache-Control', 'no-cache, must-revalidate');
   res.type('html').send(v3IndexHtml);
 };
-app.get('/v3',  requireAuth, v3Index);
-app.get('/v3/', requireAuth, v3Index);
+// Sprint v3.12 — La racine sert maintenant le cockpit v3 (cutover).
+app.get('/',    requireAuth, v3Index);
+app.get('/v3',  requireAuth, v3Index);  // alias pour bookmarks existants
+app.get('/v3/', requireAuth, v3Index);  // idem
 
 // Middleware qui réécrit tous les imports relatifs des .js de /v3/ avec ?v=VERSION
 // pour forcer le browser à télécharger les nouveaux modules à chaque déploiement.

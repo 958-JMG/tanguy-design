@@ -6,8 +6,32 @@
 <title>Tanguy Design</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/css/styles.css">
+<style>
+  /* Sprint v3.12 — bannière migration cockpit v3 (cockpit v2 archivé) */
+  .banner-v2-archived {
+    background: #F0E2B8;
+    color: #1B1A18;
+    border-bottom: 1px solid #B68D2D;
+    padding: 10px 16px;
+    font-size: 14px;
+    text-align: center;
+    font-family: 'DM Sans', -apple-system, sans-serif;
+  }
+  .banner-v2-archived strong { color: #B68D2D; }
+  .banner-v2-archived a {
+    color: #1B1A18;
+    text-decoration: underline;
+    font-weight: 600;
+    margin-left: 8px;
+  }
+</style>
 </head>
 <body>
+
+<div class="banner-v2-archived">
+  <strong>Ancien cockpit (v2)</strong> — le nouveau cockpit est disponible.
+  <a href="/">Aller au cockpit principal →</a>
+</div>
 
 <div class="header">
   <button class="logout-btn" onclick="logout()">◂ SORTIR</button>
