@@ -313,6 +313,7 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 .badge.phase-presentation-devis { background: var(--gold-lo); color: var(--gold); }
 .badge.phase-en-attente-decision { background: var(--gold-lo); color: var(--gold); }
 .badge.phase-signe              { background: var(--green-lo); color: var(--green); }
+.badge.phase-en-cours           { background: var(--gold-lo); color: var(--gold); }
 .badge.chantier                 { background: var(--accent-lo); color: var(--accent); }
 
 /* === Modal === */
@@ -862,10 +863,12 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   border-color: var(--green-lo);
   background: var(--green-lo);
 }
+/* "À faire" = orange (gold) au lieu de rouge accent — JMG 2026-05-21 :
+   le rouge se lisait comme "danger" alors que c'est juste "next step en attente". */
 .stepper-chip.is-cur {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-lo);
+  color: var(--gold);
+  border-color: var(--gold);
+  background: var(--gold-lo);
   font-weight: 600;
   padding: 5px 10px 5px 8px;
 }
@@ -874,7 +877,7 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--gold);
   margin-right: 2px;
   flex-shrink: 0;
 }

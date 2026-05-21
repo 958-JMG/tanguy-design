@@ -676,8 +676,86 @@ app.patch('/api/data/:table/:id', requireAuth, async (req, res) => {
   try {
     const fields = pickAllowedFields(req.params.table, req.body.fields);
     const rec = await atPatch(t.id, req.params.id, fields);
+
+    // Sprint v3.5 — Hook facturation : si une tâche passe à "Terminée" et que sa
+    // description contient un marqueur [echeance:recXXX], on passe l'échéance liée
+    // à "Encaissé" + stamp Date règlement = today.
+    if (req.params.table === 'taches' && fields.Statut === 'Terminée') {
+      const desc = rec.fields?.Description || '';
+      const m = desc.match(/\[echeance:(rec[A-Za-z0-9]+)\]/);
+      if (m) {
+        const echeanceId = m[1];
+        try {
+          await atPatch(TABLES['echeances-devis'].id, echeanceId, {
+            'Statut': 'Encaissé',
+            'Date règlement': new Date().toISOString().slice(0, 10),
+          });
+          logger.info({ tacheId: req.params.id, echeanceId }, 'tâche facture terminée → échéance Encaissé');
+        } catch (e) {
+          logger.warn({ err: e.message, echeanceId }, 'hook facture: update échéance échoué (non bloquant)');
+        }
+      }
+    }
+
     res.json({ ok: true, record: rec });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Sprint v3.5 — Création d'une tâche de facturation liée à une échéance.
+// JMG 2026-05-21 : "tache facture d'acompte 30% -> création tâche à Virginie
+// et quand Virginie marque fait -> Mise à jour de la fiche du projet".
+app.post('/api/projets/:projetId/echeances/:echeanceId/facturer', requireAuth, async (req, res) => {
+  const { projetId, echeanceId } = req.params;
+  try {
+    // Récup échéance pour libellé + montant
+    const eR = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES['echeances-devis'].id}/${echeanceId}`, {
+      headers: { Authorization: `Bearer ${AT_KEY}` },
+    });
+    if (!eR.ok) return res.status(404).json({ error: 'Échéance introuvable' });
+    const ech = await eR.json();
+    const libelle = ech.fields?.['Libellé'] || 'Facture';
+    const montant = ech.fields?.['Montant prévu'] || 0;
+    const datePrevue = ech.fields?.['Date prévue'] || null;
+
+    // Récup nom client pour préfixer le titre tâche
+    let clientNom = '';
+    try {
+      const pR = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`, {
+        headers: { Authorization: `Bearer ${AT_KEY}` },
+      });
+      if (pR.ok) {
+        const p = await pR.json();
+        const clientIds = p.fields?.Client || [];
+        if (clientIds[0]) {
+          const cR = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.clients.id}/${clientIds[0]}`, {
+            headers: { Authorization: `Bearer ${AT_KEY}` },
+          });
+          if (cR.ok) clientNom = (await cR.json()).fields?.Nom || '';
+        }
+      }
+    } catch (e) { /* non bloquant */ }
+
+    const titre = `[${clientNom || 'Projet'}] Facturer ${libelle}${montant ? ' — ' + Math.round(montant).toLocaleString('fr-FR') + ' €' : ''}`;
+    const description = `Facture client à émettre.\nMontant prévu : ${montant} €\n${datePrevue ? 'Date prévue : ' + datePrevue + '\n' : ''}\nMarque cette tâche "Terminée" une fois l'encaissement reçu — l'échéance passera automatiquement à "Encaissé" dans le projet.\n\n[echeance:${echeanceId}]`;
+
+    const tacheFields = {
+      'Titre': titre,
+      'Assignée à': 'Virginie',
+      'Priorité': 'Haute',
+      'Statut': 'À faire',
+      'Description': description,
+      'Échéance': datePrevue,
+      'Projet': [projetId],
+    };
+    Object.keys(tacheFields).forEach(k => { if (tacheFields[k] == null || tacheFields[k] === '') delete tacheFields[k]; });
+
+    const t = await atCreate(TABLES.taches.id, tacheFields);
+    logger.info({ tacheId: t.id, echeanceId, projetId }, 'tâche facturation créée');
+    res.json({ ok: true, tache: t });
+  } catch (e) {
+    logger.error({ err: e.message, projetId, echeanceId }, '[facturer] error');
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.delete('/api/data/:table/:id', requireAuth, async (req, res) => {
@@ -786,6 +864,12 @@ app.get('/api/projets/:id', requireAuth, async (req, res) => {
       atFetchAll(TABLES.artisans.id),
     ]);
 
+    // Sprint v3.5 — Échéances liées aux devis (pour section Facturation client)
+    const echeanceIds = devis.flatMap(d => d.fields?.['Échéances devis'] || []);
+    const echeances = echeanceIds.length
+      ? await atFetchByIds(TABLES['echeances-devis'].id, echeanceIds)
+      : [];
+
     // Lookup client (1er linked)
     const clientId = (projet.fields?.Client || [])[0];
     let client = null;
@@ -798,7 +882,7 @@ app.get('/api/projets/:id', requireAuth, async (req, res) => {
       } catch (e) { /* fallback silencieux */ }
     }
 
-    res.json({ ok: true, projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans });
+    res.json({ ok: true, projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans, echeances });
   } catch (e) {
     logger.error({ err: e.message, projetId }, '[projets/:id] error');
     res.status(500).json({ error: e.message });

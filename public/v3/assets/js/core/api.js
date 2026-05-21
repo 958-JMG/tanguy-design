@@ -178,6 +178,16 @@ export async function importDevisArtisan({ file, projetId, artisanId = null }) {
   return j;
 }
 
+// Sprint v3.5 — Crée une tâche de facturation pour Virginie liée à une échéance.
+// Quand Virginie marque la tâche "Terminée", l'échéance passe à "Encaissé" auto
+// (hook backend dans PATCH /api/data/taches/:id).
+export async function genererTacheFacturation(projetId, echeanceId) {
+  return api(`/api/projets/${encodeURIComponent(projetId)}/echeances/${encodeURIComponent(echeanceId)}/facturer`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
 // Sprint v3.3 — détail complet d'un devis (header + zones + lignes + échéances).
 // Endpoint backend : GET /api/devis/:id/detail (déjà existant).
 export async function fetchDevisDetail(devisId) {

@@ -10,6 +10,7 @@ import {
   fetchArtisans, setProjetArtisans,
   importDevisClient, signDevisTanguy,
   importDevisArtisan, parsePlaud,
+  genererTacheFacturation,
 } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 
@@ -135,13 +136,12 @@ function computeNextActions({ projet, taches, devis, commandes, artisans, reunio
   ).slice(0, 5);
 }
 
-function computeParcours(projet, taches, devis, commandes) {
+function computeParcours(projet, taches, devis, commandes, echeances = []) {
   const pf = projet.fields || {};
   const phase = pf['Phase commerciale'] || '';
   const chantier = pf['Statut chantier'] || '';
-  const statutLegacy = (pf['Statut'] || '').toLowerCase();
 
-  // Helpers status calcul (porté v2)
+  // Helpers
   const hasR1 = (state.projets || []).length > 0; // toujours OK pour data fictive
   const devisSigne = devis.some(d => d.fields?.Statut === 'Signé');
   const taskDone = (titrePart) => taches.some(t => {
@@ -151,19 +151,27 @@ function computeParcours(projet, taches, devis, commandes) {
   const planTechCount = (pf['Plan technique'] || []).length;
   const datePose = pf['Date pose prévue'];
 
+  // Sprint v3.5 — Source de vérité pour les étapes facturation = échéances Airtable.
+  // Une échéance "Encaissé" passe l'étape correspondante en vert (done).
+  const isEncaisse = e => e?.fields?.Statut === 'Encaissé';
+  const findEch = (rx) => echeances.find(e => rx.test(e.fields?.['Libellé'] || ''));
+  const echAcompte   = findEch(/acompte|signature/i);
+  const echReception = findEch(/r[ée]ception|livraison/i);
+  const echSolde     = findEch(/solde|fin\s+pose|fin\s+chantier/i);
+
   return STEPS.map(s => {
     let state_ = 'pending';
     switch (s.key) {
       case 'decouverte': state_ = pf['Date découverte'] || hasR1 ? 'done' : 'pending'; break;
       case 'devis':      state_ = devis.length > 0 ? 'done' : 'pending'; break;
       case 'signature':  state_ = devisSigne ? 'done' : 'pending'; break;
-      case 'acompte':    state_ = taskDone('acompte') ? 'done' : (devisSigne ? 'cur' : 'pending'); break;
+      case 'acompte':    state_ = isEncaisse(echAcompte) || taskDone('acompte') ? 'done' : (devisSigne ? 'cur' : 'pending'); break;
       case 'plans_tech': state_ = planTechCount > 0 ? 'done' : (devisSigne ? 'cur' : 'pending'); break;
       case 'commandes':  state_ = commandes.length > 0 ? 'done' : (devisSigne ? 'cur' : 'pending'); break;
-      case 'reception':  state_ = chantier === 'Pose en cours' || chantier === 'Terminé' ? 'done' : 'pending'; break;
+      case 'reception':  state_ = isEncaisse(echReception) || chantier === 'Pose en cours' || chantier === 'Terminé' ? 'done' : (chantier === 'Pré-pose' ? 'cur' : 'pending'); break;
       case 'pose':       state_ = chantier === 'Pose en cours' ? 'cur' : (chantier === 'Terminé' ? 'done' : (datePose && new Date(datePose) < new Date() ? 'cur' : 'pending')); break;
-      case 'pv':         state_ = taskDone('pv') || taskDone('réception') ? 'done' : 'pending'; break;
-      case 'solde':      state_ = taskDone('solde') ? 'done' : 'pending'; break;
+      case 'pv':         state_ = taskDone('pv') || taskDone('réception chantier') ? 'done' : 'pending'; break;
+      case 'solde':      state_ = isEncaisse(echSolde) || taskDone('solde') ? 'done' : 'pending'; break;
       case 'avis':       state_ = taskDone('avis') ? 'done' : 'pending'; break;
       case 'sav':        state_ = chantier === 'SAV' ? 'cur' : 'pending'; break;
     }
@@ -183,11 +191,11 @@ export async function renderProjet(app, projetId) {
 }
 
 function renderFiche(app, data) {
-  const { projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans: allArtisans } = data;
+  const { projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans: allArtisans, echeances = [] } = data;
   const pf = projet.fields || {};
   const phase = pf['Phase commerciale'] || pf.Statut || '—';
   const chantier = pf['Statut chantier'] || '';
-  const stepper = computeParcours(projet, taches, devis, commandes);
+  const stepper = computeParcours(projet, taches, devis, commandes, echeances);
 
   // L'endpoint /api/projets/:id renvoie TOUS les artisans de la base (utile pour le mapping ID → nom
   // depuis devisArtisans.Artisan[0]). Pour la section "Artisans affectés", on filtre par projet.Artisans.
@@ -347,6 +355,44 @@ function renderFiche(app, data) {
                 ${f['Date devis'] ? `<div class="muted" style="font-size:12px;margin-top:4px">Daté du ${esc(f['Date devis'])}</div>` : ''}
               </a>`;
             }).join('')}</div>`}
+        </section>
+
+        <!-- Facturation client (Sprint v3.5 — workflow tâche → encaissement) -->
+        <section class="projet-section" aria-label="Facturation client" data-section="facturation">
+          <div class="projet-section-header">
+            <h2>Facturation client <span class="count">(${echeances.length})</span></h2>
+          </div>
+          ${echeances.length === 0
+            ? `<div class="compact-empty"><span>Échéances générées à l'import du devis</span></div>`
+            : `<div class="commandes-list">${echeances
+                .sort((a,b) => (a.fields?.Ordre||0) - (b.fields?.Ordre||0))
+                .map(e => {
+                  const ef = e.fields || {};
+                  const isEncaisse = ef.Statut === 'Encaissé';
+                  const tacheEnCours = taches.find(t => {
+                    const d = t.fields?.Description || '';
+                    return d.includes(`[echeance:${e.id}]`) && t.fields?.Statut !== 'Terminée';
+                  });
+                  const statutLabel = isEncaisse ? 'Encaissé' : (tacheEnCours ? 'Tâche créée' : (ef.Statut || 'À encaisser'));
+                  const statutClass = isEncaisse ? 'phase-signe' : (tacheEnCours ? 'phase-en-cours' : '');
+                  return `
+                  <div class="card commande-card" data-echeance-id="${esc(e.id)}">
+                    <div class="commande-head">
+                      <div><strong>${esc(ef['Libellé'] || '?')}</strong>
+                        <span class="badge ${statutClass}" style="margin-left:8px">${esc(statutLabel)}</span>
+                      </div>
+                      <div style="text-align:right">
+                        <div><strong>${euros(ef['Montant prévu'])}</strong></div>
+                        ${ef['Date prévue'] ? `<div class="muted" style="font-size:11px">prévu ${esc(ef['Date prévue'])}</div>` : ''}
+                      </div>
+                    </div>
+                    ${isEncaisse
+                      ? `<div class="muted" style="margin-top:4px;font-size:12px">${icon('check', 12)} Réglée ${ef['Date règlement'] ? 'le ' + esc(ef['Date règlement']) : ''}</div>`
+                      : (tacheEnCours
+                        ? `<div class="muted" style="margin-top:4px;font-size:12px">${icon('user', 12)} ${esc(tacheEnCours.fields?.['Assignée à'] || 'Virginie')} — tâche en cours${tacheEnCours.fields?.Échéance ? ' (échéance ' + esc(tacheEnCours.fields.Échéance) + ')' : ''}</div>`
+                        : `<div style="margin-top:8px"><button class="btn btn-primary btn-sm" data-action="facturer" data-echeance="${esc(e.id)}">${icon('plus', 14)} Créer la tâche pour Virginie</button></div>`)}
+                  </div>`;
+                }).join('')}</div>`}
         </section>
 
         <!-- Commandes fournisseurs -->
@@ -517,6 +563,25 @@ function renderFiche(app, data) {
         toast('Erreur signature : ' + err.message, 'error', 5000);
         btn.disabled = false;
         btn.innerHTML = '<span>Signer ce devis</span>';
+      }
+    });
+  });
+
+  // Sprint v3.5 — Création tâche facturation depuis une échéance
+  app.querySelectorAll('[data-action="facturer"]').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.preventDefault();
+      const echeanceId = btn.dataset.echeance;
+      btn.disabled = true;
+      btn.innerHTML = 'Création…';
+      try {
+        await genererTacheFacturation(projet.id, echeanceId);
+        toast('Tâche créée pour Virginie', 'success');
+        router();
+      } catch (err) {
+        toast('Erreur : ' + err.message, 'error', 5000);
+        btn.disabled = false;
+        btn.innerHTML = `${icon('plus', 14)} Créer la tâche pour Virginie`;
       }
     });
   });
