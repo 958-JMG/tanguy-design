@@ -85,11 +85,16 @@ export async function renderProjet(app, projetId) {
 }
 
 function renderFiche(app, data) {
-  const { projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans } = data;
+  const { projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans: allArtisans } = data;
   const pf = projet.fields || {};
   const phase = pf['Phase commerciale'] || pf.Statut || '—';
   const chantier = pf['Statut chantier'] || '';
   const stepper = computeParcours(projet, taches, devis, commandes);
+
+  // L'endpoint /api/projets/:id renvoie TOUS les artisans de la base (utile pour le mapping ID → nom
+  // depuis devisArtisans.Artisan[0]). Pour la section "Artisans affectés", on filtre par projet.Artisans.
+  const projetArtisanIds = Array.isArray(pf.Artisans) ? pf.Artisans : [];
+  const artisans = allArtisans.filter(a => projetArtisanIds.includes(a.id));
 
   // Bilan financier prévi
   const caHT = pf['Budget HT'] || 0;
@@ -97,7 +102,8 @@ function renderFiche(app, data) {
   const coutArtisans = devisArtisans.reduce((s, d) => s + (d.fields?.['Montant HT'] || 0), 0);
   const retro = devisArtisans.filter(d => {
     const aId = (d.fields?.Artisan || [])[0];
-    const a = aId ? artisans.find(x => x.id === aId) : null;
+    // Lookup sur allArtisans : un devis peut référencer un artisan qui n'est plus dans la liste projet.
+    const a = aId ? allArtisans.find(x => x.id === aId) : null;
     return a?.fields?.Contractuel;
   }).reduce((s, d) => s + (d.fields?.['Montant HT'] || 0) * 0.05, 0);
   const margeAbs = caHT - coutFourn - coutArtisans + retro;
@@ -253,7 +259,8 @@ function renderFiche(app, data) {
         : devisArtisans.map(d => {
           const df = d.fields || {};
           const aId = (df.Artisan || [])[0];
-          const a = aId ? artisans.find(x => x.id === aId) : null;
+          // Lookup sur allArtisans (un devis peut référencer un artisan détaché du projet).
+          const a = aId ? allArtisans.find(x => x.id === aId) : null;
           const aNom = a?.fields?.Nom || '?';
           const isContractuel = a?.fields?.Contractuel;
           const montantHT = df['Montant HT'] || 0;
