@@ -2420,6 +2420,19 @@ app.post('/api/sav/notifications/:id/read', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// POST /api/sav/notifications/mark-all-read — marquer toutes comme lues (auto à
+// l'ouverture du modal support : si tu vois les notifs, compteur retombe à 0).
+// Sprint 26/05 — UX naturelle (avant : fallait cliquer "OK, vu" sur chaque notif).
+app.post('/api/sav/notifications/mark-all-read', requireAuth, (req, res) => {
+  const login = (req.session?.user || '').toLowerCase();
+  const list = savNotifications.get(login) || [];
+  let marked = 0;
+  for (const n of list) {
+    if (!n.lu) { n.lu = true; marked++; }
+  }
+  res.json({ ok: true, marked });
+});
+
 // --- SAV : proxy vers webhook n8n du cockpit central 9·58 ----------------
 // Le cockpit central ouvre les tickets dans Airtable TICKETS_TBL et alimente
 // la zone Pilotage. Auth via header X-958-Secret. Configurable par env vars.

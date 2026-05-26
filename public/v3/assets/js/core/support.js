@@ -90,7 +90,20 @@ export async function openSupport() {
   `;
   document.body.appendChild(modal);
 
-  // Sprint v3.22 — bindings "OK, vu" sur les notifications
+  // Sprint 26/05 — Auto-mark-as-read à l'ouverture du modal (UX naturelle : si
+  // tu vois les notifs, le compteur retombe à 0). Le bouton "OK, vu" reste
+  // dispo pour les supprimer individuellement de la liste si voulu.
+  if (unread.length > 0) {
+    try {
+      await fetch('/api/sav/notifications/mark-all-read', {
+        method: 'POST', credentials: 'same-origin',
+      });
+      refreshSupportBadge();
+    } catch (e) { /* silencieux : retentera au prochain click "OK, vu" */ }
+  }
+
+  // Sprint v3.22 — bindings "OK, vu" sur les notifications (mark individual +
+  // retire de la liste visible — les autres restent affichées en lecture seule).
   modal.querySelectorAll('.support-notif-ack').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.preventDefault();
