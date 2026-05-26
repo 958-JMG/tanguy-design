@@ -38,29 +38,26 @@ jobs:
         with:
           submodules: false
 
-      # Pinning SHA explicite v3.9.0 (le SHA résolu de @v3 par GH Actions est devenu 403
-      # sur codeload.github.com depuis 2026-05-26 — bug GH infrastructure, fix : pin SHA récent).
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca # v3.9.0
-
-      - name: Login Scaleway Registry
-        uses: docker/login-action@v3
-        with:
-          registry: rg.fr-par.scw.cloud
-          username: nologin
-          password: ${{ secrets.SCW_SECRET_KEY }}
-
+      # Bypass docker/setup-buildx-action + docker/login-action + docker/build-push-action
+      # car GH Actions incident 2026-05-26 (codeload.github.com 403 sur ces 3 actions).
+      # Utilisation des commandes docker shell directes (Docker daemon est dispo par défaut
+      # sur ubuntu-latest, buildx aussi). Reproduit la même logique sans dépendre des actions.
       - name: Build & push image
-        uses: docker/build-push-action@v5
-        with:
-          context: ${{ env.CONTEXT_DIR }}
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.APP_NAME }}:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ env.APP_NAME }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        env:
+          IMAGE_SHA: ${{ env.REGISTRY }}/${{ env.APP_NAME }}:${{ github.sha }}
+          IMAGE_LATEST: ${{ env.REGISTRY }}/${{ env.APP_NAME }}:latest
+          REGISTRY_HOST: rg.fr-par.scw.cloud
+          SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+        run: |
+          set -e
+          echo "$SCW_SECRET_KEY" | docker login "$REGISTRY_HOST" -u nologin --password-stdin
+          docker buildx create --use --name=scwbuilder
+          docker buildx build \
+            --platform linux/amd64 \
+            --push \
+            --tag "$IMAGE_SHA" \
+            --tag "$IMAGE_LATEST" \
+            "${{ env.CONTEXT_DIR }}"
 
       - name: Install Scaleway CLI
         run: |
