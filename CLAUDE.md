@@ -21,7 +21,9 @@ Process : Découverte → Dessin Winner/Métron → Devis → Signature → Comm
 - ✅ Demander validation JMG avant action irréversible
 
 ## Tables Airtable
-Clients · Projets · Artisans (5% rétro-commission contractuels) · Fournisseurs · Commandes · Tâches · SAV · Devis (+ Zones / Lignes / Échéances) · Devis Artisans · Réunions Plaud · Stock · Fiches découverte.
+Clients · Projets · Artisans (5% rétro-commission contractuels) · Fournisseurs · Commandes · Tâches · SAV · Devis (+ Zones / Lignes / Échéances) · Devis Artisans · Réunions Plaud · Stock · Fiches découverte · Users cockpit.
+
+**Sprint v5 (2026-06) — Automatisation Virginie** : Factures clients (relances impayés R1/R2/R3 par mailto, créées depuis les échéances devis) · Factures fournisseurs (import PDF parsé par Claude + rapprochement commande + workflow À contrôler→Validée→À payer→Payée, litiges/avoirs, pointage relevé) · Salariés / Absences / Heures salariés (RH admin only : congés, arrêts, visites médicales, export éléments de paie CSV). Onglet front « Gestion » (admin) : Facturation / Achats / Trésorerie (plan hebdo 12 sem. + export expert-comptable) / RH. Checklist « Dossier chantier » générée depuis la fiche projet.
 
 ## Architecture cible — "tout part du projet" (refonte 2026-04-28)
 Centre de gravité = la **fiche projet**. Tout consommé/produit depuis là.
