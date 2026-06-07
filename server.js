@@ -549,11 +549,8 @@ app.get('/api/admin/marges', requireAuth, async (req, res) => {
 // --- Admin : IA suggestions cockpit (Sprint 4 P2) ---
 // Analyse l'état du cockpit (projets en cours, alertes, marges, blockages) et demande à
 // Claude (claude-sonnet-4-5) une synthèse + 5 suggestions actionnables. Admin only.
-function requireAdmin(req, res, next) {
-  if (!req.session?.user) return res.status(401).json({ error: 'not authenticated' });
-  if (!ADMIN_LOGINS.has(req.session.user)) return res.status(403).json({ error: 'admin requis' });
-  next();
-}
+// (Grand nettoyage 2026-06-07 : requireAdmin était redéfini ici à l'identique —
+// doublon supprimé, on utilise la définition RC Pro 2026 plus haut.)
 app.get('/api/admin/ai-suggestions', requireAuth, requireAdmin, async (req, res) => {
   if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY non configurée' });
   await withKeepAlive(req, res, async () => {
@@ -1481,31 +1478,38 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     };
     const commandesCreees = [];
     let idx = 1;
-    // Pour meubles : extraire infos modèle depuis la 1re zone du devis (NOVA_CUC = singulier)
+    // Pour meubles : extraire infos modèle depuis la 1re zone du devis (NOVA_CUC = singulier).
+    // Fix 2026-06-07 (grand nettoyage) : ce bloc référençait `parsed.zones` (variable du
+    // endpoint /api/devis/import, inexistante ici) — le catch best-effort avalait le
+    // ReferenceError et "Modèle choisi"/"Détails modèle" n'étaient JAMAIS remplis à la
+    // signature. On lit désormais les zones du devis depuis Airtable (triées par Ordre).
     let modeleHeader = '';
     let detailsModele = '';
     try {
-      if (Array.isArray(parsed.zones) && parsed.zones[0]) {
-        const z0 = parsed.zones[0];
-        modeleHeader = [z0.marque, z0.modele].filter(Boolean).join(' — ') +
-          (z0.porte_epaisseur ? `\nPorte épaisseur ${z0.porte_epaisseur}` : '');
+      const zoneIds = Array.isArray(dv['Zones devis']) ? dv['Zones devis'] : [];
+      const zones = (await atFetchByIds(TABLES['zones-devis'].id, zoneIds))
+        .sort((a, b) => (a.fields?.Ordre ?? 999) - (b.fields?.Ordre ?? 999));
+      const z0 = zones[0]?.fields;
+      if (z0) {
+        modeleHeader = [z0['Marque'], z0['Modèle']].filter(Boolean).join(' — ') +
+          (z0['Porte épaisseur'] ? `\nPorte épaisseur ${z0['Porte épaisseur']}` : '');
         const lines = [];
-        if (z0.modularite)              lines.push(`Modularité : ${z0.modularite}`);
-        if (z0.execution_facade)        lines.push(`Exécution façade : ${z0.execution_facade}`);
-        if (z0.coloris_facade)          lines.push(`Coloris façade : ${z0.coloris_facade}`);
-        if (z0.chant_facade)            lines.push(`Chant façade : ${z0.chant_facade}`);
-        if (z0.coloris_caisson)         lines.push(`Coloris caisson : ${z0.coloris_caisson}`);
-        if (z0.execution_cote_finition) lines.push(`Exécution côté finition : ${z0.execution_cote_finition}`);
-        if (z0.coloris_cote_finition)   lines.push(`Coloris côté finition : ${z0.coloris_cote_finition}`);
-        if (z0.type_gorge)              lines.push(`Type de gorge : ${z0.type_gorge}`);
-        if (z0.execution_gorges)        lines.push(`Exécution gorges : ${z0.execution_gorges}`);
-        if (z0.finition_gorges)         lines.push(`Finition gorges : ${z0.finition_gorges}`);
-        if (z0.profondeur)              lines.push(`Profondeur : ${z0.profondeur}`);
-        if (z0.option_ouverture)        lines.push(`Option ouverture : ${z0.option_ouverture}`);
-        if (z0.finition_socle)          lines.push(`Finition socle : ${z0.finition_socle}`);
+        if (z0['Modularité'])              lines.push(`Modularité : ${z0['Modularité']}`);
+        if (z0['Exécution façade'])        lines.push(`Exécution façade : ${z0['Exécution façade']}`);
+        if (z0['Coloris façade'])          lines.push(`Coloris façade : ${z0['Coloris façade']}`);
+        if (z0['Chant façade'])            lines.push(`Chant façade : ${z0['Chant façade']}`);
+        if (z0['Coloris caisson'])         lines.push(`Coloris caisson : ${z0['Coloris caisson']}`);
+        if (z0['Exécution côté finition']) lines.push(`Exécution côté finition : ${z0['Exécution côté finition']}`);
+        if (z0['Coloris côté finition'])   lines.push(`Coloris côté finition : ${z0['Coloris côté finition']}`);
+        if (z0['Type de gorge'])           lines.push(`Type de gorge : ${z0['Type de gorge']}`);
+        if (z0['Exécution gorges'])        lines.push(`Exécution gorges : ${z0['Exécution gorges']}`);
+        if (z0['Finition gorges'])         lines.push(`Finition gorges : ${z0['Finition gorges']}`);
+        if (z0['Profondeur'])              lines.push(`Profondeur : ${z0['Profondeur']}`);
+        if (z0['Option ouverture'])        lines.push(`Option ouverture : ${z0['Option ouverture']}`);
+        if (z0['Finition socle'])          lines.push(`Finition socle : ${z0['Finition socle']}`);
         detailsModele = lines.join('\n');
       }
-    } catch (e) { /* best effort */ }
+    } catch (e) { /* best effort — la signature ne doit jamais bloquer sur ces métadonnées */ }
 
     // Workflow JMG 2026-05-21 : il faut TOUJOURS prévoir un 4ème BC "Plan de travail"
     // même si le devis Winner n'a aucune ligne plan de travail (le PT est mesuré
@@ -1892,18 +1896,8 @@ async function generateAndAttachFicheMission(projetId, artisanId) {
   };
 }
 
-// --- Fiche de mission par (projet, artisan) — nouveau endpoint principal ---
-app.post('/api/fiche-mission', requireAuth, async (req, res) => {
-  const { projetId, artisanId } = req.body || {};
-  if (!projetId || !artisanId) return res.status(400).json({ error: 'projetId et artisanId requis' });
-  try {
-    const result = await generateAndAttachFicheMission(projetId, artisanId);
-    res.json(result);
-  } catch (e) {
-    logger.error('[fiche-mission] error:', e);
-    res.status(500).json({ error: e.message });
-  }
-});
+// (Grand nettoyage 2026-06-07 : POST /api/fiche-mission supprimé — appelé uniquement
+// par le cockpit v2 archivé. La génération passe par /api/artisan-devis/:id/fiche-mission.)
 
 // --- DEVIS ARTISAN : génère la Fiche (résout projet+artisan depuis le devis) ---
 app.post('/api/artisan-devis/:id/fiche-mission', requireAuth, async (req, res) => {
@@ -2465,52 +2459,9 @@ const SAV_ABONNEMENT     = process.env.SAV_ABONNEMENT     || 'Build';
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'https://tanguydesign.958.fr';
 const SAV_CALLBACK_URL = `${PUBLIC_BASE_URL}/api/sav/callback`;
 
-app.post('/api/sav/submit', requireAuth, async (req, res) => {
-  // RC Pro 2026 : refuser si URL ou secret webhook manquant (au lieu de fallback hardcodé)
-  if (!SAV_WEBHOOK_URL) {
-    return res.status(500).json({ error: 'SAV_WEBHOOK_URL non configuré côté serveur' });
-  }
-  if (!SAV_WEBHOOK_SECRET) {
-    return res.status(500).json({ error: 'SAV_WEBHOOK_SECRET non configuré côté serveur' });
-  }
-  const { categorie, urgence, titre, description } = req.body || {};
-  if (!titre || !description) {
-    return res.status(400).json({ error: 'Titre et description requis' });
-  }
-  try {
-    const payload = {
-      client_slug: SAV_CLIENT_SLUG,
-      cockpit_source: SAV_COCKPIT_SOURCE,
-      abonnement: SAV_ABONNEMENT,
-      categorie: categorie || 'Autre',
-      urgence: urgence || 'P3',
-      titre: String(titre).slice(0, 200),
-      description: String(description).slice(0, 5000),
-      auteur_email: await usersStore.getEmail(req.session?.user),
-      auteur_login: req.session?.user || '',
-      // Sprint v3.23 — Standard inter-cockpits : callback_url dans le payload
-      callback_url: SAV_CALLBACK_URL,
-    };
-    const r = await fetch(SAV_WEBHOOK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-958-Secret': SAV_WEBHOOK_SECRET,
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!r.ok) {
-      const txt = await r.text().catch(() => '');
-      logger.error(`[sav/submit] n8n ${r.status}: ${txt.slice(0,200)}`);
-      return res.status(502).json({ error: `Webhook 9·58 indisponible (${r.status})` });
-    }
-    const data = await r.json().catch(() => ({}));
-    res.json({ ok: true, ticket_id: data.ticket_id, notification_id: data.notification_id });
-  } catch (e) {
-    logger.error('[sav/submit] error:', e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
+// (Grand nettoyage 2026-06-07 : POST /api/sav/submit supprimé — appelé uniquement par
+// le cockpit v2 archivé. Le v3 passe par POST /api/support/feedback, qui forwarde au
+// webhook 9·58 avec le même callback_url. /api/sav/callback et les notifications restent.)
 
 // ════════════════════════════════════════════════════════════════════════════
 // Sprint v5 — Automatisation Virginie (2026-06)
@@ -3232,12 +3183,10 @@ app.post('/api/projets/:id/dossier-chantier', requireAuth, async (req, res) => {
 });
 
 // --- Static ---
-// Sprint v3.12 — Cutover : la racine sert désormais le cockpit v3 (nouveau défaut).
-// L'ancien cockpit v2 reste accessible via /v2/ pour rollback temporaire pendant
-// la transition. Une fois la v3 stabilisée pour toute l'équipe, /v2/ pourra être
-// supprimé et public/index.html déplacé en archive.
-app.get('/v2', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-app.get('/v2/', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+// Sprint v3.12 — Cutover : la racine sert le cockpit v3.
+// Grand nettoyage 2026-06-07 : le cockpit v2 (rollback temporaire) est supprimé —
+// routes /v2 + public/index.html + public/assets/js/main.js + public/assets/css.
+// /assets reste monté : il sert public/assets/js/login.js (page /login).
 app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
 app.use('/img', express.static(path.join(__dirname, 'public', 'img')));
 
