@@ -39,6 +39,10 @@ const TABLE_ACL = {
   salaries:                { GET: 'admin', POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
   absences:                { GET: 'admin', POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
   'heures-salaries':       { GET: 'admin', POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
+
+  // Sprint v5.1 — Aide utilisateur : lecture libre (panneau « ? » + guide),
+  // écriture admin only (Virginie édite le contenu depuis le cockpit).
+  aide:                    { GET: '*',     POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
 };
 
 const FIELD_WHITELIST = {
@@ -64,6 +68,9 @@ const FIELD_WHITELIST = {
   salaries:                ['Nom', 'Poste', 'Email', 'Téléphone', 'Type contrat', 'Date entrée', 'Solde congés', 'Dernière visite médicale', 'Prochaine visite médicale', 'Actif', 'Notes'],
   absences:                ['Libellé', 'Salarié', 'Type', 'Date début', 'Date fin', 'Jours ouvrés', 'Statut', 'Notes'],
   'heures-salaries':       ['Libellé', 'Salarié', 'Semaine du', 'Heures normales', 'Heures supp', 'Projet', 'Validé', 'Notes'],
+
+  // Sprint v5.1 — Aide utilisateur
+  aide:                    ['Titre', 'Page', 'Type', 'Contenu', 'Ordre', 'Visible'],
 };
 
 /**
