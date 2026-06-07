@@ -9,12 +9,17 @@ import { fetchClients, fetchProjets } from './core/api.js';
 import { openSearch } from './core/search.js';
 import { hydrateIcons } from './core/lucide.js';
 import { openSupport } from './core/support.js';
+import { openHelp, closeHelp } from './core/help.js';
 
 // Hydrater les icônes de la coquille HTML (data-icon) dès chargement du module
 hydrateIcons(document);
 
 // Bouton flottant support
 document.getElementById('support-btn')?.addEventListener('click', openSupport);
+
+// Bouton aide contextuelle « ? » (topbar) — ferme le panneau au changement de page
+document.getElementById('help-btn')?.addEventListener('click', openHelp);
+window.addEventListener('hashchange', closeHelp);
 
 // Exposés en global pour les onclick="" inline du HTML squelette
 window.navigateTo = navigateTo;

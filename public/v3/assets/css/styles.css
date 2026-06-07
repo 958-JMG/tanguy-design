@@ -1702,3 +1702,207 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
     transform: none !important;
   }
 }
+
+/* =============================================================================
+   Sprint v5.1 — Aide utilisateur : bouton « ? », panneau contextuel, guide
+   ============================================================================= */
+
+/* Bouton « ? » topbar (même famille visuelle que search-btn) */
+.help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--line);
+  color: var(--ink3);
+  flex-shrink: 0;
+}
+.help-btn:hover { background: var(--accent-lo); color: var(--accent); }
+.help-btn:focus-visible { outline: 2px solid var(--ink1); outline-offset: 2px; }
+
+/* Panneau latéral contextuel */
+.help-panel-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  background: rgba(27, 26, 24, 0.25);
+  opacity: 0;
+  transition: opacity 0.18s ease-out;
+}
+.help-panel-bg.is-open { opacity: 1; }
+.help-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(400px, 100%);
+  background: var(--paper);
+  border-left: 1px solid var(--line);
+  box-shadow: -8px 0 30px rgba(0,0,0,0.12);
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  overflow-y: auto;
+  transform: translateX(24px);
+  transition: transform 0.18s ease-out;
+}
+.help-panel-bg.is-open .help-panel { transform: translateX(0); }
+.help-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.help-panel-header h2 {
+  font-size: 17px;
+  flex: 1;
+}
+.help-panel-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent-lo);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.help-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  color: var(--ink3);
+}
+.help-close:hover { background: var(--line); color: var(--ink1); }
+.help-intro {
+  font-size: 13px;
+  color: var(--ink2);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+.help-items { display: grid; gap: 8px; }
+
+/* Accordéons « Comment faire X ? » (panneau + guide) */
+.help-item {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 0;
+}
+.help-item summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink1);
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--r-md);
+}
+.help-item summary::-webkit-details-marker { display: none; }
+.help-item summary::after {
+  content: '+';
+  margin-left: auto;
+  color: var(--ink3);
+  font-weight: 400;
+  font-size: 16px;
+}
+.help-item[open] summary::after { content: '−'; }
+.help-item summary:hover { background: var(--accent-lo); }
+.help-item summary:focus-visible { outline: 2px solid var(--ink1); outline-offset: -2px; }
+.help-steps {
+  margin: 0;
+  padding: 0 14px 12px 32px;
+  display: grid;
+  gap: 6px;
+}
+.help-steps li {
+  font-size: 13px;
+  color: var(--ink2);
+  line-height: 1.55;
+}
+.help-steps li strong { color: var(--ink1); }
+.help-panel-footer {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.help-panel-footer .btn { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Page Guide complet (#aide) */
+.guide-wrap { max-width: 860px; margin: 0 auto; display: grid; gap: 28px; }
+.guide-bases {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.guide-base-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.guide-base-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent-lo);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.guide-base-card h3 { font-size: 14px; margin-bottom: 4px; }
+.guide-base-card p { font-size: 13px; color: var(--ink2); line-height: 1.55; }
+.guide-parcours {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+.guide-step {
+  display: flex;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.guide-step:last-child { border-bottom: none; }
+.guide-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--ink1);
+  color: var(--paper);
+  font-family: 'DM Mono', monospace;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.guide-step h3 { font-size: 14px; margin-bottom: 4px; }
+.guide-step p { font-size: 13px; color: var(--ink2); line-height: 1.55; }
+.guide-pages { display: grid; gap: 8px; }
+.guide-page-item .help-intro { padding: 0 14px; margin-bottom: 8px; }
+.guide-page-action { padding: 0 14px 12px; }
+.guide-page-action h4 { font-size: 13px; margin-bottom: 6px; color: var(--ink1); }
+.guide-page-action .help-steps { padding: 0 0 0 18px; }
+
+/* Mobile (iPhone 390px) : panneau plein écran, guide condensé */
+@media (max-width: 760px) {
+  .help-panel { width: 100%; border-left: none; padding: 16px; }
+  .guide-bases { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .help-panel-bg, .help-panel { transition: none !important; }
+}
