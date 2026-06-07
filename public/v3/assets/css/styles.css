@@ -1897,6 +1897,32 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 .guide-page-action h4 { font-size: 13px; margin-bottom: 6px; color: var(--ink1); }
 .guide-page-action .help-steps { padding: 0 0 0 18px; }
 
+/* Édition admin du contenu d'aide (Sprint v5.1 — table Airtable « Aide ») */
+.aide-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 6px;
+  border-radius: var(--r-sm);
+  color: var(--ink3);
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.aide-edit-btn:hover { background: var(--accent-lo); color: var(--accent); }
+.aide-edit-btn:focus-visible { outline: 2px solid var(--ink1); outline-offset: 1px; }
+.is-hidden-item { opacity: 0.55; }
+.is-hidden-item .badge { font-size: 10px; }
+.aide-edit-row { display: flex; align-items: center; gap: 20px; }
+.aide-edit-visible { display: flex; align-items: center; gap: 8px; }
+.aide-edit-visible input { width: auto; }
+.aide-edit-delete { color: var(--accent); margin-right: auto; display: inline-flex; align-items: center; gap: 6px; }
+.aide-edit-delete:hover { background: var(--accent-lo); }
+.guide-page-add { padding: 0 14px 12px; }
+.guide-admin-hint { margin-top: 6px; font-size: 12px; }
+.section-title .btn { margin-left: 10px; vertical-align: middle; }
+
 /* Mobile (iPhone 390px) : panneau plein écran, guide condensé */
 @media (max-width: 760px) {
   .help-panel { width: 100%; border-left: none; padding: 16px; }

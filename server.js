@@ -66,7 +66,9 @@ const TABLES = {
   'factures-fournisseurs': { id: 'tblhFunkaTOcDoROM', name: 'Factures fournisseurs' },
   salaries:                { id: 'tblm0VR0eriWBkvs4', name: 'Salariés' },
   absences:                { id: 'tbl89I9NcQ9Esb5jp', name: 'Absences' },
-  'heures-salaries':       { id: 'tblLecQk6Hdf0rqLK', name: 'Heures salariés' }
+  'heures-salaries':       { id: 'tblLecQk6Hdf0rqLK', name: 'Heures salariés' },
+  // Sprint v5.1 — Aide utilisateur éditable par les admins depuis le cockpit
+  aide:                    { id: 'tblpOREwCKcKtKEef', name: 'Aide' }
 };
 
 // Field IDs attachments des tables v5 (upload direct, cf. DA_FIELDS)

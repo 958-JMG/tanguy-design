@@ -210,6 +210,27 @@ export async function genererTacheFacturation(projetId, echeanceId) {
   });
 }
 
+// ============================================================================
+// Sprint v5.1 — Aide utilisateur (contenu éditable par les admins)
+// ============================================================================
+
+export async function fetchAide() {
+  const d = await api('/api/data/aide');
+  return (d.records || []).map(r => ({ id: r.id, ...r.fields }));
+}
+
+export async function createAide(fields) {
+  return api('/api/data/aide', { method: 'POST', body: JSON.stringify({ fields }) });
+}
+
+export async function patchAide(id, fields) {
+  return api(`/api/data/aide/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ fields }) });
+}
+
+export async function deleteAide(id) {
+  return api(`/api/data/aide/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 // Sprint v3.3 — détail complet d'un devis (header + zones + lignes + échéances).
 // Endpoint backend : GET /api/devis/:id/detail (déjà existant).
 export async function fetchDevisDetail(devisId) {
