@@ -4,8 +4,9 @@
 import { state } from '../core/state.js';
 import { navigateTo } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
-import { patchProjet } from '../core/api.js';
+import { patchProjet, fetchRendezVous } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
+import { openModalRdv } from '../core/rdv.js';
 
 const MOIS_NOMS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 const JOURS = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
@@ -51,6 +52,24 @@ function buildEvents(year, month) {
       end: dEnd,
       color: 'accent',
       draggable: true,
+    });
+  }
+
+  // Rendez-vous : événements ponctuels (à leur date) — chargés dans state.rendezVous.
+  // « Date et heure » est un dateTime ISO → on prend la partie date (parseISODate ne gère que YYYY-MM-DD).
+  for (const r of state.rendezVous || []) {
+    const f = r.fields || {};
+    if (f.Statut === 'Annulé') continue;
+    const d = parseISODate(String(f['Date et heure'] || '').slice(0, 10));
+    if (!d || d < debutMois || d > finMois) continue;
+    events.push({
+      type: 'rdv',
+      id: r.id,
+      titre: `${f.Type ? f.Type + ' · ' : ''}${f.Objet || 'RDV'}`,
+      start: d,
+      end: d,
+      color: 'rdv',
+      draggable: false,
     });
   }
 
@@ -101,7 +120,8 @@ export function renderCalendar(app) {
 
       <div class="cal-legend">
         <span class="legend-dot color-accent"></span> Pose chantier
-        <span class="muted" style="margin-left:16px">Glisse la barre verte pour déplacer une pose.</span>
+        <span class="legend-dot" style="background:var(--gold,#b8860b);margin-left:12px"></span> Rendez-vous
+        <span class="muted" style="margin-left:16px">Glisse la pose pour la déplacer · clic sur un RDV pour l'éditer.</span>
       </div>
 
       <div class="cal-grid">
@@ -126,7 +146,8 @@ export function renderCalendar(app) {
                         data-type="${ev.type}"
                         data-start="${toISODate(ev.start)}"
                         data-end="${toISODate(ev.end)}"
-                        title="${esc(ev.titre)} (${toISODate(ev.start)} → ${toISODate(ev.end)})">
+                        ${ev.type === 'rdv' ? 'style="background:var(--gold,#b8860b);color:#fff;border:none"' : ''}
+                        title="${esc(ev.titre)}${ev.type === 'rdv' ? '' : ` (${toISODate(ev.start)} → ${toISODate(ev.end)})`}">
                   ${ev.isStart ? esc(ev.titre) : '·'}
                 </button>
               `).join('')}
@@ -137,8 +158,7 @@ export function renderCalendar(app) {
       </div>
 
       <p class="muted muted-with-icon" style="margin-top:16px">${icon('construction', 14)}
-        Réunions Plaud (R1/R2), commandes fournisseurs et tâches sur le calendar
-        à venir Sprint 4. Aujourd'hui : seules les périodes de pose sont affichées.
+        Poses chantier et rendez-vous affichés. Réunions Plaud et commandes fournisseurs à venir.
       </p>
     `;
 
@@ -149,12 +169,16 @@ export function renderCalendar(app) {
     document.getElementById('cal-next').onclick = () => { curMonth++; if (curMonth > 11) { curMonth = 0; curYear++; } draw(); };
     document.getElementById('cal-today').onclick = () => { curYear = today.getFullYear(); curMonth = today.getMonth(); draw(); };
 
-    // Click event → navigate
+    // Click event → navigate (pose) ou éditer le rendez-vous
     app.querySelectorAll('.cal-event').forEach(el => {
       el.addEventListener('click', e => {
         if (e.target.classList.contains('dragging')) return;
         const id = el.dataset.id;
         if (el.dataset.type === 'pose') navigateTo('projet', { id });
+        else if (el.dataset.type === 'rdv') {
+          const rdv = (state.rendezVous || []).find(r => r.id === id);
+          if (rdv) openModalRdv({ rdv, onSaved: () => fetchRendezVous().then(rs => { state.rendezVous = rs; draw(); }).catch(() => {}) });
+        }
       });
     });
 
@@ -224,4 +248,8 @@ export function renderCalendar(app) {
   }
 
   draw();
+  // Charge les rendez-vous puis redessine (les poses s'affichent immédiatement).
+  (async () => {
+    try { state.rendezVous = await fetchRendezVous(); draw(); } catch (e) { /* poses seules si échec */ }
+  })();
 }
