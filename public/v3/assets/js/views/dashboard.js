@@ -7,6 +7,19 @@ import { icon, hydrateIcons } from '../core/lucide.js';
 
 function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 
+// Item 4 — client en tête des tâches : dérive le nom du client via Projet → Client.
+function clientNomForTache(f) {
+  const pid = (f.Projet || [])[0];
+  if (!pid) return '';
+  const p = (state.projets || []).find(x => x.id === pid);
+  const cid = p && (p.Client || [])[0];
+  return cid ? ((state.clients || []).find(x => x.id === cid)?.Nom || '') : '';
+}
+// Retire le préfixe « [Client] / » legacy du titre (le client est affiché à part).
+function stripClientPrefix(titre) {
+  return String(titre || '').replace(/^\[[^\]]*\]\s*\/\s*/, '');
+}
+
 // Map login système (lowercase, sans accents) → nom Airtable "Assignée à"
 const LOGIN_TO_ASSIGNEE = {
   'virginie':  'Virginie',
@@ -196,13 +209,16 @@ async function loadMesTaches(assigneeName) {
         const f = t.fields || {};
         const projetId = (f.Projet || [])[0];
         const label = URGENCE_LABEL[u.level](u.daysLeft);
+        const clientNom = clientNomForTache(f);
+        const titre = stripClientPrefix(f.Titre) || '?';
         // A11y v3.7 : <button> au lieu de <div> pour accessibilité clavier.
         // aria-hidden sur svg décoratifs car le texte adjacent suffit.
         return `
-          <button class="tache-urgence-item urgence-${u.level}" data-projet="${esc(projetId || '')}" aria-label="${esc((f.Titre || '?') + ' — ' + label)}">
+          <button class="tache-urgence-item urgence-${u.level}" data-projet="${esc(projetId || '')}" aria-label="${esc((clientNom ? clientNom + ' — ' : '') + titre + ' — ' + label)}">
             <span class="tache-urgence-dot" aria-hidden="true"></span>
             <div class="tache-urgence-content">
-              <div class="tache-urgence-titre">${esc(f.Titre || '?')}</div>
+              ${clientNom ? `<div class="tache-urgence-client" style="font-weight:700;font-size:12px">${esc(clientNom)}</div>` : ''}
+              <div class="tache-urgence-titre">${esc(titre)}</div>
               <div class="tache-urgence-meta">
                 ${f.Priorité ? `<span class="badge">${esc(f.Priorité)}</span>` : ''}
                 ${f.Échéance ? `<span><span aria-hidden="true">${icon('calendar', 11)}</span> ${esc(f.Échéance)}</span>` : ''}
