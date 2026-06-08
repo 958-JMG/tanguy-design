@@ -10,9 +10,10 @@ import {
   fetchArtisans, setProjetArtisans,
   importDevisClient, signDevisTanguy,
   importDevisArtisan, parsePlaud,
-  genererTacheFacturation, marquerEncaisse, createClient,
+  genererTacheFacturation, marquerEncaisse, createClient, fetchRendezVous,
 } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
+import { openModalRdv, renderRdvList, bindRdvList } from '../core/rdv.js';
 
 // === Stepper 12 étapes (porté v2) ===
 const STEPS = [
@@ -348,6 +349,15 @@ function renderFiche(app, data) {
             : `<div class="taches-list">${taches.map(t => renderTacheRow(t)).join('')}</div>`}
         </section>
 
+        <!-- Rendez-vous -->
+        <section class="projet-section" aria-label="Rendez-vous" data-section="rdv">
+          <div class="projet-section-header">
+            <h2>Rendez-vous</h2>
+            <button class="btn btn-primary btn-sm" id="btn-new-rdv">${icon('plus', 14)} Nouveau</button>
+          </div>
+          <div id="rdv-container"><div class="compact-empty"><span>Chargement…</span></div></div>
+        </section>
+
         <!-- Journal chantier (Sprint v3.8 — entrées supprimables individuellement) -->
         <section class="projet-section" aria-label="Journal chantier" data-section="journal">
           <div class="projet-section-header">
@@ -547,6 +557,24 @@ function renderFiche(app, data) {
   document.getElementById('btn-add-artisan')?.addEventListener('click', () => openModalAddArtisan(projet, artisans));
   document.getElementById('btn-import-devis-artisan')?.addEventListener('click', () => openModalImportDevisArtisan(projet, artisans));
   document.getElementById('btn-new-plaud')?.addEventListener('click', () => openModalPlaud(projet, client));
+
+  // Rendez-vous — bouton « Nouveau » + chargement async de la liste du projet
+  document.getElementById('btn-new-rdv')?.addEventListener('click', () => openModalRdv({
+    projetId: projet.id, clientId: client?.id,
+    contextLabel: `Projet ${pf.Référence || ''}${client?.fields?.Nom ? ' · ' + client.fields.Nom : ''}`,
+    onSaved: () => router(),
+  }));
+  (async () => {
+    try {
+      const all = await fetchRendezVous();
+      const rdvs = all.filter(r => (r.fields?.Projet || []).includes(projet.id));
+      const c = document.getElementById('rdv-container');
+      if (c) { c.innerHTML = renderRdvList(rdvs); hydrateIcons(c); bindRdvList(c, rdvs, () => router()); }
+    } catch (e) {
+      const c = document.getElementById('rdv-container');
+      if (c) c.innerHTML = `<div class="compact-empty"><span>Erreur chargement rendez-vous</span></div>`;
+    }
+  })();
 
   // Sprint v3.3 — bandeau next-actions : router les clics vers le bon handler
   app.querySelectorAll('[data-next-action-idx]').forEach(btn => {
