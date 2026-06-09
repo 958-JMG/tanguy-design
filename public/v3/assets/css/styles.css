@@ -357,6 +357,8 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   padding: 9px 12px; border: 1px solid var(--line2); border-radius: var(--r-sm);
   font-family: inherit; font-size: 14px; background: white;
 }
+/* Radios / cases à cocher : ne pas les étirer comme un champ texte (corrige la modale « Affecter un artisan »). */
+.modal input[type="radio"], .modal input[type="checkbox"] { display: inline-block; width: auto; margin: 0; flex: none; padding: 0; }
 .modal input:focus, .modal select:focus, .modal textarea:focus {
   outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent;
 }
