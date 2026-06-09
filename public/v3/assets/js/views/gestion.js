@@ -164,6 +164,7 @@ async function renderFacturation(body) {
             <td style="display:flex;gap:4px">
               ${f['Statut'] === 'Brouillon' ? `<button class="btn btn-ghost btn-sm" data-action="marquer-envoyee" data-id="${esc(f.id)}">${icon('mail', 12)} Envoyée</button>` : ''}
               ${!['Payée', 'Annulée'].includes(f['Statut']) && restant > 0 ? `<button class="btn btn-ghost btn-sm" data-action="encaisser" data-id="${esc(f.id)}" data-restant="${restant}">${icon('check', 12)} Encaisser</button>` : ''}
+              <button class="btn btn-ghost btn-sm" data-action="supprimer-fc" data-id="${esc(f.id)}" data-num="${esc(f['Numéro'] || '?')}" style="color:var(--accent)" title="Supprimer la facture">${icon('trash', 12)}</button>
             </td>
           </tr>`;
           }).join('')}
@@ -195,6 +196,15 @@ async function renderFacturation(body) {
       } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
     }));
     body.querySelectorAll('[data-action="encaisser"]').forEach(b => b.addEventListener('click', () => openModalEncaissement(b.dataset.id, Number(b.dataset.restant), () => renderFacturation(body))));
+    body.querySelectorAll('[data-action="supprimer-fc"]').forEach(b => b.addEventListener('click', async () => {
+      const ok = await confirmModal(`Supprimer définitivement la facture ${b.dataset.num} ? Cette action est irréversible.`, { okLabel: 'Supprimer', danger: true });
+      if (!ok) return;
+      try {
+        await api(`/api/data/factures-clients/${encodeURIComponent(b.dataset.id)}`, { method: 'DELETE' });
+        toast('Facture supprimée', 'success');
+        renderFacturation(body);
+      } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
+    }));
   } catch (err) {
     body.innerHTML = `<div class="card"><p class="muted">Erreur : ${esc(err.message)}</p></div>`;
   }
@@ -323,6 +333,7 @@ async function renderAchats(body) {
               ${FF_WORKFLOW[f['Statut']] ? `<button class="btn btn-ghost btn-sm" data-action="avancer-ff" data-id="${esc(f.id)}" data-next="${esc(FF_WORKFLOW[f['Statut']])}">${icon('arrowRight', 12)} ${esc(FF_WORKFLOW[f['Statut']])}</button>` : ''}
               ${!['Payée', 'Litige', 'Avoir demandé', 'Avoir reçu'].includes(f['Statut']) ? `<button class="btn btn-ghost btn-sm" data-action="litige-ff" data-id="${esc(f.id)}" style="color:var(--accent)" title="Déclarer un litige / demander un avoir">${icon('alert', 12)}</button>` : ''}
               ${f['Statut'] === 'Avoir demandé' ? `<button class="btn btn-ghost btn-sm" data-action="avoir-recu-ff" data-id="${esc(f.id)}">${icon('check', 12)} Avoir reçu</button>` : ''}
+              <button class="btn btn-ghost btn-sm" data-action="supprimer-ff" data-id="${esc(f.id)}" data-num="${esc(f['Numéro'] || '?')}" style="color:var(--accent)" title="Supprimer la facture">${icon('trash', 12)}</button>
             </td>
           </tr>`).join('')}
         </tbody>
@@ -363,6 +374,15 @@ async function renderAchats(body) {
         cb.checked = !cb.checked;
         toast('Erreur : ' + err.message, 'error', 5000);
       }
+    }));
+    body.querySelectorAll('[data-action="supprimer-ff"]').forEach(b => b.addEventListener('click', async () => {
+      const ok = await confirmModal(`Supprimer définitivement la facture fournisseur ${b.dataset.num} ? Cette action est irréversible.`, { okLabel: 'Supprimer', danger: true });
+      if (!ok) return;
+      try {
+        await api(`/api/data/factures-fournisseurs/${encodeURIComponent(b.dataset.id)}`, { method: 'DELETE' });
+        toast('Facture supprimée', 'success');
+        renderAchats(body);
+      } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
     }));
   } catch (err) {
     body.innerHTML = `<div class="card"><p class="muted">Erreur : ${esc(err.message)}</p></div>`;
