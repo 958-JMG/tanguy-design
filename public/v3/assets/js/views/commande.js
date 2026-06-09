@@ -80,7 +80,7 @@ function drawCommande(app, detail, html, cmdId) {
   document.getElementById('btn-edit-lignes').addEventListener('click', () => openLignesEditor(cmdId, lignes, () => renderCommande(app, cmdId)));
   document.getElementById('btn-pdf').addEventListener('click', () => doDownloadPdf(cmdId, cf));
   document.getElementById('btn-print').addEventListener('click', () => doPrint(html));
-  document.getElementById('btn-mail').addEventListener('click', () => doMail(commande, fournisseur));
+  document.getElementById('btn-mail').addEventListener('click', () => openModalRecapEnvoi(commande, fournisseur));
   document.getElementById('btn-delete').addEventListener('click', () => deleteCommande(cmdId, cf, projetId));
 }
 
@@ -148,7 +148,60 @@ function doPrint(html) {
 // Sprint v3.9 — Mail simplifié : juste un corps court d'accompagnement.
 // Le détail (tableau lignes, dimensions, modèle) est dans le PDF que JMG joint
 // manuellement à son client mail. Plus de tableau ASCII aplati par Gmail.
-function doMail(commande, fournisseur) {
+// #8 — Récap à valider avant l'envoi fournisseur : alertes d'écart + confirmation que
+// la commande correspond bien au bon de commande (le BC rendu est visible juste derrière).
+function openModalRecapEnvoi(commande, fournisseur) {
+  const cf = commande.fields || {};
+  const montant = cf['Montant HT'];
+  const fournNom = fournisseur?.fields?.Nom || '';
+  const fournEmail = fournisseur?.fields?.Email || '';
+  const eur = (n) => (n == null || isNaN(n)) ? '—' : Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  const alertes = [];
+  if (!fournNom) alertes.push("Aucun fournisseur rattaché — vérifie à qui envoyer.");
+  if (fournNom && !fournEmail) alertes.push("Le fournisseur n'a pas d'email — l'envoi ne sera pas pré-rempli.");
+  if (montant == null || isNaN(montant) || Number(montant) === 0) alertes.push("Montant HT vide ou à 0 — confirme qu'il correspond au BC.");
+  if (!cf['Référence courte']) alertes.push("Pas de référence courte (code fournisseur) — souvent attendue sur le BC.");
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-bg';
+  modal.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true">
+      <h2>Vérifier avant d'envoyer au fournisseur</h2>
+      <p class="muted" style="margin-top:0">Compare ce récap au bon de commande (affiché derrière) avant l'envoi.</p>
+      <div style="display:flex;flex-direction:column;gap:6px;margin:12px 0;font-size:14px">
+        <div><span class="muted">Commande&nbsp;:</span> <strong>${esc(cf.Numéro || '?')}</strong></div>
+        <div><span class="muted">Fournisseur&nbsp;:</span> <strong>${esc(fournNom || '— non rattaché —')}</strong></div>
+        <div><span class="muted">Référence courte&nbsp;:</span> <strong>${esc(cf['Référence courte'] || '—')}</strong></div>
+        <div><span class="muted">Montant HT&nbsp;:</span> <strong>${eur(montant)}</strong></div>
+        ${cf['Modèle choisi'] ? `<div><span class="muted">Modèle&nbsp;:</span> ${esc(String(cf['Modèle choisi']).split('\n')[0])}</div>` : ''}
+        ${cf['Livraison semaine'] ? `<div><span class="muted">Livraison&nbsp;:</span> ${esc(cf['Livraison semaine'])}</div>` : ''}
+      </div>
+      ${alertes.length
+        ? `<div style="border:1px solid var(--accent);border-radius:8px;padding:10px 12px;background:rgba(200,50,50,.06)">
+            <strong style="color:var(--accent)">${icon('alert', 14)} ${alertes.length} point(s) à vérifier</strong>
+            <ul style="margin:6px 0 0;padding-left:18px;font-size:13px">${alertes.map(a => `<li>${esc(a)}</li>`).join('')}</ul>
+          </div>`
+        : `<div class="muted" style="font-size:13px">${icon('check', 14)} Aucun écart évident détecté.</div>`}
+      <label style="display:flex;align-items:center;gap:8px;margin-top:14px;cursor:pointer">
+        <input type="checkbox" id="recap-ok"> <span>J'ai vérifié que cette commande correspond au bon de commande.</span>
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="recap-cancel">Annuler</button>
+        <button type="button" class="btn btn-primary" id="recap-send" disabled>Préparer le mail</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  hydrateIcons(modal);
+  const close = () => modal.remove();
+  modal.querySelector('#recap-cancel').onclick = close;
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  const send = modal.querySelector('#recap-send');
+  modal.querySelector('#recap-ok').addEventListener('change', e => { send.disabled = !e.target.checked; });
+  send.addEventListener('click', () => { close(); doMailSend(commande, fournisseur); });
+}
+
+function doMailSend(commande, fournisseur) {
   const cf = commande.fields || {};
   const email = fournisseur?.fields?.Email || '';
   const subject = `Commande ${cf.Numéro || ''}${cf.Contremarque ? ' — ' + cf.Contremarque : ''}`.trim();

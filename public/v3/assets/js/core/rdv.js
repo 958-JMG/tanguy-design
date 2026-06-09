@@ -103,26 +103,34 @@ export function openModalRdv({ rdv = null, projetId = null, clientId = null, con
 
 // Rendu d'une liste de RDV (sections projet / client). rdvs = records [{id, fields}].
 // Les items portent data-rdv-id pour binder l'édition (cf. bindRdvList).
+function rdvCard(r) {
+  const f = r.fields || {};
+  const annule = f.Statut === 'Annulé';
+  return `
+    <button class="card commande-card rdv-item" data-rdv-id="${esc(r.id)}" style="width:100%;text-align:left${annule ? ';opacity:.55' : ''}">
+      <div class="commande-head">
+        <div><strong>${esc(f.Objet || '(sans objet)')}</strong>
+          ${f.Type ? `<span class="badge" style="margin-left:6px">${esc(f.Type)}</span>` : ''}
+          ${f.Statut ? `<span class="badge" style="margin-left:4px">${esc(f.Statut)}</span>` : ''}
+        </div>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:4px">
+        ${f['Date et heure'] ? `${icon('calendar', 11)} ${esc(formatRdvDate(f['Date et heure']))}` : ''}${f.Lieu ? ` · ${esc(f.Lieu)}` : ''}${f['Assigné à'] ? ` · ${esc(f['Assigné à'])}` : ''}
+      </div>
+    </button>`;
+}
+
+// Agenda : « À venir » (chronologique) puis « Passés » (récents d'abord). #5 — passés ET futurs.
 export function renderRdvList(rdvs) {
   if (!rdvs || !rdvs.length) return `<div class="compact-empty"><span>Aucun rendez-vous planifié</span></div>`;
-  const sorted = rdvs.slice().sort((a, b) =>
-    String(a.fields?.['Date et heure'] || '').localeCompare(String(b.fields?.['Date et heure'] || '')));
-  return `<div class="commandes-list">${sorted.map(r => {
-    const f = r.fields || {};
-    const annule = f.Statut === 'Annulé';
-    return `
-      <button class="card commande-card rdv-item" data-rdv-id="${esc(r.id)}" style="width:100%;text-align:left${annule ? ';opacity:.55' : ''}">
-        <div class="commande-head">
-          <div><strong>${esc(f.Objet || '(sans objet)')}</strong>
-            ${f.Type ? `<span class="badge" style="margin-left:6px">${esc(f.Type)}</span>` : ''}
-            ${f.Statut ? `<span class="badge" style="margin-left:4px">${esc(f.Statut)}</span>` : ''}
-          </div>
-        </div>
-        <div class="muted" style="font-size:12px;margin-top:4px">
-          ${f['Date et heure'] ? `${icon('calendar', 11)} ${esc(formatRdvDate(f['Date et heure']))}` : ''}${f.Lieu ? ` · ${esc(f.Lieu)}` : ''}${f['Assigné à'] ? ` · ${esc(f['Assigné à'])}` : ''}
-        </div>
-      </button>`;
-  }).join('')}</div>`;
+  const now = Date.now();
+  const items = rdvs.map(r => ({ r, t: Date.parse(r.fields?.['Date et heure'] || '') || 0 }));
+  const avenir = items.filter(x => x.t >= now).sort((a, b) => a.t - b.t);
+  const passes = items.filter(x => x.t < now).sort((a, b) => b.t - a.t);
+  const grp = (label, arr) => arr.length
+    ? `<div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin:10px 0 6px">${label}</div><div class="commandes-list">${arr.map(x => rdvCard(x.r)).join('')}</div>`
+    : '';
+  return grp('À venir', avenir) + grp('Passés', passes);
 }
 
 // Binde les clics d'une liste RDV rendue par renderRdvList → ouvre la modale d'édition.
