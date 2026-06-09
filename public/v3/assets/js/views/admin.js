@@ -10,7 +10,7 @@ function esc(s) {
 }
 function euros(n) {
   if (n == null || isNaN(n)) return '—';
-  return Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
+  return Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 }
 
 export function renderAdmin(app) {

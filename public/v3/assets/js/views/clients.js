@@ -157,7 +157,7 @@ export async function renderClientDetail(app, clientId) {
         <div class="kpi-card"><div class="kpi-value">${archiStats.nbClients}</div><div class="kpi-label">Clients rattachés</div></div>
         <div class="kpi-card"><div class="kpi-value">${archiStats.nbChantiers}</div><div class="kpi-label">Chantiers (total)</div></div>
         <div class="kpi-card"><div class="kpi-value">${archiStats.nbChantiersActifs}</div><div class="kpi-label">Chantiers actifs</div></div>
-        <div class="kpi-card"><div class="kpi-value">${Number(archiStats.caCumule || 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €</div><div class="kpi-label">CA HT cumulé</div></div>
+        <div class="kpi-card"><div class="kpi-value">${Number(archiStats.caCumule || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div><div class="kpi-label">CA HT cumulé</div></div>
       </div>
 
       <div class="section-header">
@@ -173,7 +173,7 @@ export async function renderClientDetail(app, clientId) {
             <div class="projet-ref">${icon('user', 16)} ${esc(cf.Nom || '?')}</div>
             <div class="projet-meta">
               ${projetsDuClient.length ? `<span>${icon('folder', 12)} ${projetsDuClient.length} chantier${projetsDuClient.length>1?'s':''}</span>` : '<span class="muted">Pas encore de chantier</span>'}
-              ${caClient > 0 ? `<span><strong>${Number(caClient).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €</strong> HT</span>` : ''}
+              ${caClient > 0 ? `<span><strong>${Number(caClient).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</strong> HT</span>` : ''}
               ${cf.Téléphone ? `<span class="muted">${esc(cf.Téléphone)}</span>` : ''}
             </div>
           </button>`;
