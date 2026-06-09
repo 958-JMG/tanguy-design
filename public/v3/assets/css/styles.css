@@ -1954,3 +1954,11 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 @media (prefers-reduced-motion: reduce) {
   .help-panel-bg, .help-panel { transition: none !important; }
 }
+
+/* Vue globale Tâches — lien client·dossier dans le tableau */
+.taches-link {
+  background: none; border: none; padding: 0;
+  color: var(--ink2); text-decoration: underline; cursor: pointer;
+  font-size: inherit; text-align: left;
+}
+.taches-link:hover { color: var(--accent); }
