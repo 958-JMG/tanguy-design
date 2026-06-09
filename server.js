@@ -1595,9 +1595,11 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     await atCreateBatch(TABLES.taches.id, tachesFields);
 
     // 6. MAJ du statut devis + projet
+    // À la signature : Statut → Commandes ET Phase commerciale → Signé (P2 — la signature
+    // du devis force la phase commerciale, le pipeline ne doit pas rester sur Découverte/Dessin).
     await atPatch(TABLES.devis.id, devisId, { 'Statut': 'Signé' });
     if (projetId) {
-      try { await atPatch(TABLES.projets.id, projetId, { 'Statut': 'Commandes' }); } catch(e){}
+      try { await atPatch(TABLES.projets.id, projetId, { 'Statut': 'Commandes', 'Phase commerciale': 'Signé' }); } catch(e){}
     }
 
     res.json({
