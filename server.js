@@ -1714,6 +1714,15 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
       if (match) {
         resolvedArtisanId = match.id;
         logPII(`[artisan-devis/import] artisan matché: ${match.fields.Nom}`);
+      } else {
+        // #4 — Pas de match → CRÉER l'artisan. Sinon le devis n'est lié à personne,
+        // projet.Artisans reste vide et le compteur/calcul reste à 0 (bug signalé).
+        const artisanFields = { Nom: String(parsed.artisan.entreprise).trim() };
+        if (parsed.artisan?.email) artisanFields.Email = parsed.artisan.email;
+        if (parsed.artisan?.telephone) artisanFields['Téléphone'] = parsed.artisan.telephone;
+        const createdArtisan = await atCreate(TABLES.artisans.id, artisanFields);
+        resolvedArtisanId = createdArtisan.id;
+        logPII(`[artisan-devis/import] artisan CRÉÉ (non matché): ${artisanFields.Nom}`);
       }
     }
 
