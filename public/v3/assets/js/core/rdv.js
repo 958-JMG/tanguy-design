@@ -3,13 +3,42 @@
 
 import { icon, hydrateIcons } from './lucide.js';
 import { toast, confirmModal } from './ui.js';
-import { createRendezVous, patchRendezVous, deleteRendezVous } from './api.js';
+import { state } from './state.js';
+import { createRendezVous, patchRendezVous, deleteRendezVous, fetchClients } from './api.js';
 
-export const RDV_TYPES = ['Découverte', 'Métré', 'Présentation devis', 'Suivi chantier', 'Réception/Pose', 'SAV', 'Autre'];
+// Agenda v2 — « Réception » et « Pose » remplacent l'ancien type combiné « Réception/Pose »
+// (conservé en fin de liste pour l'affichage des RDV historiques). ⚠️ Si le champ Airtable
+// « Type » est un singleSelect, ces deux nouvelles options doivent exister côté base :
+// voir scripts/setup-agenda-v2-types.js (additif, à exécuter avant merge).
+export const RDV_TYPES = ['Découverte', 'Métré', 'Présentation devis', 'Suivi chantier', 'Réception', 'Pose', 'SAV', 'Autre'];
 const STATUTS = ['Planifié', 'Confirmé', 'Réalisé', 'Annulé'];
 const ASSIGNES = ['Virginie', 'Solène', 'Sébastien', 'Marine'];
 
 function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+
+// Slug statique pour la classe CSS de couleur d'un type de RDV (cf. styles.css .rtype-*).
+export function rdvTypeSlug(t) {
+  return 'rtype-' + String(t || 'autre').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+// Heuristique « journée entière » sans champ Airtable dédié : un RDV dont l'heure locale
+// est exactement 00:00 est considéré comme une journée entière (date sans heure).
+export function isAllDay(iso) {
+  if (!iso) return false;
+  const d = new Date(iso);
+  return d.getHours() === 0 && d.getMinutes() === 0;
+}
+
+// N° de semaine ISO-8601 (pour l'affichage des réceptions prévisionnelles « Sxx »).
+export function isoWeek(d) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  return Math.ceil((((t - yearStart) / 86400000) + 1) / 7);
+}
 
 function modalShell(title, content) {
   const modal = document.createElement('div');
@@ -32,11 +61,20 @@ function toLocalInput(iso) {
   } catch { return ''; }
 }
 
-// Formatage lisible FR d'une date/heure ISO.
+// Formatage lisible FR d'une date/heure ISO. Journée entière (00:00) → date seule, sans heure.
 export function formatRdvDate(iso) {
   if (!iso) return '';
-  try { return new Date(iso).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }); }
-  catch { return String(iso); }
+  try {
+    const opts = isAllDay(iso) ? { dateStyle: 'medium' } : { dateStyle: 'medium', timeStyle: 'short' };
+    return new Date(iso).toLocaleString('fr-FR', opts);
+  } catch { return String(iso); }
+}
+
+// Nom d'un client à partir de son id (state.clients), pour préremplir le sélecteur.
+function clientNameById(id) {
+  if (!id) return '';
+  const c = (state.clients || []).find(x => x.id === id);
+  return c ? (c.Nom || '') : '';
 }
 
 // Modale création / édition d'un RDV.
@@ -44,14 +82,39 @@ export function formatRdvDate(iso) {
 export function openModalRdv({ rdv = null, projetId = null, clientId = null, contextLabel = '', onSaved = null } = {}) {
   const f = rdv?.fields || {};
   const isNew = !rdv;
+
+  // Type : si la valeur historique (ex. « Réception/Pose ») n'est plus dans la liste active,
+  // on la conserve comme option pour ne pas la perdre à l'édition.
+  const typeOptions = f.Type && !RDV_TYPES.includes(f.Type) ? [f.Type, ...RDV_TYPES] : RDV_TYPES;
+
+  // Client : sélecteur recherchable (datalist). Prérempli depuis le contexte ou le RDV existant.
+  const initialClientId = (rdv ? f.Client?.[0] : clientId) || null;
+  const initialClientName = clientNameById(initialClientId);
+
+  // Journée entière (heuristique 00:00) : pilote le type de l'input date.
+  const hasDate = !!f['Date et heure'];
+  const journeeInit = hasDate && isAllDay(f['Date et heure']);
+  const dtFull = toLocalInput(f['Date et heure']);          // YYYY-MM-DDTHH:mm
+  const dtDay = dtFull.slice(0, 10);                         // YYYY-MM-DD
+
   const { modal, close } = modalShell(isNew ? 'Nouveau rendez-vous' : 'Éditer le rendez-vous', `
     <form id="form-rdv">
       ${contextLabel ? `<p class="muted" style="margin-top:0">${esc(contextLabel)}</p>` : ''}
-      <label>Objet <input name="Objet" value="${esc(f.Objet || '')}" required placeholder="Ex : Métré cuisine — ou un RDV imprévu…"></label>
-      <label>Date et heure <input name="Date et heure" type="datetime-local" value="${toLocalInput(f['Date et heure'])}" required></label>
+      <label>Client
+        <input name="__clientName" id="rdv-client" list="rdv-client-list" autocomplete="off"
+               value="${esc(initialClientName)}" placeholder="Rechercher un client…">
+        <datalist id="rdv-client-list">
+          ${(state.clients || []).map(c => `<option value="${esc(c.Nom || '')}"></option>`).join('')}
+        </datalist>
+      </label>
+      <label>Objet <span class="muted">(optionnel)</span>
+        <input name="Objet" value="${esc(f.Objet || '')}" placeholder="Ex : Métré cuisine — ou laisser vide">
+      </label>
+      <label class="rdv-allday"><input type="checkbox" name="__journee" id="rdv-journee" ${journeeInit ? 'checked' : ''}> Journée entière (sans heure)</label>
+      <label>Date${journeeInit ? '' : ' et heure'} <input name="Date et heure" id="rdv-date" type="${journeeInit ? 'date' : 'datetime-local'}" value="${journeeInit ? dtDay : dtFull}" required></label>
       <label>Type
         <select name="Type">
-          ${RDV_TYPES.map(v => `<option ${f.Type === v ? 'selected' : ''}>${v}</option>`).join('')}
+          ${typeOptions.map(v => `<option ${f.Type === v ? 'selected' : ''}>${v}</option>`).join('')}
         </select>
       </label>
       <label>Statut
@@ -75,6 +138,28 @@ export function openModalRdv({ rdv = null, projetId = null, clientId = null, con
     </form>
   `);
   hydrateIcons(modal);
+
+  // Si la liste clients n'est pas encore chargée, on la récupère et on remplit la datalist.
+  if (!(state.clients || []).length) {
+    fetchClients().then(() => {
+      const dl = modal.querySelector('#rdv-client-list');
+      if (dl) dl.innerHTML = (state.clients || []).map(c => `<option value="${esc(c.Nom || '')}"></option>`).join('');
+    }).catch(() => {});
+  }
+
+  // Toggle Journée entière → bascule l'input entre date et datetime-local en conservant la date.
+  const dateInput = modal.querySelector('#rdv-date');
+  modal.querySelector('#rdv-journee').addEventListener('change', e => {
+    const day = (dateInput.value || '').slice(0, 10);
+    if (e.target.checked) {
+      dateInput.type = 'date';
+      dateInput.value = day;
+    } else {
+      dateInput.type = 'datetime-local';
+      dateInput.value = day ? `${day}T09:00` : '';
+    }
+  });
+
   modal.querySelector('#rdv-cancel').onclick = close;
   modal.querySelector('#rdv-del')?.addEventListener('click', async () => {
     const ok = await confirmModal('Supprimer ce rendez-vous ?', { okLabel: 'Supprimer', danger: true });
@@ -85,13 +170,31 @@ export function openModalRdv({ rdv = null, projetId = null, clientId = null, con
   modal.querySelector('#form-rdv').addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const journee = fd.get('__journee') === 'on';
+    const clientName = String(fd.get('__clientName') || '').trim();
     const fields = {};
-    for (const [k, v] of fd.entries()) { if (v !== '') fields[k] = v; }
-    if (fields['Date et heure']) fields['Date et heure'] = new Date(fields['Date et heure']).toISOString();
-    if (isNew) {
-      if (projetId) fields.Projet = [projetId];
-      if (clientId) fields.Client = [clientId];
+    for (const [k, v] of fd.entries()) {
+      if (k === '__journee' || k === '__clientName') continue;   // champs auxiliaires UI
+      if (v !== '') fields[k] = v;
     }
+    // Date : journée entière → minuit local ; sinon datetime-local complet.
+    const rawDate = fields['Date et heure'];
+    if (rawDate) {
+      if (journee) {
+        const [y, m, d] = rawDate.slice(0, 10).split('-').map(Number);
+        fields['Date et heure'] = new Date(y, m - 1, d, 0, 0, 0).toISOString();
+      } else {
+        fields['Date et heure'] = new Date(rawDate).toISOString();
+      }
+    }
+    // Résolution du client saisi → id (match exact sur le Nom, insensible à la casse).
+    let resolvedClientId = null;
+    if (clientName) {
+      const c = (state.clients || []).find(x => (x.Nom || '').toLowerCase() === clientName.toLowerCase());
+      if (c) resolvedClientId = c.id;
+    }
+    if (resolvedClientId) fields.Client = [resolvedClientId];
+    if (isNew && projetId) fields.Projet = [projetId];
     try {
       if (isNew) await createRendezVous(fields); else await patchRendezVous(rdv.id, fields);
       close();
