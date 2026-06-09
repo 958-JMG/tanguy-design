@@ -87,11 +87,23 @@ export async function renderDashboard(app) {
   });
   const enCoursNb = enCours.length || projets.filter(p => p['Phase commerciale'] === 'Signé').length;
 
-  const caTotal = projets.reduce((sum, p) => sum + (p['Budget HT'] || 0), 0);
+  // CA aligné avec le Pipeline (cohérence CA ↔ Pipeline) :
+  // - on exclut les projets archivés (comme le fait la vue Pipeline) ;
+  // - « CA signé » = Σ Budget HT des projets en phase Signé = CA réellement engagé.
+  //   Le Pipeline affiche le complément (Σ Budget HT des projets NON signés), donc
+  //   CA signé + CA pipeline = total prévisionnel, sans double comptage.
+  // Avant : « CA cumul prévi » sommait TOUS les projets (signés + prospects + archivés),
+  // ce qui mélangeait engagé et prévisionnel — d'où le « ~20k » dominé par les dossiers signés.
+  const phaseDe = p => p['Phase commerciale'] || mapLegacyStatut(p.Statut);
+  const projetsActifs = projets.filter(p => (p['Statut chantier'] || '') !== 'Archivé');
+  const caSigne = projetsActifs
+    .filter(p => phaseDe(p) === 'Signé')
+    .reduce((sum, p) => sum + (p['Budget HT'] || 0), 0);
 
   // Marge prévisionnelle peut être stockée en décimal (0.25) ou pourcent entier (25)
   // selon comment elle est saisie côté Airtable. On normalise sur 0-1 avant de multiplier par 100.
-  const margesValides = projets.map(p => p['Marge prévisionnelle']).filter(m => m != null && !isNaN(m));
+  // Calculée sur les projets actifs (archivés exclus, cohérent avec le CA ci-dessus).
+  const margesValides = projetsActifs.map(p => p['Marge prévisionnelle']).filter(m => m != null && !isNaN(m));
   const margeAvgRaw = margesValides.length
     ? margesValides.reduce((sum, m) => sum + m, 0) / margesValides.length
     : 0;
@@ -131,8 +143,8 @@ export async function renderDashboard(app) {
         <div class="kpi-label">Projets en cours</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-value">${euros(caTotal)}</div>
-        <div class="kpi-label">CA cumul prévi</div>
+        <div class="kpi-value">${euros(caSigne)}</div>
+        <div class="kpi-label">CA signé (HT)</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-value">${margesValides.length ? margeAvgPct.toFixed(1) + ' %' : '—'}</div>
