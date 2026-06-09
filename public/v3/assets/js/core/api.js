@@ -203,16 +203,21 @@ export async function importDevisArtisan({ file, projetId, artisanId = null }) {
 
 // Sprint v3.6 — Marque une échéance comme Encaissé (paiement reçu).
 // Action manuelle déclenchée après que la facture a été envoyée et que le client a payé.
-export async function marquerEncaisse(echeanceId) {
+export async function marquerEncaisse(echeanceId, mode = null) {
+  const fields = {
+    'Statut': 'Encaissé',
+    'Date règlement': new Date().toISOString().slice(0, 10),
+  };
+  if (mode) fields['Mode règlement'] = mode; // Virement / Chèque / Espèces / CB (#7)
   return api(`/api/data/echeances-devis/${encodeURIComponent(echeanceId)}`, {
     method: 'PATCH',
-    body: JSON.stringify({
-      fields: {
-        'Statut': 'Encaissé',
-        'Date règlement': new Date().toISOString().slice(0, 10),
-      },
-    }),
+    body: JSON.stringify({ fields }),
   });
+}
+
+// Crée un artisan (POST ouvert à tous via ACL, Lot B #3). Renvoie { ok, record }.
+export async function createArtisan(fields) {
+  return api('/api/data/artisans', { method: 'POST', body: JSON.stringify({ fields }) });
 }
 
 // Sprint v3.5 — Crée une tâche de facturation pour Virginie liée à une échéance.

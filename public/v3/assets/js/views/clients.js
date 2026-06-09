@@ -142,6 +142,7 @@ export async function renderClientDetail(app, clientId) {
           ${c.Téléphone ? `<div class="kv">${icon('phone', 16)} ${esc(c.Téléphone)}</div>` : ''}
           ${c.Email ? `<div class="kv">${icon('mail', 16)} <a href="mailto:${esc(c.Email)}">${esc(c.Email)}</a></div>` : ''}
           ${c.Adresse ? `<div class="kv">${icon('mapPin', 16)} <span style="white-space:pre-line">${esc(c.Adresse)}</span></div>` : ''}
+          ${(c.CP || c.Ville) ? `<div class="kv" style="padding-left:24px">${esc([c.CP, c.Ville].filter(Boolean).join(' '))}</div>` : ''}
         </div>
         ${c.Notes ? `
         <div class="card">
@@ -335,7 +336,11 @@ function openModalNouveauClient() {
         </label>
         <label>Téléphone <input name="Téléphone" placeholder="06..."></label>
         <label>Email <input name="Email" type="email" placeholder="...@..."></label>
-        <label>Adresse <textarea name="Adresse" rows="2" placeholder="Rue, CP Ville"></textarea></label>
+        <label>Adresse <textarea name="Adresse" rows="2" placeholder="N° et voie"></textarea></label>
+        <div style="display:flex;gap:10px">
+          <label style="flex:0 0 120px">Code postal <input name="CP" placeholder="56000" inputmode="numeric"></label>
+          <label style="flex:1">Ville <input name="Ville" placeholder="Vannes"></label>
+        </div>
         <label>Source
           <input name="Source" placeholder="ex : Bouche à oreille, Site web, Salon...">
         </label>
@@ -404,6 +409,10 @@ function openModalEditClient(clientRecord) {
         <label>Adresse
           <textarea name="Adresse" rows="2">${esc(c.Adresse || '')}</textarea>
         </label>
+        <div style="display:flex;gap:10px">
+          <label style="flex:0 0 120px">Code postal <input name="CP" value="${esc(c.CP || '')}" inputmode="numeric"></label>
+          <label style="flex:1">Ville <input name="Ville" value="${esc(c.Ville || '')}"></label>
+        </div>
         <label>Source
           <input name="Source" value="${esc(c.Source || '')}" placeholder="ex : Bouche à oreille, Site web…">
         </label>
