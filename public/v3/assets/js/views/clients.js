@@ -344,6 +344,16 @@ function openModalNouveauClient() {
         <label>Source
           <input name="Source" placeholder="ex : Bouche à oreille, Site web, Salon...">
         </label>
+        <label>Apporteur d'affaires (rétro 3 %)
+          <select name="Apporteur">
+            <option value="" selected>— Aucun —</option>
+            <option>Virginie</option>
+            <option>Solène</option>
+            <option>Sébastien</option>
+            <option>Marine</option>
+            <option>Externe</option>
+          </select>
+        </label>
         <label>Notes <textarea name="Notes" rows="3" placeholder="Préférences, contexte, infos utiles"></textarea></label>
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" id="cancel-new-client">Annuler</button>
@@ -416,6 +426,16 @@ function openModalEditClient(clientRecord) {
         <label>Source
           <input name="Source" value="${esc(c.Source || '')}" placeholder="ex : Bouche à oreille, Site web…">
         </label>
+        <label>Apporteur d'affaires (rétro 3 %)
+          <select name="Apporteur">
+            <option value="" ${!c.Apporteur ? 'selected' : ''}>— Aucun —</option>
+            <option ${c.Apporteur === 'Virginie' ? 'selected' : ''}>Virginie</option>
+            <option ${c.Apporteur === 'Solène' ? 'selected' : ''}>Solène</option>
+            <option ${c.Apporteur === 'Sébastien' ? 'selected' : ''}>Sébastien</option>
+            <option ${c.Apporteur === 'Marine' ? 'selected' : ''}>Marine</option>
+            <option ${c.Apporteur === 'Externe' ? 'selected' : ''}>Externe</option>
+          </select>
+        </label>
         <label>Notes
           <textarea name="Notes" rows="3">${esc(c.Notes || '')}</textarea>
         </label>
@@ -440,6 +460,9 @@ function openModalEditClient(clientRecord) {
     for (const [k, v] of fd.entries()) {
       fields[k] = v || ''; // garder les chaînes vides pour effacer un champ
     }
+    // Apporteur est un singleSelect : Airtable refuse la chaîne vide (option ""),
+    // il faut envoyer null pour effacer la sélection.
+    if (fields['Apporteur'] === '') fields['Apporteur'] = null;
     try {
       await patchClient(clientRecord.id, fields);
       await fetchClients();
