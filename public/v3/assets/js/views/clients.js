@@ -1,10 +1,11 @@
 // Vue Clients v3 — liste + fiche détaillée (cœur du pivot client-centric, Sprint 1)
 
 import { state } from '../core/state.js';
-import { fetchClient, fetchClients, createProjetForClient, patchClient, createClient } from '../core/api.js';
+import { fetchClient, fetchClients, createProjetForClient, patchClient, createClient, fetchRendezVous } from '../core/api.js';
 import { navigateTo, router } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
 import { toast, confirmModal } from '../core/ui.js';
+import { openModalRdv, renderRdvList, bindRdvList } from '../core/rdv.js';
 
 const TYPE_ICONS = {
   'Particulier':   'user',
@@ -221,10 +222,31 @@ export async function renderClientDetail(app, clientId) {
             </details>`
           : ''}
       </div>
+
+      <div class="section-header" style="margin-top:24px">
+        <h2 class="section-title">Rendez-vous</h2>
+        <button class="btn btn-primary" id="btn-new-rdv-client">${icon('plus', 16)} Nouveau RDV</button>
+      </div>
+      <div id="rdv-container-client"><div class="card"><p class="muted">Chargement…</p></div></div>
     `;
 
     document.getElementById('btn-new-projet').addEventListener('click', () => openModalNouveauProjet(clientId));
     document.getElementById('btn-edit-client').addEventListener('click', () => openModalEditClient(data.client));
+    document.getElementById('btn-new-rdv-client')?.addEventListener('click', () => openModalRdv({
+      clientId, contextLabel: `Client ${c.Nom || ''}`,
+      onSaved: () => renderClientDetail(app, clientId),
+    }));
+    (async () => {
+      try {
+        const all = await fetchRendezVous();
+        const rdvs = all.filter(r => (r.fields?.Client || []).includes(clientId));
+        const cc = document.getElementById('rdv-container-client');
+        if (cc) { cc.innerHTML = renderRdvList(rdvs); hydrateIcons(cc); bindRdvList(cc, rdvs, () => renderClientDetail(app, clientId)); }
+      } catch (e) {
+        const cc = document.getElementById('rdv-container-client');
+        if (cc) cc.innerHTML = `<div class="card"><p class="muted">Erreur chargement rendez-vous</p></div>`;
+      }
+    })();
     hydrateIcons(app);
   } catch (e) {
     app.innerHTML = `<div class="card"><h2>Erreur</h2><p class="muted">${esc(e.message)}</p></div>`;

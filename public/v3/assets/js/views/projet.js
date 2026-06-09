@@ -10,9 +10,10 @@ import {
   fetchArtisans, setProjetArtisans,
   importDevisClient, signDevisTanguy,
   importDevisArtisan, parsePlaud,
-  genererTacheFacturation, marquerEncaisse,
+  genererTacheFacturation, marquerEncaisse, createClient, fetchRendezVous,
 } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
+import { openModalRdv, renderRdvList, bindRdvList } from '../core/rdv.js';
 
 // === Stepper 12 étapes (porté v2) ===
 const STEPS = [
@@ -231,6 +232,8 @@ function renderFiche(app, data) {
   const pf = projet.fields || {};
   const phase = pf['Phase commerciale'] || pf.Statut || '—';
   const chantier = pf['Statut chantier'] || '';
+  const archId = (pf.Architecte || [])[0];
+  const archName = archId ? ((state.clients || []).find(c => c.id === archId)?.Nom || '') : '';
   const stepper = computeParcours(projet, taches, devis, commandes, echeances);
 
   // L'endpoint /api/projets/:id renvoie TOUS les artisans de la base (utile pour le mapping ID → nom
@@ -276,6 +279,10 @@ function renderFiche(app, data) {
             : `<button class="btn btn-ghost btn-sm" id="btn-archive" aria-label="Archiver">${icon('archive', 14)} Archiver</button>`}
         </div>
       </div>
+      ${(pf['Type de projet'] || archName) ? `<div class="projet-submeta muted" style="font-size:13px;margin-top:4px;display:flex;gap:16px;flex-wrap:wrap">
+        ${pf['Type de projet'] ? `<span>${esc(pf['Type de projet'])}</span>` : ''}
+        ${archName ? `<span>${icon('landmark', 12)} Architecte : ${esc(archName)}</span>` : ''}
+      </div>` : ''}
 
       <!-- Stepper chips horizontaux compactés -->
       <ol class="stepper-chips" aria-label="Parcours chantier">
@@ -343,6 +350,15 @@ function renderFiche(app, data) {
           ${taches.length === 0
             ? `<div class="compact-empty"><span>Aucune tâche</span></div>`
             : `<div class="taches-list">${taches.map(t => renderTacheRow(t)).join('')}</div>`}
+        </section>
+
+        <!-- Rendez-vous -->
+        <section class="projet-section" aria-label="Rendez-vous" data-section="rdv">
+          <div class="projet-section-header">
+            <h2>Rendez-vous</h2>
+            <button class="btn btn-primary btn-sm" id="btn-new-rdv">${icon('plus', 14)} Nouveau</button>
+          </div>
+          <div id="rdv-container"><div class="compact-empty"><span>Chargement…</span></div></div>
         </section>
 
         <!-- Journal chantier (Sprint v3.8 — entrées supprimables individuellement) -->
@@ -559,6 +575,24 @@ function renderFiche(app, data) {
   document.getElementById('btn-add-artisan')?.addEventListener('click', () => openModalAddArtisan(projet, artisans));
   document.getElementById('btn-import-devis-artisan')?.addEventListener('click', () => openModalImportDevisArtisan(projet, artisans));
   document.getElementById('btn-new-plaud')?.addEventListener('click', () => openModalPlaud(projet, client));
+
+  // Rendez-vous — bouton « Nouveau » + chargement async de la liste du projet
+  document.getElementById('btn-new-rdv')?.addEventListener('click', () => openModalRdv({
+    projetId: projet.id, clientId: client?.id,
+    contextLabel: `Projet ${pf.Référence || ''}${client?.fields?.Nom ? ' · ' + client.fields.Nom : ''}`,
+    onSaved: () => router(),
+  }));
+  (async () => {
+    try {
+      const all = await fetchRendezVous();
+      const rdvs = all.filter(r => (r.fields?.Projet || []).includes(projet.id));
+      const c = document.getElementById('rdv-container');
+      if (c) { c.innerHTML = renderRdvList(rdvs); hydrateIcons(c); bindRdvList(c, rdvs, () => router()); }
+    } catch (e) {
+      const c = document.getElementById('rdv-container');
+      if (c) c.innerHTML = `<div class="compact-empty"><span>Erreur chargement rendez-vous</span></div>`;
+    }
+  })();
 
   // Sprint v3.3 — bandeau next-actions : router les clics vers le bon handler
   app.querySelectorAll('[data-next-action-idx]').forEach(btn => {
@@ -849,6 +883,8 @@ function modalShell(title, content) {
 
 function openModalEditProjet(projet) {
   const p = projet.fields || {};
+  const architectes = (state.clients || []).filter(c => c.Type === 'Architecte');
+  const archSel = (p.Architecte || [])[0] || '';
   const { modal, close } = modalShell('Éditer projet', `
     <form id="form-edit-projet">
       <label>Référence <input name="Référence" value="${esc(p.Référence || '')}" required></label>
@@ -861,6 +897,19 @@ function openModalEditProjet(projet) {
         <select name="Statut chantier">
           <option value="">—</option>
           ${['Pré-pose','Pose en cours','Terminé','SAV','Archivé'].map(v => `<option ${p['Statut chantier'] === v ? 'selected' : ''}>${v}</option>`).join('')}
+        </select>
+      </label>
+      <label>Type de projet
+        <select name="Type de projet">
+          <option value="">—</option>
+          ${['Construction neuve','Rénovation','Extension','Aménagement','Autre'].map(v => `<option ${p['Type de projet'] === v ? 'selected' : ''}>${v}</option>`).join('')}
+        </select>
+      </label>
+      <label>Architecte
+        <select name="Architecte">
+          <option value="">— Aucun —</option>
+          ${architectes.map(a => `<option value="${esc(a.id)}" ${archSel === a.id ? 'selected' : ''}>${esc(a.Nom || '(sans nom)')}</option>`).join('')}
+          <option value="__new__">＋ Créer un architecte…</option>
         </select>
       </label>
       <label>Budget HT (€) <input name="Budget HT" type="number" step="0.01" value="${p['Budget HT'] || ''}"></label>
@@ -879,9 +928,25 @@ function openModalEditProjet(projet) {
     const fd = new FormData(e.target);
     const fields = {};
     for (const [k, v] of fd.entries()) {
+      if (k === 'Architecte') continue; // champ lien — traité à part (peut créer un architecte)
       if (v === '' && k !== 'Statut chantier') continue;
       fields[k] = k === 'Budget HT' ? Number(v) : v;
     }
+    // Architecte = champ lien Airtable (tableau d'ids). « __new__ » = créer un client Architecte à la volée.
+    let archVal = fd.get('Architecte');
+    if (archVal === '__new__') {
+      const nom = (prompt("Nom de l'architecte à créer :") || '').trim();
+      if (nom) {
+        try {
+          const created = await createClient({ Nom: nom, Type: 'Architecte' });
+          archVal = created.id;
+          if (state.clients) state.clients.push({ id: created.id, Nom: nom, Type: 'Architecte' });
+        } catch (err) { toast('Erreur création architecte : ' + err.message, 'error', 5000); return; }
+      } else {
+        archVal = null; // annulé → on ne touche pas à l'architecte
+      }
+    }
+    if (archVal !== null) fields['Architecte'] = archVal ? [archVal] : [];
     try { await patchProjet(projet.id, fields); close(); toast('Projet enregistré', 'success'); router(); }
     catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
   });

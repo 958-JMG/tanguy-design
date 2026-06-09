@@ -84,6 +84,21 @@ export async function deleteTache(tacheId) {
   return api(`/api/data/taches/${tacheId}`, { method: 'DELETE' });
 }
 
+// === Rendez-vous (CRUD via /api/data/rendez-vous) ===
+export async function fetchRendezVous() {
+  const d = await api('/api/data/rendez-vous');
+  return d.records || [];
+}
+export async function createRendezVous(fields) {
+  return api('/api/data/rendez-vous', { method: 'POST', body: JSON.stringify({ fields }) });
+}
+export async function patchRendezVous(id, fields) {
+  return api(`/api/data/rendez-vous/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ fields }) });
+}
+export async function deleteRendezVous(id) {
+  return api(`/api/data/rendez-vous/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 export async function appendJournalEntry(projetId, text) {
   // Server attend `text`, l'auteur est dérivé de req.session.user côté back.
   return api(`/api/projets/${projetId}/journal`, {

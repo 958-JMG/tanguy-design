@@ -19,6 +19,7 @@ const TABLE_ACL = {
   'reunions-plaud':    { GET: '*',     POST: '*',     PATCH: '*',     DELETE: 'admin' },
   sav:                 { GET: '*',     POST: '*',     PATCH: '*',     DELETE: 'admin' },
   'fiches-decouverte': { GET: '*',     POST: '*',     PATCH: '*',     DELETE: 'admin' },
+  'rendez-vous':       { GET: '*',     POST: '*',     PATCH: '*',     DELETE: '*'     },
 
   artisans:            { GET: '*',     POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
   fournisseurs:        { GET: '*',     POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
@@ -47,11 +48,12 @@ const TABLE_ACL = {
 
 const FIELD_WHITELIST = {
   clients:             ['Nom', 'Type', 'Source', 'Email', 'Téléphone', 'Adresse', 'Contact', 'Notes', 'Date contact', 'Date création', 'Architecte référent'],
-  projets:             ['Référence', 'Client', 'Statut', 'Phase commerciale', 'Statut chantier', 'Budget HT', 'Marge prévisionnelle', 'Date découverte', 'Date pose prévue', 'Date pose fin', 'Description', 'Journal chantier', 'Artisans'],
+  projets:             ['Référence', 'Client', 'Statut', 'Phase commerciale', 'Statut chantier', 'Budget HT', 'Marge prévisionnelle', 'Date découverte', 'Date pose prévue', 'Date pose fin', 'Description', 'Journal chantier', 'Artisans', 'Type de projet', 'Architecte'],
   taches:              ['Titre', 'Statut', 'Assignée à', 'Priorité', 'Échéance', 'Description', 'Projet', 'Type'],
   'reunions-plaud':    ['Titre', 'Date heure', 'Lieu', 'Client nom', 'Type réunion', 'Niveau', 'Synthèse', 'Contexte', 'Points de douleur', 'Attentes', 'Autres informations', 'Tâches identifiées', 'Transcription', 'Projet'],
   sav:                 ['Titre', 'Description', 'Statut', 'Priorité', 'Date', 'Projet', 'Client'],
   'fiches-decouverte': ['Titre', 'Date', 'Client', 'Projet', 'Notes'],
+  'rendez-vous':       ['Objet', 'Date et heure', 'Type', 'Statut', 'Client', 'Projet', 'Lieu', 'Assigné à', 'Notes'],
   artisans:            ['Nom', 'Contractuel', 'Téléphone', 'Email', 'Spécialité', 'Notes'],
   fournisseurs:        ['Nom', 'Famille', 'Email', 'Téléphone', 'Adresse', 'Notes'],
   'devis-artisans':    ['Numéro devis', 'Statut', 'Montant HT', 'Montant TTC', 'Rétro-commission HT', 'Notes', 'Projet', 'Artisan', 'Date devis', 'Description travaux', 'Adresse chantier', 'Date démarrage prévue'],

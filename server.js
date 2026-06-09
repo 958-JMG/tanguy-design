@@ -54,6 +54,7 @@ const TABLES = {
   taches:          { id: 'tblDwUHL16LBVMSaz', name: 'Tâches' },
   sav:             { id: 'tbl8ErWw6zhXLfCII', name: 'SAV' },
   'fiches-decouverte': { id: 'tblU5trwFCofUQcQY', name: 'Fiches découverte' },
+  'rendez-vous':   { id: 'tbli7Rdwv7J3XY3dU', name: 'Rendez-vous' },
   'reunions-plaud':    { id: 'tblWYGr3ETRWxrE63', name: 'Réunions Plaud' },
   devis:           { id: 'tblWklGEKMiBStXCs', name: 'Devis' },
   'zones-devis':   { id: 'tbl6FmEIIR15NMsgZ', name: 'Zones devis' },
