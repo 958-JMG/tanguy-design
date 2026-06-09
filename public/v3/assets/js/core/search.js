@@ -5,7 +5,7 @@ import { state } from './state.js';
 import { navigateTo } from './router.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const euros = n => (n == null || isNaN(n)) ? '' : Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
+const euros = n => (n == null || isNaN(n)) ? '' : Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 
 let modal = null;
 let results = [];

@@ -23,6 +23,11 @@ function clientNomForTache(f) {
   }
   return parsePrefixClient(f.Titre); // repli : préfixe [Client] dans le titre
 }
+// #1 — Dossier = référence du projet lié (le « numéro de dossier » métier).
+function dossierForTache(f) {
+  const pid = (f.Projet || [])[0];
+  return pid ? ((state.projets || []).find(x => x.id === pid)?.Référence || '') : '';
+}
 // Retire le préfixe « [Client] » ou « [Client] / » du titre (le client est affiché à part).
 function stripClientPrefix(titre) {
   return String(titre || '').replace(/^\[[^\]]+\]\s*\/?\s*/, '');
@@ -67,7 +72,7 @@ const PHASES = [
   { key: 'Signé',               icon: 'check',   pct: 100 },
 ];
 
-const euros = n => (n == null || isNaN(n)) ? '—' : Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
+const euros = n => (n == null || isNaN(n)) ? '—' : Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 
 export async function renderDashboard(app) {
   const clients = state.clients || [];
@@ -218,14 +223,16 @@ async function loadMesTaches(assigneeName) {
         const projetId = (f.Projet || [])[0];
         const label = URGENCE_LABEL[u.level](u.daysLeft);
         const clientNom = clientNomForTache(f);
+        const dossier = dossierForTache(f);
+        const tete = [clientNom, dossier].filter(Boolean).join(' · ');
         const titre = stripClientPrefix(f.Titre) || '?';
         // A11y v3.7 : <button> au lieu de <div> pour accessibilité clavier.
         // aria-hidden sur svg décoratifs car le texte adjacent suffit.
         return `
-          <button class="tache-urgence-item urgence-${u.level}" data-projet="${esc(projetId || '')}" aria-label="${esc((clientNom ? clientNom + ' — ' : '') + titre + ' — ' + label)}">
+          <button class="tache-urgence-item urgence-${u.level}" data-projet="${esc(projetId || '')}" aria-label="${esc((tete ? tete + ' — ' : '') + titre + ' — ' + label)}">
             <span class="tache-urgence-dot" aria-hidden="true"></span>
             <div class="tache-urgence-content">
-              ${clientNom ? `<div class="tache-urgence-client" style="font-weight:700;font-size:12px">${esc(clientNom)}</div>` : ''}
+              ${tete ? `<div class="tache-urgence-client" style="font-weight:700;font-size:12px">${esc(tete)}</div>` : ''}
               <div class="tache-urgence-titre">${esc(titre)}</div>
               <div class="tache-urgence-meta">
                 ${f.Priorité ? `<span class="badge">${esc(f.Priorité)}</span>` : ''}

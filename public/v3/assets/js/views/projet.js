@@ -49,7 +49,7 @@ function fixMojibake(s) {
 }
 function euros(n) {
   if (n == null || isNaN(n)) return '—';
-  return Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
+  return Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 }
 
 // Sprint v3.3 — calcule 3 à 5 actions prioritaires selon la phase du projet.
