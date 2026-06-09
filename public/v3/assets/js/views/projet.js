@@ -10,7 +10,7 @@ import {
   fetchArtisans, setProjetArtisans,
   importDevisClient, signDevisTanguy,
   importDevisArtisan, parsePlaud,
-  genererTacheFacturation, marquerEncaisse, createClient, fetchRendezVous,
+  genererTacheFacturation, marquerEncaisse, createClient, createArtisan, fetchRendezVous,
 } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 import { openModalRdv, renderRdvList, bindRdvList } from '../core/rdv.js';
@@ -686,22 +686,9 @@ function renderFiche(app, data) {
 
   // Sprint v3.6 — Marquer encaissée (action manuelle quand le client a payé)
   app.querySelectorAll('[data-action="encaisser"]').forEach(btn => {
-    btn.addEventListener('click', async e => {
+    btn.addEventListener('click', e => {
       e.preventDefault();
-      const echeanceId = btn.dataset.echeance;
-      const ok = await confirmModal('Confirmer que le client a réglé cette facture ?', { okLabel: 'Marquer encaissée' });
-      if (!ok) return;
-      btn.disabled = true;
-      btn.innerHTML = 'Enregistrement…';
-      try {
-        await marquerEncaisse(echeanceId);
-        toast('Facture marquée encaissée', 'success');
-        router();
-      } catch (err) {
-        toast('Erreur : ' + err.message, 'error', 5000);
-        btn.disabled = false;
-        btn.innerHTML = `${icon('check', 12)} Marquer encaissée`;
-      }
+      openModalEncaisser(btn.dataset.echeance);
     });
   });
 
@@ -1210,6 +1197,38 @@ function openModalImportDevis(projet, devisExistants) {
 }
 
 // Affecter un artisan : sélection depuis liste complète (hors déjà affectés).
+// #7 — Modale d'encaissement : choisir le mode de règlement (Virement/Chèque/Espèces/CB).
+function openModalEncaisser(echeanceId) {
+  const { modal, close } = modalShell('Marquer la facture encaissée', `
+    <form id="form-encaisser">
+      <p class="muted" style="margin-top:0">Confirme le règlement reçu et son mode.</p>
+      <label>Mode de règlement
+        <select name="mode" required>
+          <option value="Virement">Virement</option>
+          <option value="Chèque">Chèque</option>
+          <option value="Espèces">Espèces</option>
+          <option value="CB">CB</option>
+        </select>
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="enc-cancel">Annuler</button>
+        <button type="submit" class="btn btn-primary">Marquer encaissée</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('enc-cancel').onclick = close;
+  document.getElementById('form-encaisser').addEventListener('submit', async e => {
+    e.preventDefault();
+    const mode = new FormData(e.target).get('mode');
+    try {
+      await marquerEncaisse(echeanceId, mode);
+      close();
+      toast(`Facture encaissée (${mode})`, 'success');
+      router();
+    } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
+  });
+}
+
 async function openModalAddArtisan(projet, artisansCourants) {
   const { modal, close } = modalShell('Affecter un artisan', `
     <form id="form-add-artisan">
@@ -1217,6 +1236,7 @@ async function openModalAddArtisan(projet, artisansCourants) {
       <div id="artisans-list" style="max-height:300px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;padding:8px">
         <p class="muted">Chargement…</p>
       </div>
+      <button type="button" class="btn btn-ghost btn-sm" id="btn-new-artisan" style="margin-top:8px">${icon('plus', 12)} Nouvel artisan</button>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="cancel">Annuler</button>
         <button type="submit" class="btn btn-primary" id="submit-btn" disabled>Affecter</button>
@@ -1224,6 +1244,20 @@ async function openModalAddArtisan(projet, artisansCourants) {
     </form>
   `);
   document.getElementById('cancel').onclick = close;
+
+  // #3 — Créer un artisan à la volée puis l'affecter directement au projet.
+  document.getElementById('btn-new-artisan')?.addEventListener('click', async () => {
+    const nom = (prompt("Nom du nouvel artisan / entreprise :") || '').trim();
+    if (!nom) return;
+    try {
+      const created = await createArtisan({ Nom: nom });
+      const newId = created.record?.id || created.id;
+      await setProjetArtisans(projet.id, [...artisansCourants.map(a => a.id), newId]);
+      close();
+      toast(`Artisan « ${nom} » créé et affecté`, 'success');
+      router();
+    } catch (err) { toast('Erreur création artisan : ' + err.message, 'error', 5000); }
+  });
 
   // Charge la liste des artisans
   let selectedId = null;

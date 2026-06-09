@@ -21,7 +21,7 @@ const TABLE_ACL = {
   'fiches-decouverte': { GET: '*',     POST: '*',     PATCH: '*',     DELETE: 'admin' },
   'rendez-vous':       { GET: '*',     POST: '*',     PATCH: '*',     DELETE: '*'     },
 
-  artisans:            { GET: '*',     POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
+  artisans:            { GET: '*',     POST: '*',     PATCH: 'admin', DELETE: 'admin' },
   fournisseurs:        { GET: '*',     POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
   'devis-artisans':    { GET: '*',     POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
   stock:               { GET: 'admin', POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
@@ -47,7 +47,8 @@ const TABLE_ACL = {
 };
 
 const FIELD_WHITELIST = {
-  clients:             ['Nom', 'Type', 'Source', 'Email', 'Téléphone', 'Adresse', 'Contact', 'Notes', 'Date contact', 'Date création', 'Architecte référent'],
+  clients:             ['Nom', 'Type', 'Source', 'Email', 'Téléphone', 'Adresse', 'Ville', 'CP', 'Contact', 'Notes', 'Date contact', 'Date création', 'Architecte référent'],
+  // Note : POST artisans ouvert à tous (création depuis la modale d'affectation, Lot B #3).
   projets:             ['Référence', 'Client', 'Statut', 'Phase commerciale', 'Statut chantier', 'Budget HT', 'Marge prévisionnelle', 'Date découverte', 'Date pose prévue', 'Date pose fin', 'Description', 'Journal chantier', 'Artisans', 'Type de projet', 'Architecte'],
   taches:              ['Titre', 'Statut', 'Assignée à', 'Priorité', 'Échéance', 'Description', 'Projet', 'Type'],
   'reunions-plaud':    ['Titre', 'Date heure', 'Lieu', 'Client nom', 'Type réunion', 'Niveau', 'Synthèse', 'Contexte', 'Points de douleur', 'Attentes', 'Autres informations', 'Tâches identifiées', 'Transcription', 'Projet'],
