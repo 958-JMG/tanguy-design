@@ -7,17 +7,25 @@ import { icon, hydrateIcons } from '../core/lucide.js';
 
 function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 
-// Item 4 — client en tête des tâches : dérive le nom du client via Projet → Client.
+// Item 4 — client en tête des tâches : dérive le nom du client via Projet → Client,
+// avec repli sur le préfixe « [Client] » du titre (tâches sans lien projet).
+function parsePrefixClient(titre) {
+  const m = String(titre || '').match(/^\[([^\]]+)\]/);
+  return m ? m[1].trim() : '';
+}
 function clientNomForTache(f) {
   const pid = (f.Projet || [])[0];
-  if (!pid) return '';
-  const p = (state.projets || []).find(x => x.id === pid);
-  const cid = p && (p.Client || [])[0];
-  return cid ? ((state.clients || []).find(x => x.id === cid)?.Nom || '') : '';
+  if (pid) {
+    const p = (state.projets || []).find(x => x.id === pid);
+    const cid = p && (p.Client || [])[0];
+    const nom = cid ? ((state.clients || []).find(x => x.id === cid)?.Nom || '') : '';
+    if (nom) return nom;
+  }
+  return parsePrefixClient(f.Titre); // repli : préfixe [Client] dans le titre
 }
-// Retire le préfixe « [Client] / » legacy du titre (le client est affiché à part).
+// Retire le préfixe « [Client] » ou « [Client] / » du titre (le client est affiché à part).
 function stripClientPrefix(titre) {
-  return String(titre || '').replace(/^\[[^\]]*\]\s*\/\s*/, '');
+  return String(titre || '').replace(/^\[[^\]]+\]\s*\/?\s*/, '');
 }
 
 // Map login système (lowercase, sans accents) → nom Airtable "Assignée à"
