@@ -10,6 +10,7 @@ import { renderPipeline } from '../views/pipeline.js';
 import { renderCalendar } from '../views/calendar.js';
 import { renderAdmin } from '../views/admin.js';
 import { renderGestion } from '../views/gestion.js';
+import { renderSav } from '../views/sav.js';
 import { renderAide } from '../views/aide.js';
 
 export function navigateTo(route, params = {}) {
@@ -41,6 +42,7 @@ export function router() {
       case 'pipeline':         return renderPipeline(app, rest.length ? decodeURIComponent(rest.join('/')) : null);
       case 'calendar':         return renderCalendar(app);
       case 'gestion':          return renderGestion(app, rest.length ? decodeURIComponent(rest[0]) : 'facturation');
+      case 'sav':              return renderSav(app);
       case 'admin':            return renderAdmin(app);
       case 'aide':             return renderAide(app);
       default:                 return renderDashboard(app);
