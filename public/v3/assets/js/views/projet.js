@@ -342,7 +342,10 @@ function renderFiche(app, data) {
         <section class="projet-section" aria-label="Tâches" data-section="taches">
           <div class="projet-section-header">
             <h2>Tâches <span class="count">(${taches.length})</span></h2>
-            <button class="btn btn-primary btn-sm" id="btn-new-tache">${icon('plus', 14)} Nouvelle</button>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-ghost btn-sm" id="btn-dossier-chantier" title="Génère la checklist administrative avant démarrage chantier (plans signés, autorisations, acompte, assurances, accès, dossier technique)">${icon('folder', 14)} Dossier chantier</button>
+              <button class="btn btn-primary btn-sm" id="btn-new-tache">${icon('plus', 14)} Nouvelle</button>
+            </div>
           </div>
           ${taches.length === 0
             ? `<div class="compact-empty"><span>Aucune tâche</span></div>`
@@ -551,6 +554,21 @@ function renderFiche(app, data) {
   document.getElementById('btn-unarchive')?.addEventListener('click', () => archiveProjet(projet, ''));
   document.getElementById('btn-new-tache')?.addEventListener('click', () => openModalTache(null, projet, client));
   document.getElementById('btn-add-journal')?.addEventListener('click', () => openModalJournal(projet));
+
+  // Sprint v5 — checklist administrative avant démarrage chantier (Virginie)
+  document.getElementById('btn-dossier-chantier')?.addEventListener('click', async () => {
+    const ok = await confirmModal('Générer la checklist « Dossier chantier » (6 tâches assignées à Virginie, échéance pose − 30 j) ? Les tâches déjà présentes ne seront pas dupliquées.', { okLabel: 'Générer' });
+    if (!ok) return;
+    try {
+      const r = await fetch(`/api/projets/${encodeURIComponent(projet.id)}/dossier-chantier`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.error) throw new Error(j.error || r.statusText);
+      toast(j.creees ? `${j.creees} tâche${j.creees > 1 ? 's' : ''} dossier chantier créée${j.creees > 1 ? 's' : ''}` : 'Checklist déjà complète', 'success');
+      renderProjet(document.getElementById('app'), projet.id);
+    } catch (err) {
+      toast('Erreur : ' + err.message, 'error', 5000);
+    }
+  });
 
   // Sprint v3.2 — actions nouvelles
   document.getElementById('btn-import-devis')?.addEventListener('click', () => openModalImportDevis(projet, devis));

@@ -13,6 +13,10 @@ const { parseArtisanDevisPdf } = require('./services/artisan-devis-parser');
 const { generateFicheMission } = require('./services/fiche-mission-generator');
 const { generateBcPdf } = require('./services/bc-pdf-generator');
 const { enrichEcheancesAvecDates } = require('./services/echeances-helper');
+const { parseFactureFournisseurPdf } = require('./services/facture-fournisseur-parser');
+const { buildPlanTresorerie, echeancesFacturees, mondayOf, addDays, toCsv } = require('./services/tresorerie-helper');
+const { recapPaieMois, alertesVisitesMedicales, joursOuvres } = require('./services/rh-helper');
+const { joursRetard, niveauRelanceSuggere, buildEmailRelance, buildEmailRelanceFournisseur, buildMailto } = require('./services/relances-helper');
 const { canAccess, pickAllowedFields } = require('./services/acl');
 const logger = require('./services/logger');
 const usersStore = require('./services/users-store');
@@ -57,8 +61,19 @@ const TABLES = {
   'lignes-devis':  { id: 'tblCxDvzQAqBzpCx2', name: 'Lignes devis' },
   'echeances-devis': { id: 'tblML7D7MXeWnMcxy', name: 'Échéances devis' },
   stock:           { id: 'tblENw2eBplwUZ4nd', name: 'Stock' },
-  'devis-artisans': { id: 'tblFxsJtEYpDOmQQj', name: 'Devis Artisans' }
+  'devis-artisans': { id: 'tblFxsJtEYpDOmQQj', name: 'Devis Artisans' },
+  // Sprint v5 — Automatisation Virginie (2026-06)
+  'factures-clients':      { id: 'tblUdblJl5bohxcTd', name: 'Factures clients' },
+  'factures-fournisseurs': { id: 'tblhFunkaTOcDoROM', name: 'Factures fournisseurs' },
+  salaries:                { id: 'tblm0VR0eriWBkvs4', name: 'Salariés' },
+  absences:                { id: 'tbl89I9NcQ9Esb5jp', name: 'Absences' },
+  'heures-salaries':       { id: 'tblLecQk6Hdf0rqLK', name: 'Heures salariés' },
+  // Sprint v5.1 — Aide utilisateur éditable par les admins depuis le cockpit
+  aide:                    { id: 'tblpOREwCKcKtKEef', name: 'Aide' }
 };
+
+// Field IDs attachments des tables v5 (upload direct, cf. DA_FIELDS)
+const FF_FIELDS = { pdf: 'fldcYOyaxcOsG80lp' }; // Factures fournisseurs → PDF
 
 // Field IDs des champs attachments de Devis Artisans (upload direct)
 const DA_FIELDS = {
@@ -535,11 +550,8 @@ app.get('/api/admin/marges', requireAuth, async (req, res) => {
 // --- Admin : IA suggestions cockpit (Sprint 4 P2) ---
 // Analyse l'état du cockpit (projets en cours, alertes, marges, blockages) et demande à
 // Claude (claude-sonnet-4-5) une synthèse + 5 suggestions actionnables. Admin only.
-function requireAdmin(req, res, next) {
-  if (!req.session?.user) return res.status(401).json({ error: 'not authenticated' });
-  if (!ADMIN_LOGINS.has(req.session.user)) return res.status(403).json({ error: 'admin requis' });
-  next();
-}
+// (Grand nettoyage 2026-06-07 : requireAdmin était redéfini ici à l'identique —
+// doublon supprimé, on utilise la définition RC Pro 2026 plus haut.)
 app.get('/api/admin/ai-suggestions', requireAuth, requireAdmin, async (req, res) => {
   if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY non configurée' });
   await withKeepAlive(req, res, async () => {
@@ -1467,31 +1479,38 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     };
     const commandesCreees = [];
     let idx = 1;
-    // Pour meubles : extraire infos modèle depuis la 1re zone du devis (NOVA_CUC = singulier)
+    // Pour meubles : extraire infos modèle depuis la 1re zone du devis (NOVA_CUC = singulier).
+    // Fix 2026-06-07 (grand nettoyage) : ce bloc référençait `parsed.zones` (variable du
+    // endpoint /api/devis/import, inexistante ici) — le catch best-effort avalait le
+    // ReferenceError et "Modèle choisi"/"Détails modèle" n'étaient JAMAIS remplis à la
+    // signature. On lit désormais les zones du devis depuis Airtable (triées par Ordre).
     let modeleHeader = '';
     let detailsModele = '';
     try {
-      if (Array.isArray(parsed.zones) && parsed.zones[0]) {
-        const z0 = parsed.zones[0];
-        modeleHeader = [z0.marque, z0.modele].filter(Boolean).join(' — ') +
-          (z0.porte_epaisseur ? `\nPorte épaisseur ${z0.porte_epaisseur}` : '');
+      const zoneIds = Array.isArray(dv['Zones devis']) ? dv['Zones devis'] : [];
+      const zones = (await atFetchByIds(TABLES['zones-devis'].id, zoneIds))
+        .sort((a, b) => (a.fields?.Ordre ?? 999) - (b.fields?.Ordre ?? 999));
+      const z0 = zones[0]?.fields;
+      if (z0) {
+        modeleHeader = [z0['Marque'], z0['Modèle']].filter(Boolean).join(' — ') +
+          (z0['Porte épaisseur'] ? `\nPorte épaisseur ${z0['Porte épaisseur']}` : '');
         const lines = [];
-        if (z0.modularite)              lines.push(`Modularité : ${z0.modularite}`);
-        if (z0.execution_facade)        lines.push(`Exécution façade : ${z0.execution_facade}`);
-        if (z0.coloris_facade)          lines.push(`Coloris façade : ${z0.coloris_facade}`);
-        if (z0.chant_facade)            lines.push(`Chant façade : ${z0.chant_facade}`);
-        if (z0.coloris_caisson)         lines.push(`Coloris caisson : ${z0.coloris_caisson}`);
-        if (z0.execution_cote_finition) lines.push(`Exécution côté finition : ${z0.execution_cote_finition}`);
-        if (z0.coloris_cote_finition)   lines.push(`Coloris côté finition : ${z0.coloris_cote_finition}`);
-        if (z0.type_gorge)              lines.push(`Type de gorge : ${z0.type_gorge}`);
-        if (z0.execution_gorges)        lines.push(`Exécution gorges : ${z0.execution_gorges}`);
-        if (z0.finition_gorges)         lines.push(`Finition gorges : ${z0.finition_gorges}`);
-        if (z0.profondeur)              lines.push(`Profondeur : ${z0.profondeur}`);
-        if (z0.option_ouverture)        lines.push(`Option ouverture : ${z0.option_ouverture}`);
-        if (z0.finition_socle)          lines.push(`Finition socle : ${z0.finition_socle}`);
+        if (z0['Modularité'])              lines.push(`Modularité : ${z0['Modularité']}`);
+        if (z0['Exécution façade'])        lines.push(`Exécution façade : ${z0['Exécution façade']}`);
+        if (z0['Coloris façade'])          lines.push(`Coloris façade : ${z0['Coloris façade']}`);
+        if (z0['Chant façade'])            lines.push(`Chant façade : ${z0['Chant façade']}`);
+        if (z0['Coloris caisson'])         lines.push(`Coloris caisson : ${z0['Coloris caisson']}`);
+        if (z0['Exécution côté finition']) lines.push(`Exécution côté finition : ${z0['Exécution côté finition']}`);
+        if (z0['Coloris côté finition'])   lines.push(`Coloris côté finition : ${z0['Coloris côté finition']}`);
+        if (z0['Type de gorge'])           lines.push(`Type de gorge : ${z0['Type de gorge']}`);
+        if (z0['Exécution gorges'])        lines.push(`Exécution gorges : ${z0['Exécution gorges']}`);
+        if (z0['Finition gorges'])         lines.push(`Finition gorges : ${z0['Finition gorges']}`);
+        if (z0['Profondeur'])              lines.push(`Profondeur : ${z0['Profondeur']}`);
+        if (z0['Option ouverture'])        lines.push(`Option ouverture : ${z0['Option ouverture']}`);
+        if (z0['Finition socle'])          lines.push(`Finition socle : ${z0['Finition socle']}`);
         detailsModele = lines.join('\n');
       }
-    } catch (e) { /* best effort */ }
+    } catch (e) { /* best effort — la signature ne doit jamais bloquer sur ces métadonnées */ }
 
     // Workflow JMG 2026-05-21 : il faut TOUJOURS prévoir un 4ème BC "Plan de travail"
     // même si le devis Winner n'a aucune ligne plan de travail (le PT est mesuré
@@ -1878,18 +1897,8 @@ async function generateAndAttachFicheMission(projetId, artisanId) {
   };
 }
 
-// --- Fiche de mission par (projet, artisan) — nouveau endpoint principal ---
-app.post('/api/fiche-mission', requireAuth, async (req, res) => {
-  const { projetId, artisanId } = req.body || {};
-  if (!projetId || !artisanId) return res.status(400).json({ error: 'projetId et artisanId requis' });
-  try {
-    const result = await generateAndAttachFicheMission(projetId, artisanId);
-    res.json(result);
-  } catch (e) {
-    logger.error('[fiche-mission] error:', e);
-    res.status(500).json({ error: e.message });
-  }
-});
+// (Grand nettoyage 2026-06-07 : POST /api/fiche-mission supprimé — appelé uniquement
+// par le cockpit v2 archivé. La génération passe par /api/artisan-devis/:id/fiche-mission.)
 
 // --- DEVIS ARTISAN : génère la Fiche (résout projet+artisan depuis le devis) ---
 app.post('/api/artisan-devis/:id/fiche-mission', requireAuth, async (req, res) => {
@@ -2451,60 +2460,734 @@ const SAV_ABONNEMENT     = process.env.SAV_ABONNEMENT     || 'Build';
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'https://tanguydesign.958.fr';
 const SAV_CALLBACK_URL = `${PUBLIC_BASE_URL}/api/sav/callback`;
 
-app.post('/api/sav/submit', requireAuth, async (req, res) => {
-  // RC Pro 2026 : refuser si URL ou secret webhook manquant (au lieu de fallback hardcodé)
-  if (!SAV_WEBHOOK_URL) {
-    return res.status(500).json({ error: 'SAV_WEBHOOK_URL non configuré côté serveur' });
+// (Grand nettoyage 2026-06-07 : POST /api/sav/submit supprimé — appelé uniquement par
+// le cockpit v2 archivé. Le v3 passe par POST /api/support/feedback, qui forwarde au
+// webhook 9·58 avec le même callback_url. /api/sav/callback et les notifications restent.)
+
+// ════════════════════════════════════════════════════════════════════════════
+// Sprint v5 — Automatisation Virginie (2026-06)
+// Facturation clients + relances impayés · Factures fournisseurs + règlements ·
+// Trésorerie hebdo + export expert-comptable · RH (salariés, absences, heures,
+// paie) · Retards livraison + relances fournisseurs · Dossier chantier.
+// Données financières et RH : admin only (RGPD + confidentialité paie).
+// ════════════════════════════════════════════════════════════════════════════
+
+function todayISO() { return new Date().toISOString().slice(0, 10); }
+
+// Normalise un record Airtable "Factures clients" pour les routes v5.
+function normFactureClient(r) {
+  const f = r.fields || {};
+  const ttc = Number(f['Montant TTC']) || 0;
+  const regle = Number(f['Montant réglé']) || 0;
+  return {
+    id: r.id,
+    numero: f['Numéro'] || '',
+    statut: f['Statut'] || 'Brouillon',
+    type: f['Type'] || '',
+    dateEmission: f['Date émission'] || null,
+    dateEcheance: f['Date échéance'] || null,
+    montantHT: Number(f['Montant HT']) || 0,
+    montantTTC: ttc,
+    montantRegle: regle,
+    montantRestant: Math.max(0, Math.round((ttc - regle) * 100) / 100),
+    niveauRelance: Number(f['Niveau relance']) || 0,
+    dateDerniereRelance: f['Date dernière relance'] || null,
+    clientIds: f['Client'] || [],
+    projetIds: f['Projet'] || [],
+    echeanceIds: f['Échéance liée'] || [],
+  };
+}
+
+// Type de facture dérivé du libellé d'échéance Winner (même sémantique que
+// services/echeances-helper.js deriveDateEcheance).
+function typeFactureDepuisLibelle(libelle) {
+  const l = String(libelle || '').toLowerCase();
+  if (/commande|acompte|signature/.test(l)) return 'Acompte';
+  if (/solde|fin|pose|r[ée]cep/.test(l)) return 'Solde';
+  return 'Intermédiaire';
+}
+
+// --- Facturation clients -----------------------------------------------------
+
+// POST /api/factures-clients/from-echeance — crée la facture depuis une échéance devis.
+// Numérotation FC-YYYY-NNN séquentielle. Refuse si l'échéance est déjà facturée.
+app.post('/api/factures-clients/from-echeance', requireAdmin, async (req, res) => {
+  const { echeanceId } = req.body || {};
+  if (!echeanceId) return res.status(400).json({ error: 'echeanceId requis' });
+  try {
+    const [echRecords, factures] = await Promise.all([
+      atFetchByIds(TABLES['echeances-devis'].id, [echeanceId]),
+      atFetchAll(TABLES['factures-clients'].id),
+    ]);
+    const ech = echRecords[0];
+    if (!ech) return res.status(404).json({ error: 'échéance introuvable' });
+    const dejaFacturee = factures.some(f => (f.fields['Échéance liée'] || []).includes(echeanceId));
+    if (dejaFacturee) return res.status(409).json({ error: 'Cette échéance a déjà une facture liée' });
+
+    // Remonte devis → projet + client pour lier la facture.
+    const devisId = (ech.fields['Devis'] || [])[0];
+    let projetIds = [], clientIds = [];
+    if (devisId) {
+      const devis = (await atFetchByIds(TABLES.devis.id, [devisId]))[0];
+      projetIds = devis?.fields['Projet'] || [];
+      clientIds = devis?.fields['Client'] || [];
+    }
+
+    const year = todayISO().slice(0, 4);
+    const seq = factures.filter(f => String(f.fields['Numéro'] || '').startsWith(`FC-${year}-`)).length + 1;
+    const numero = `FC-${year}-${String(seq).padStart(3, '0')}`;
+    const montant = Number(ech.fields['Montant prévu']) || 0;
+
+    const created = await atCreate(TABLES['factures-clients'].id, {
+      'Numéro': numero,
+      'Projet': projetIds,
+      'Client': clientIds,
+      'Échéance liée': [echeanceId],
+      'Type': typeFactureDepuisLibelle(ech.fields['Libellé']),
+      'Date émission': todayISO(),
+      'Date échéance': ech.fields['Date prévue'] || addDays(todayISO(), 30),
+      'Montant TTC': montant,
+      'Montant réglé': 0,
+      'Statut': 'Brouillon',
+      'Niveau relance': 0,
+      'Notes': `Créée depuis l'échéance "${ech.fields['Libellé'] || '?'}" (montant repris TTC). Compléter HT/TVA si besoin.`,
+    });
+    logger.info({ numero, echeanceId, montant }, '[factures-clients] créée depuis échéance');
+    res.json({ ok: true, facture: { id: created.id, ...created.fields } });
+  } catch (e) {
+    logger.error('[factures-clients/from-echeance] error:', e.message);
+    res.status(500).json({ error: e.message });
   }
-  if (!SAV_WEBHOOK_SECRET) {
-    return res.status(500).json({ error: 'SAV_WEBHOOK_SECRET non configuré côté serveur' });
+});
+
+// GET /api/factures-clients/impayes — factures en retard (avec niveau de relance
+// suggéré + email mailto prêt) et échéances en retard pas encore facturées.
+app.get('/api/factures-clients/impayes', requireAdmin, async (req, res) => {
+  try {
+    const today = todayISO();
+    const [facturesRaw, echeancesRaw] = await Promise.all([
+      atFetchAll(TABLES['factures-clients'].id),
+      atFetchAll(TABLES['echeances-devis'].id),
+    ]);
+    const factures = facturesRaw.map(normFactureClient);
+
+    const impayes = factures
+      .filter(f => !['Payée', 'Annulée', 'Brouillon'].includes(f.statut))
+      .filter(f => f.montantRestant > 0 && f.dateEcheance && f.dateEcheance < today)
+      .map(f => ({ ...f, joursRetard: joursRetard(f.dateEcheance, today) }))
+      .map(f => ({ ...f, niveauSuggere: niveauRelanceSuggere(f) }))
+      .sort((a, b) => b.joursRetard - a.joursRetard);
+
+    // Résolution noms + emails clients (pour le mailto)
+    const clientIds = [...new Set(impayes.flatMap(f => f.clientIds))];
+    const clients = clientIds.length ? await atFetchByIds(TABLES.clients.id, clientIds) : [];
+    const clientById = new Map(clients.map(c => [c.id, c]));
+    for (const f of impayes) {
+      const c = clientById.get(f.clientIds[0]);
+      f.clientNom = c?.fields['Nom'] || '?';
+      f.clientEmail = c?.fields['Email'] || '';
+      const niveau = f.niveauSuggere || Math.min((f.niveauRelance || 0) + 1, 3);
+      const email = buildEmailRelance({
+        numero: f.numero, clientNom: f.clientNom, montantRestant: f.montantRestant,
+        dateEcheance: f.dateEcheance, niveau,
+      });
+      f.relance = { niveau, sujet: email.sujet, mailto: buildMailto(f.clientEmail, email.sujet, email.corps) };
+    }
+
+    // Échéances en retard jamais facturées → Virginie doit créer la facture.
+    const facturees = echeancesFacturees(factures);
+    const echeancesAFacturer = echeancesRaw
+      .filter(e => (e.fields['Statut'] || '') !== 'Encaissé')
+      .filter(e => !facturees.has(e.id))
+      .filter(e => e.fields['Date prévue'] && e.fields['Date prévue'] < today)
+      .filter(e => (Number(e.fields['Montant prévu']) || 0) - (Number(e.fields['Montant réglé']) || 0) > 0)
+      .map(e => ({
+        id: e.id,
+        libelle: e.fields['Libellé'] || '?',
+        datePrevue: e.fields['Date prévue'],
+        montant: Number(e.fields['Montant prévu']) || 0,
+        joursRetard: joursRetard(e.fields['Date prévue'], today),
+        devisId: (e.fields['Devis'] || [])[0] || null,
+      }))
+      .sort((a, b) => b.joursRetard - a.joursRetard);
+
+    res.json({ ok: true, impayes, echeancesAFacturer });
+  } catch (e) {
+    logger.error('[factures-clients/impayes] error:', e.message);
+    res.status(500).json({ error: e.message });
   }
-  const { categorie, urgence, titre, description } = req.body || {};
-  if (!titre || !description) {
-    return res.status(400).json({ error: 'Titre et description requis' });
+});
+
+// POST /api/factures-clients/:id/relance — enregistre la relance (niveau + date)
+// et retourne le mailto prêt à envoyer (email souverain, cf. Sprint v3.17).
+app.post('/api/factures-clients/:id/relance', requireAdmin, async (req, res) => {
+  try {
+    const recs = await atFetchByIds(TABLES['factures-clients'].id, [req.params.id]);
+    if (!recs[0]) return res.status(404).json({ error: 'facture introuvable' });
+    const f = normFactureClient(recs[0]);
+    const today = todayISO();
+    f.joursRetard = joursRetard(f.dateEcheance, today);
+    const niveau = Math.min(Math.max(Number(req.body?.niveau) || niveauRelanceSuggere(f) || f.niveauRelance + 1, 1), 3);
+
+    const c = f.clientIds.length ? (await atFetchByIds(TABLES.clients.id, [f.clientIds[0]]))[0] : null;
+    const clientNom = c?.fields['Nom'] || '?';
+    const email = buildEmailRelance({
+      numero: f.numero, clientNom, montantRestant: f.montantRestant,
+      dateEcheance: f.dateEcheance, niveau,
+    });
+    await atPatch(TABLES['factures-clients'].id, f.id, {
+      'Niveau relance': niveau,
+      'Date dernière relance': today,
+      'Statut': 'En retard',
+    });
+    logger.info({ facture: f.numero, niveau }, '[factures-clients] relance enregistrée');
+    res.json({ ok: true, niveau, sujet: email.sujet, corps: email.corps, mailto: buildMailto(c?.fields['Email'] || '', email.sujet, email.corps) });
+  } catch (e) {
+    logger.error('[factures-clients/relance] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/factures-clients/:id/reglement — encaisse un règlement (total ou partiel).
+// Synchronise l'échéance devis liée (Statut Encaissé) quand la facture est soldée.
+app.post('/api/factures-clients/:id/reglement', requireAdmin, async (req, res) => {
+  const { montant, mode, date } = req.body || {};
+  const m = Number(montant);
+  if (!m || m <= 0) return res.status(400).json({ error: 'montant > 0 requis' });
+  try {
+    const recs = await atFetchByIds(TABLES['factures-clients'].id, [req.params.id]);
+    if (!recs[0]) return res.status(404).json({ error: 'facture introuvable' });
+    const f = normFactureClient(recs[0]);
+    const nouveauRegle = Math.round((f.montantRegle + m) * 100) / 100;
+    const soldee = nouveauRegle >= f.montantTTC - 0.01;
+    const dateReglement = date || todayISO();
+    await atPatch(TABLES['factures-clients'].id, f.id, {
+      'Montant réglé': nouveauRegle,
+      'Date règlement': dateReglement,
+      ...(mode ? { 'Mode règlement': mode } : {}),
+      'Statut': soldee ? 'Payée' : 'Payée partiellement',
+    });
+    // Sync échéance devis liée (contrôle des encaissements unifié)
+    if (soldee && f.echeanceIds.length) {
+      await atPatch(TABLES['echeances-devis'].id, f.echeanceIds[0], {
+        'Statut': 'Encaissé',
+        'Montant réglé': nouveauRegle,
+        'Date règlement': dateReglement,
+        ...(mode ? { 'Mode règlement': mode } : {}),
+      }).catch(err => logger.warn({ err: err.message }, '[reglement] sync échéance échouée'));
+    }
+    logger.info({ facture: f.numero, montant: m, soldee }, '[factures-clients] règlement enregistré');
+    res.json({ ok: true, montantRegle: nouveauRegle, statut: soldee ? 'Payée' : 'Payée partiellement' });
+  } catch (e) {
+    logger.error('[factures-clients/reglement] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Factures fournisseurs ---------------------------------------------------
+
+// POST /api/factures-fournisseurs/import — upload PDF → parse Claude → contrôle
+// automatique vs commande liée (rapprochement) → record "À contrôler".
+// withKeepAlive : parse Claude 30-90s (cf. helper ligne ~290, check j.error côté front).
+app.post('/api/factures-fournisseurs/import', requireAdmin, upload.single('pdf'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'PDF requis (champ "pdf")' });
+  if (!validatePdfMagicBytes(req.file.buffer)) return res.status(400).json({ error: 'Fichier invalide : signature PDF absente' });
+  const commandeIdParam = req.body?.commandeId || null;
+
+  await withKeepAlive(req, res, async () => {
+    const parsed = await parseFactureFournisseurPdf(req.file.buffer);
+    const meta = parsed.metadata || {};
+    const totaux = parsed.totaux || {};
+    const numero = meta.numero_facture || `FF-${Date.now().toString(36).toUpperCase()}`;
+
+    const [fournisseurs, facturesExistantes, commandes] = await Promise.all([
+      atFetchAll(TABLES.fournisseurs.id),
+      atFetchAll(TABLES['factures-fournisseurs'].id),
+      atFetchAll(TABLES.commandes.id),
+    ]);
+
+    // Anti-doublon : même numéro de facture déjà saisi
+    const doublon = facturesExistantes.find(x => String(x.fields['Numéro'] || '').trim().toLowerCase() === String(numero).trim().toLowerCase());
+    if (doublon) throw new Error(`Facture ${numero} déjà saisie (record ${doublon.id})`);
+
+    // Rapprochement fournisseur par nom (insensible casse, inclusion bidirectionnelle)
+    const nomFournisseur = String(parsed.fournisseur?.nom || '').toLowerCase().trim();
+    const fournisseur = nomFournisseur ? fournisseurs.find(x => {
+      const n = String(x.fields['Nom'] || '').toLowerCase().trim();
+      return n && (n.includes(nomFournisseur) || nomFournisseur.includes(n));
+    }) : null;
+
+    // Rapprochement commande : param explicite > référence BC > contremarque
+    let commande = commandeIdParam ? commandes.find(x => x.id === commandeIdParam) : null;
+    if (!commande && meta.reference_commande) {
+      const ref = String(meta.reference_commande).toLowerCase().trim();
+      commande = commandes.find(x => String(x.fields['Numéro'] || '').toLowerCase().trim() === ref
+        || String(x.fields['Référence courte'] || '').toLowerCase().trim() === ref);
+    }
+    if (!commande && meta.contremarque) {
+      const cm = String(meta.contremarque).toLowerCase().trim();
+      commande = commandes.find(x => String(x.fields['Contremarque'] || '').toLowerCase().trim() === cm);
+    }
+
+    // Contrôle automatique (pointage facture ↔ commande)
+    const controles = [];
+    let ecart = null;
+    if (commande) {
+      controles.push(`Commande rapprochée : ${commande.fields['Numéro'] || commande.id}`);
+      const mtCommande = Number(commande.fields['Montant HT']);
+      const mtFacture = Number(totaux.total_ht);
+      if (!isNaN(mtCommande) && !isNaN(mtFacture) && mtCommande > 0) {
+        ecart = Math.round((mtFacture - mtCommande) * 100) / 100;
+        controles.push(Math.abs(ecart) < 1
+          ? `✓ Montant HT conforme à la commande (${euros(mtCommande)})`
+          : `⚠ Écart HT de ${euros(ecart)} vs commande (facture ${euros(mtFacture)} / commande ${euros(mtCommande)})`);
+      }
+      const fournCommande = (commande.fields['Fournisseur'] || [])[0];
+      if (fournisseur && fournCommande && fournCommande !== fournisseur.id) {
+        controles.push('⚠ Le fournisseur de la facture ne correspond pas à celui de la commande');
+      }
+    } else {
+      controles.push('Aucune commande rapprochée automatiquement — vérifier manuellement');
+    }
+    if (!fournisseur && nomFournisseur) controles.push(`⚠ Fournisseur "${parsed.fournisseur.nom}" introuvable dans la table Fournisseurs`);
+
+    const created = await atCreate(TABLES['factures-fournisseurs'].id, {
+      'Numéro': numero,
+      ...(fournisseur ? { 'Fournisseur': [fournisseur.id] } : {}),
+      ...(commande ? { 'Commande': [commande.id], 'Projet': commande.fields['Projet'] || [] } : {}),
+      'Date facture': meta.date_facture || todayISO(),
+      'Date échéance': meta.date_echeance || addDays(meta.date_facture || todayISO(), 30),
+      'Montant HT': Number(totaux.total_ht) || 0,
+      'Montant TVA': Number(totaux.total_tva) || 0,
+      'Montant TTC': Number(totaux.total_ttc) || 0,
+      'Statut': 'À contrôler',
+      'Contrôle': controles.join('\n'),
+      ...(ecart != null ? { 'Écart': ecart } : {}),
+      'Alertes parsing': parsed.alertes_parsing || '',
+      'Notes': parsed.lignes_resume || '',
+    });
+
+    // Attache le PDF original (limite 5 MB content API)
+    if (req.file.buffer.length <= 5 * 1024 * 1024) {
+      await atUploadAttachment(created.id, FF_FIELDS.pdf, req.file.buffer, req.file.originalname || `${numero}.pdf`)
+        .catch(err => logger.warn({ err: err.message }, '[factures-fournisseurs] upload PDF échoué'));
+    }
+    logger.info({ numero, fournisseur: fournisseur?.fields['Nom'], commande: commande?.fields['Numéro'], ecart }, '[factures-fournisseurs] importée');
+    return { ok: true, facture: { id: created.id, ...created.fields }, controles, alertes: parsed.alertes_parsing || '' };
+  });
+});
+
+// GET /api/reglements/a-preparer — factures fournisseurs à payer, groupées par
+// semaine d'échéance (préparation des virements du lundi).
+app.get('/api/reglements/a-preparer', requireAdmin, async (req, res) => {
+  try {
+    const today = todayISO();
+    const [factures, fournisseurs] = await Promise.all([
+      atFetchAll(TABLES['factures-fournisseurs'].id),
+      atFetchAll(TABLES.fournisseurs.id),
+    ]);
+    const fournById = new Map(fournisseurs.map(x => [x.id, x.fields['Nom'] || '?']));
+    const aPayer = factures
+      .filter(x => ['Validée', 'À payer'].includes(x.fields['Statut'] || ''))
+      .map(x => ({
+        id: x.id,
+        numero: x.fields['Numéro'] || '?',
+        fournisseur: fournById.get((x.fields['Fournisseur'] || [])[0]) || '?',
+        dateEcheance: x.fields['Date échéance'] || null,
+        montantTTC: Number(x.fields['Montant TTC']) || 0,
+        statut: x.fields['Statut'],
+        enRetard: !!(x.fields['Date échéance'] && x.fields['Date échéance'] < today),
+        semaine: x.fields['Date échéance'] ? mondayOf(x.fields['Date échéance']) : null,
+      }))
+      .sort((a, b) => String(a.dateEcheance || '9999').localeCompare(String(b.dateEcheance || '9999')));
+
+    const parSemaine = {};
+    for (const f of aPayer) {
+      const key = f.semaine || 'sans-date';
+      (parSemaine[key] = parSemaine[key] || { factures: [], total: 0 }).factures.push(f);
+      parSemaine[key].total = Math.round((parSemaine[key].total + f.montantTTC) * 100) / 100;
+    }
+    res.json({ ok: true, aPayer, parSemaine, total: Math.round(aPayer.reduce((s, f) => s + f.montantTTC, 0) * 100) / 100 });
+  } catch (e) {
+    logger.error('[reglements/a-preparer] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/factures-fournisseurs/:id/payer — marque payée (date + mode).
+app.post('/api/factures-fournisseurs/:id/payer', requireAdmin, async (req, res) => {
+  try {
+    await atPatch(TABLES['factures-fournisseurs'].id, req.params.id, {
+      'Statut': 'Payée',
+      'Date paiement': req.body?.date || todayISO(),
+      ...(req.body?.mode ? { 'Mode paiement': req.body.mode } : {}),
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    logger.error('[factures-fournisseurs/payer] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Trésorerie ----------------------------------------------------------------
+
+// GET /api/tresorerie/plan?semaines=12 — plan de trésorerie hebdomadaire.
+// Entrées = factures clients non soldées + échéances devis non encaissées non
+// facturées (dédup via echeancesFacturees). Sorties = factures fournisseurs dues.
+app.get('/api/tresorerie/plan', requireAdmin, async (req, res) => {
+  try {
+    const nbSemaines = Math.min(Math.max(parseInt(req.query.semaines, 10) || 12, 4), 26);
+    const today = todayISO();
+    const [facturesCliRaw, echeancesRaw, facturesFournRaw, fournisseurs] = await Promise.all([
+      atFetchAll(TABLES['factures-clients'].id),
+      atFetchAll(TABLES['echeances-devis'].id),
+      atFetchAll(TABLES['factures-fournisseurs'].id),
+      atFetchAll(TABLES.fournisseurs.id),
+    ]);
+    const facturesCli = facturesCliRaw.map(normFactureClient);
+    const fournById = new Map(fournisseurs.map(x => [x.id, x.fields['Nom'] || '?']));
+
+    const entrees = [];
+    for (const f of facturesCli) {
+      if (['Payée', 'Annulée'].includes(f.statut) || f.montantRestant <= 0) continue;
+      entrees.push({ date: f.dateEcheance || f.dateEmission, montant: f.montantRestant, label: `Facture ${f.numero}`, kind: 'facture-client', id: f.id });
+    }
+    const facturees = echeancesFacturees(facturesCli);
+    for (const e of echeancesRaw) {
+      if ((e.fields['Statut'] || '') === 'Encaissé' || facturees.has(e.id)) continue;
+      const restant = (Number(e.fields['Montant prévu']) || 0) - (Number(e.fields['Montant réglé']) || 0);
+      if (restant <= 0) continue;
+      entrees.push({ date: e.fields['Date prévue'] || null, montant: Math.round(restant * 100) / 100, label: `Échéance ${e.fields['Libellé'] || '?'}`, kind: 'echeance', id: e.id });
+    }
+    const sorties = [];
+    for (const x of facturesFournRaw) {
+      const statut = x.fields['Statut'] || '';
+      if (['Payée', 'Avoir reçu'].includes(statut)) continue;
+      const ttc = Number(x.fields['Montant TTC']) || 0;
+      if (ttc <= 0) continue;
+      sorties.push({
+        date: x.fields['Date échéance'] || x.fields['Date facture'] || null,
+        montant: ttc,
+        label: `${x.fields['Numéro'] || '?'} — ${fournById.get((x.fields['Fournisseur'] || [])[0]) || '?'}${statut === 'Litige' ? ' (litige)' : ''}`,
+        kind: 'facture-fournisseur', id: x.id,
+      });
+    }
+    const plan = buildPlanTresorerie({ entrees, sorties, today, nbSemaines });
+    res.json({ ok: true, today, nbSemaines, ...plan });
+  } catch (e) {
+    logger.error('[tresorerie/plan] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/tresorerie/export-compta?mois=YYYY-MM[&format=json] — pièces du mois
+// (ventes + achats) pour l'expert-comptable. CSV Excel FR par défaut.
+app.get('/api/tresorerie/export-compta', requireAdmin, async (req, res) => {
+  const mois = String(req.query.mois || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(mois)) return res.status(400).json({ error: 'mois=YYYY-MM requis' });
+  try {
+    const [facturesCliRaw, facturesFournRaw, clients, fournisseurs] = await Promise.all([
+      atFetchAll(TABLES['factures-clients'].id),
+      atFetchAll(TABLES['factures-fournisseurs'].id),
+      atFetchAll(TABLES.clients.id),
+      atFetchAll(TABLES.fournisseurs.id),
+    ]);
+    const clientById = new Map(clients.map(x => [x.id, x.fields['Nom'] || '?']));
+    const fournById = new Map(fournisseurs.map(x => [x.id, x.fields['Nom'] || '?']));
+
+    const rows = [];
+    for (const r of facturesCliRaw) {
+      const f = r.fields || {};
+      if ((f['Date émission'] || '').slice(0, 7) !== mois) continue;
+      if ((f['Statut'] || '') === 'Annulée') continue;
+      rows.push({
+        sens: 'Vente', numero: f['Numéro'] || '?', tiers: clientById.get((f['Client'] || [])[0]) || '?',
+        date: f['Date émission'] || '', echeance: f['Date échéance'] || '',
+        ht: Number(f['Montant HT']) || 0, tva: Number(f['Montant TVA']) || 0, ttc: Number(f['Montant TTC']) || 0,
+        regle: Number(f['Montant réglé']) || 0, statut: f['Statut'] || '', mode: f['Mode règlement'] || '',
+      });
+    }
+    for (const r of facturesFournRaw) {
+      const f = r.fields || {};
+      if ((f['Date facture'] || '').slice(0, 7) !== mois) continue;
+      rows.push({
+        sens: 'Achat', numero: f['Numéro'] || '?', tiers: fournById.get((f['Fournisseur'] || [])[0]) || '?',
+        date: f['Date facture'] || '', echeance: f['Date échéance'] || '',
+        ht: Number(f['Montant HT']) || 0, tva: Number(f['Montant TVA']) || 0, ttc: Number(f['Montant TTC']) || 0,
+        regle: f['Statut'] === 'Payée' ? (Number(f['Montant TTC']) || 0) : 0, statut: f['Statut'] || '', mode: f['Mode paiement'] || '',
+      });
+    }
+    rows.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+    if (req.query.format === 'json') return res.json({ ok: true, mois, rows });
+    const csv = toCsv(rows, [
+      { key: 'sens', label: 'Sens' }, { key: 'numero', label: 'Numéro' }, { key: 'tiers', label: 'Tiers' },
+      { key: 'date', label: 'Date' }, { key: 'echeance', label: 'Échéance' },
+      { key: 'ht', label: 'Montant HT' }, { key: 'tva', label: 'TVA' }, { key: 'ttc', label: 'Montant TTC' },
+      { key: 'regle', label: 'Réglé' }, { key: 'statut', label: 'Statut' }, { key: 'mode', label: 'Mode' },
+    ]);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="compta-tanguy-design-${mois}.csv"`);
+    res.send(csv);
+  } catch (e) {
+    logger.error('[tresorerie/export-compta] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- RH (admin only — données personnelles) ------------------------------------
+
+function normSalarie(r) {
+  const f = r.fields || {};
+  return {
+    id: r.id, nom: f['Nom'] || '?', poste: f['Poste'] || '', typeContrat: f['Type contrat'] || '',
+    soldeConges: typeof f['Solde congés'] === 'number' ? f['Solde congés'] : null,
+    prochaineVisite: f['Prochaine visite médicale'] || null, actif: !!f['Actif'],
+  };
+}
+
+// GET /api/rh/paie?mois=YYYY-MM[&format=csv] — éléments de paie mensuels par salarié.
+app.get('/api/rh/paie', requireAdmin, async (req, res) => {
+  const mois = String(req.query.mois || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(mois)) return res.status(400).json({ error: 'mois=YYYY-MM requis' });
+  try {
+    const [salariesRaw, heuresRaw, absencesRaw] = await Promise.all([
+      atFetchAll(TABLES.salaries.id),
+      atFetchAll(TABLES['heures-salaries'].id),
+      atFetchAll(TABLES.absences.id),
+    ]);
+    const salaries = salariesRaw.map(normSalarie).filter(s => s.actif);
+    const heures = heuresRaw.map(r => ({
+      salarieId: (r.fields['Salarié'] || [])[0], semaine: r.fields['Semaine du'] || '',
+      heuresNormales: Number(r.fields['Heures normales']) || 0, heuresSupp: Number(r.fields['Heures supp']) || 0,
+    }));
+    const absences = absencesRaw.map(r => ({
+      salarieId: (r.fields['Salarié'] || [])[0], type: r.fields['Type'] || 'Autre',
+      dateDebut: r.fields['Date début'] || null, dateFin: r.fields['Date fin'] || null,
+      jours: Number(r.fields['Jours ouvrés']) || 0, statut: r.fields['Statut'] || '',
+    }));
+    const recap = recapPaieMois({ salaries, heures, absences, mois });
+
+    if (req.query.format === 'csv') {
+      const csv = toCsv(recap, [
+        { key: 'nom', label: 'Salarié' }, { key: 'poste', label: 'Poste' }, { key: 'typeContrat', label: 'Contrat' },
+        { key: 'heuresNormales', label: 'Heures normales' }, { key: 'heuresSupp', label: 'Heures supp' },
+        { key: 'congesPris', label: 'Congés/RTT pris (j)' }, { key: 'maladie', label: 'Maladie (j)' },
+        { key: 'autresAbsences', label: 'Autres absences (j)' }, { key: 'soldeConges', label: 'Solde congés' },
+      ]);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="paie-${mois}.csv"`);
+      return res.send(csv);
+    }
+    res.json({ ok: true, mois, recap });
+  } catch (e) {
+    logger.error('[rh/paie] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/rh/alertes — visites médicales à planifier/dépassées + absences à valider.
+app.get('/api/rh/alertes', requireAdmin, async (req, res) => {
+  try {
+    const [salariesRaw, absencesRaw] = await Promise.all([
+      atFetchAll(TABLES.salaries.id),
+      atFetchAll(TABLES.absences.id),
+    ]);
+    const salaries = salariesRaw.map(normSalarie).filter(s => s.actif);
+    const visites = alertesVisitesMedicales(salaries, todayISO(), 60);
+    const absencesAValider = absencesRaw
+      .filter(r => (r.fields['Statut'] || '') === 'Demandée')
+      .map(r => ({ id: r.id, libelle: r.fields['Libellé'] || '?', type: r.fields['Type'] || '?', dateDebut: r.fields['Date début'], dateFin: r.fields['Date fin'], jours: r.fields['Jours ouvrés'] }));
+    res.json({ ok: true, visites, absencesAValider });
+  } catch (e) {
+    logger.error('[rh/alertes] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/rh/absences — déclare une absence (libellé + jours ouvrés auto).
+app.post('/api/rh/absences', requireAdmin, async (req, res) => {
+  const { salarieId, type, dateDebut, dateFin, jours, notes } = req.body || {};
+  if (!salarieId || !type || !dateDebut) return res.status(400).json({ error: 'salarieId, type et dateDebut requis' });
+  try {
+    const sal = (await atFetchByIds(TABLES.salaries.id, [salarieId]))[0];
+    if (!sal) return res.status(404).json({ error: 'salarié introuvable' });
+    const fin = dateFin || dateDebut;
+    const nbJours = Number(jours) > 0 ? Number(jours) : joursOuvres(dateDebut, fin);
+    const created = await atCreate(TABLES.absences.id, {
+      'Libellé': `${sal.fields['Nom'] || '?'} — ${type} — ${dateDebut}${fin !== dateDebut ? ` → ${fin}` : ''}`,
+      'Salarié': [salarieId],
+      'Type': type,
+      'Date début': dateDebut,
+      'Date fin': fin,
+      'Jours ouvrés': nbJours,
+      'Statut': 'Demandée',
+      ...(notes ? { 'Notes': notes } : {}),
+    });
+    res.json({ ok: true, absence: { id: created.id, ...created.fields } });
+  } catch (e) {
+    logger.error('[rh/absences] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/rh/absences/:id/decision — valide ou refuse. À la validation d'un
+// congé payé / RTT, décrémente le solde de congés du salarié.
+app.post('/api/rh/absences/:id/decision', requireAdmin, async (req, res) => {
+  const decision = req.body?.decision;
+  if (!['Validée', 'Refusée'].includes(decision)) return res.status(400).json({ error: 'decision = Validée | Refusée' });
+  try {
+    const abs = (await atFetchByIds(TABLES.absences.id, [req.params.id]))[0];
+    if (!abs) return res.status(404).json({ error: 'absence introuvable' });
+    if ((abs.fields['Statut'] || '') !== 'Demandée') return res.status(409).json({ error: `absence déjà ${abs.fields['Statut']}` });
+    await atPatch(TABLES.absences.id, abs.id, { 'Statut': decision });
+    let nouveauSolde = null;
+    if (decision === 'Validée' && ['Congés payés', 'RTT'].includes(abs.fields['Type'] || '')) {
+      const salarieId = (abs.fields['Salarié'] || [])[0];
+      const sal = salarieId ? (await atFetchByIds(TABLES.salaries.id, [salarieId]))[0] : null;
+      if (sal && typeof sal.fields['Solde congés'] === 'number') {
+        nouveauSolde = Math.round((sal.fields['Solde congés'] - (Number(abs.fields['Jours ouvrés']) || 0)) * 10) / 10;
+        await atPatch(TABLES.salaries.id, salarieId, { 'Solde congés': nouveauSolde });
+      }
+    }
+    logger.info({ absence: abs.fields['Libellé'], decision, nouveauSolde }, '[rh/absences] décision');
+    res.json({ ok: true, decision, nouveauSolde });
+  } catch (e) {
+    logger.error('[rh/absences/decision] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/rh/heures — saisie hebdo des heures (upsert par salarié + semaine).
+app.post('/api/rh/heures', requireAdmin, async (req, res) => {
+  const { salarieId, semaine, heuresNormales, heuresSupp, projetId, notes } = req.body || {};
+  if (!salarieId || !semaine || !/^\d{4}-\d{2}-\d{2}$/.test(semaine)) {
+    return res.status(400).json({ error: 'salarieId et semaine (YYYY-MM-DD) requis' });
   }
   try {
-    const payload = {
-      client_slug: SAV_CLIENT_SLUG,
-      cockpit_source: SAV_COCKPIT_SOURCE,
-      abonnement: SAV_ABONNEMENT,
-      categorie: categorie || 'Autre',
-      urgence: urgence || 'P3',
-      titre: String(titre).slice(0, 200),
-      description: String(description).slice(0, 5000),
-      auteur_email: await usersStore.getEmail(req.session?.user),
-      auteur_login: req.session?.user || '',
-      // Sprint v3.23 — Standard inter-cockpits : callback_url dans le payload
-      callback_url: SAV_CALLBACK_URL,
+    const lundi = mondayOf(semaine);
+    const sal = (await atFetchByIds(TABLES.salaries.id, [salarieId]))[0];
+    if (!sal) return res.status(404).json({ error: 'salarié introuvable' });
+    const fields = {
+      'Heures normales': Number(heuresNormales) || 0,
+      'Heures supp': Number(heuresSupp) || 0,
+      ...(projetId ? { 'Projet': [projetId] } : {}),
+      ...(notes ? { 'Notes': notes } : {}),
     };
-    const r = await fetch(SAV_WEBHOOK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-958-Secret': SAV_WEBHOOK_SECRET,
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!r.ok) {
-      const txt = await r.text().catch(() => '');
-      logger.error(`[sav/submit] n8n ${r.status}: ${txt.slice(0,200)}`);
-      return res.status(502).json({ error: `Webhook 9·58 indisponible (${r.status})` });
+    // Upsert : un seul relevé par salarié et par semaine
+    const existants = await atFetchAll(TABLES['heures-salaries'].id);
+    const existant = existants.find(r => (r.fields['Salarié'] || [])[0] === salarieId && r.fields['Semaine du'] === lundi);
+    let rec;
+    if (existant) {
+      rec = await atPatch(TABLES['heures-salaries'].id, existant.id, fields);
+    } else {
+      const [y, m, d] = lundi.split('-');
+      rec = await atCreate(TABLES['heures-salaries'].id, {
+        'Libellé': `${sal.fields['Nom'] || '?'} — semaine du ${d}/${m}`,
+        'Salarié': [salarieId],
+        'Semaine du': lundi,
+        ...fields,
+      });
     }
-    const data = await r.json().catch(() => ({}));
-    res.json({ ok: true, ticket_id: data.ticket_id, notification_id: data.notification_id });
+    res.json({ ok: true, heures: { id: rec.id, ...rec.fields }, updated: !!existant });
   } catch (e) {
-    logger.error('[sav/submit] error:', e.message);
+    logger.error('[rh/heures] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Logistique Tanguy Design ----------------------------------------------------
+
+// GET /api/commandes-retards — commandes dont la livraison prévue est dépassée,
+// avec email de relance fournisseur prêt (mailto souverain).
+// NB : pas /api/commandes/retards, qui serait avalé par GET /api/commandes/:id.
+app.get('/api/commandes-retards', requireAuth, async (req, res) => {
+  try {
+    const today = todayISO();
+    const [commandes, fournisseurs, projets] = await Promise.all([
+      atFetchAll(TABLES.commandes.id),
+      atFetchAll(TABLES.fournisseurs.id),
+      atFetchAll(TABLES.projets.id),
+    ]);
+    const fournById = new Map(fournisseurs.map(x => [x.id, x.fields]));
+    const projetById = new Map(projets.map(x => [x.id, x.fields]));
+    const STATUTS_CLOS = /livr|r[ée]cep|reçu|annul|termin/i;
+
+    const retards = commandes
+      .filter(c => c.fields['Date livraison prévue'] && c.fields['Date livraison prévue'] < today)
+      .filter(c => !STATUTS_CLOS.test(String(c.fields['Statut'] || '')))
+      .map(c => {
+        const fourn = fournById.get((c.fields['Fournisseur'] || [])[0]) || {};
+        const projet = projetById.get((c.fields['Projet'] || [])[0]) || {};
+        const email = buildEmailRelanceFournisseur({
+          numero: c.fields['Numéro'] || c.id,
+          contremarque: c.fields['Contremarque'] || '',
+          dateLivraisonPrevue: c.fields['Date livraison prévue'],
+          fournisseurNom: fourn['Nom'] || '',
+        });
+        return {
+          id: c.id,
+          numero: c.fields['Numéro'] || '?',
+          type: c.fields['Type'] || '',
+          statut: c.fields['Statut'] || '',
+          fournisseur: fourn['Nom'] || '?',
+          projetRef: projet['Référence'] || '',
+          dateLivraisonPrevue: c.fields['Date livraison prévue'],
+          joursRetard: joursRetard(c.fields['Date livraison prévue'], today),
+          relance: { sujet: email.sujet, mailto: buildMailto(fourn['Email commande'] || '', email.sujet, email.corps) },
+        };
+      })
+      .sort((a, b) => b.joursRetard - a.joursRetard);
+    res.json({ ok: true, retards });
+  } catch (e) {
+    logger.error('[commandes/retards] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/projets/:id/dossier-chantier — génère la checklist administrative
+// avant démarrage chantier (tâches idempotentes, échéance = pose - 30 j).
+const DOSSIER_CHANTIER_TACHES = [
+  'Dossier chantier — Collecter plans signés + feuille de choix',
+  'Dossier chantier — Vérifier autorisations (copropriété / urbanisme)',
+  'Dossier chantier — Vérifier encaissement acompte',
+  'Dossier chantier — Attestations assurance artisans à jour',
+  'Dossier chantier — Confirmer accès chantier / stationnement / étage',
+  'Dossier chantier — Transmettre dossier technique aux artisans',
+];
+app.post('/api/projets/:id/dossier-chantier', requireAuth, async (req, res) => {
+  const projetId = req.params.id;
+  try {
+    const projet = (await atFetchByIds(TABLES.projets.id, [projetId]))[0];
+    if (!projet) return res.status(404).json({ error: 'projet introuvable' });
+    const tachesIds = projet.fields['Tâches'] || [];
+    const existantes = tachesIds.length ? await atFetchByIds(TABLES.taches.id, tachesIds) : [];
+    const titresExistants = new Set(existantes.map(t => t.fields['Titre']));
+    const echeance = projet.fields['Date pose prévue'] ? addDays(projet.fields['Date pose prévue'], -30) : null;
+
+    const aCreer = DOSSIER_CHANTIER_TACHES.filter(t => !titresExistants.has(t)).map(titre => ({
+      'Titre': titre,
+      'Projet': [projetId],
+      'Statut': 'À faire',
+      'Priorité': 'Haute',
+      'Assignée à': 'Virginie',
+      ...(echeance ? { 'Échéance': echeance } : {}),
+      'Description': 'Checklist dossier administratif avant démarrage chantier (générée automatiquement).',
+    }));
+    const created = aCreer.length ? await atCreateBatch(TABLES.taches.id, aCreer) : [];
+    logger.info({ projetId, creees: created.length, dejaPresentes: DOSSIER_CHANTIER_TACHES.length - aCreer.length }, '[dossier-chantier] checklist générée');
+    res.json({ ok: true, creees: created.length, dejaPresentes: DOSSIER_CHANTIER_TACHES.length - aCreer.length });
+  } catch (e) {
+    logger.error('[dossier-chantier] error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
 
 // --- Static ---
-// Sprint v3.12 — Cutover : la racine sert désormais le cockpit v3 (nouveau défaut).
-// L'ancien cockpit v2 reste accessible via /v2/ pour rollback temporaire pendant
-// la transition. Une fois la v3 stabilisée pour toute l'équipe, /v2/ pourra être
-// supprimé et public/index.html déplacé en archive.
-app.get('/v2', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-app.get('/v2/', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+// Sprint v3.12 — Cutover : la racine sert le cockpit v3.
+// Grand nettoyage 2026-06-07 : le cockpit v2 (rollback temporaire) est supprimé —
+// routes /v2 + public/index.html + public/assets/js/main.js + public/assets/css.
+// /assets reste monté : il sert public/assets/js/login.js (page /login).
 app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
 app.use('/img', express.static(path.join(__dirname, 'public', 'img')));
 

@@ -31,6 +31,19 @@ const TABLE_ACL = {
   'lignes-devis':      { GET: '*',     POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
   'echeances-devis':   { GET: '*',     POST: '*',     PATCH: '*',     DELETE: 'admin' },
   commandes:           { GET: '*',     POST: 'admin', PATCH: '*',     DELETE: 'admin' },
+
+  // Sprint v5 — Automatisation Virginie. Finance : lecture libre des factures
+  // clients (suivi projet), écriture admin. Fournisseurs + RH : admin only
+  // (confidentialité fournisseurs / données personnelles paie, RGPD).
+  'factures-clients':      { GET: '*',     POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
+  'factures-fournisseurs': { GET: 'admin', POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
+  salaries:                { GET: 'admin', POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
+  absences:                { GET: 'admin', POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
+  'heures-salaries':       { GET: 'admin', POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
+
+  // Sprint v5.1 — Aide utilisateur : lecture libre (panneau « ? » + guide),
+  // écriture admin only (Virginie édite le contenu depuis le cockpit).
+  aide:                    { GET: '*',     POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
 };
 
 const FIELD_WHITELIST = {
@@ -50,6 +63,16 @@ const FIELD_WHITELIST = {
   'lignes-devis':      ['Notes', 'Alertes'],
   'echeances-devis':   ['Statut', 'Date prévue', 'Date règlement', 'Montant règlé', 'Mode règlement', 'Notes', 'Montant prévu', 'Libellé', 'Ordre'],
   commandes:           ['Statut', 'Notes', 'Date envoi', 'Fournisseur', 'Contremarque', 'Contact Tanguy', 'Référence courte', 'Livraison semaine', 'Modèle choisi', 'Détails modèle', 'Lignes BC', 'Date livraison prévue', 'Numéro', 'Montant HT', 'Facture reçue', 'Type', 'Date création'],
+
+  // Sprint v5 — Automatisation Virginie
+  'factures-clients':      ['Numéro', 'Projet', 'Client', 'Échéance liée', 'Type', 'Date émission', 'Date échéance', 'Montant HT', 'Montant TVA', 'Montant TTC', 'Montant réglé', 'Date règlement', 'Mode règlement', 'Statut', 'Niveau relance', 'Date dernière relance', 'Notes'],
+  'factures-fournisseurs': ['Numéro', 'Fournisseur', 'Commande', 'Projet', 'Date facture', 'Date échéance', 'Montant HT', 'Montant TVA', 'Montant TTC', 'Statut', 'Contrôle', 'Écart', 'Date paiement', 'Mode paiement', 'Pointée relevé', 'Alertes parsing', 'Notes'],
+  salaries:                ['Nom', 'Poste', 'Email', 'Téléphone', 'Type contrat', 'Date entrée', 'Solde congés', 'Dernière visite médicale', 'Prochaine visite médicale', 'Actif', 'Notes'],
+  absences:                ['Libellé', 'Salarié', 'Type', 'Date début', 'Date fin', 'Jours ouvrés', 'Statut', 'Notes'],
+  'heures-salaries':       ['Libellé', 'Salarié', 'Semaine du', 'Heures normales', 'Heures supp', 'Projet', 'Validé', 'Notes'],
+
+  // Sprint v5.1 — Aide utilisateur
+  aide:                    ['Titre', 'Page', 'Type', 'Contenu', 'Ordre', 'Visible'],
 };
 
 /**

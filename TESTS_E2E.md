@@ -164,6 +164,43 @@ Vérifier que les actions affichées correspondent à l'état réel du projet :
 
 ---
 
+## Scénario 8 — Gestion v5 (Virginie) : facturation, achats, trésorerie, RH (~10 min)
+
+**Pré-requis : compte admin (Virginie).** Le menu « Gestion » est invisible pour les non-admins.
+
+### 8a. Facturation clients + relances
+- [ ] Gestion → Facturation : les KPIs s'affichent (impayés, montant, échéances à facturer).
+- [ ] Une échéance devis dépassée non encaissée apparaît dans « Échéances en retard à facturer » → « Créer la facture » crée une facture `FC-YYYY-NNN` en Brouillon.
+- [ ] « Marquer envoyée » passe la facture à Envoyée.
+- [ ] Sur une facture échue : « Relancer (R1) » enregistre la relance ET ouvre le client mail avec sujet/corps pré-remplis. R2/R3 (ton ferme / mise en demeure) après 21/35 j.
+- [ ] « Encaisser » (montant partiel) → statut Payée partiellement ; solde complet → Payée + l'échéance devis liée passe à Encaissé.
+
+### 8b. Achats fournisseurs
+- [ ] « Importer une facture (PDF) » : Claude lit le PDF (30-90 s), le panneau « Contrôle automatique » montre le rapprochement commande (✓ conforme ou ⚠ écart) — record créé « À contrôler » avec PDF attaché.
+- [ ] Ré-importer le même PDF → erreur doublon (même numéro).
+- [ ] Workflow statut : À contrôler → Validée → À payer (boutons flèche), puis « Payée » depuis « Règlements à préparer » (groupés par semaine d'échéance).
+- [ ] Litige : bouton ⚠ → motif → statut Litige/Avoir demandé (sort des règlements, reste dans le plan de tréso).
+- [ ] Case « Pointée » coche le pointage relevé sans recharger.
+- [ ] « Commandes en retard de livraison » liste les BC dépassés avec « Relancer » (mailto fournisseur pré-rempli).
+
+### 8c. Trésorerie
+- [ ] Gestion → Trésorerie : plan 12 semaines, encaissements = factures clients dues + échéances non facturées (pas de double comptage), décaissements = factures fournisseurs.
+- [ ] Une semaine à cumul négatif est surlignée.
+- [ ] Export expert-comptable : mois → CSV téléchargé, ouvert dans Excel FR (séparateur ; / virgule décimale), ventes + achats du mois.
+
+### 8d. RH (admin only — données sensibles)
+- [ ] Non-admin : Gestion invisible + `GET /api/data/salaries` → 403 (vérifier via DevTools).
+- [ ] Nouveau salarié → solde congés, visites médicales. Visite < 60 j ou dépassée → encart « Alertes RH ».
+- [ ] Déclarer une absence (Congés payés 5 j) → apparaît en « à valider » → Valider → solde congés décrémenté de 5.
+- [ ] Saisir des heures (35 + 4 supp) ; re-saisir la même semaine → écrase (pas de doublon).
+- [ ] Éléments de paie du mois : heures + congés + maladie par salarié ; Export CSV OK.
+
+### 8e. Dossier chantier (fiche projet)
+- [ ] Fiche projet → « Dossier chantier » → 6 tâches checklist assignées à Virginie, échéance = pose − 30 j.
+- [ ] Re-cliquer → « Checklist déjà complète » (aucun doublon).
+
+---
+
 ## Checks transversaux après chaque déploiement
 
 - [ ] Page d'accueil charge en < 3s sur 4G.
