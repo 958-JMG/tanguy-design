@@ -15,9 +15,9 @@ describe('canAccess()', () => {
     assert.equal(canAccess('admin', 'stock', 'GET'), true);
   });
 
-  test('user non-admin ne peut PAS modifier artisans (rétro-commissions)', () => {
-    assert.equal(canAccess('*', 'artisans', 'PATCH'), false);
-    assert.equal(canAccess('*', 'artisans', 'POST'), false);
+  test('user non-admin peut créer un artisan mais pas l\'éditer/supprimer (rétro protégée)', () => {
+    assert.equal(canAccess('*', 'artisans', 'POST'), true);   // #3 — création depuis la modale d'affectation
+    assert.equal(canAccess('*', 'artisans', 'PATCH'), false); // champs sensibles (Contractuel, rétro 5%) = admin
     assert.equal(canAccess('*', 'artisans', 'DELETE'), false);
   });
 
