@@ -353,10 +353,10 @@ function renderFiche(app, data) {
         </section>
 
         <!-- Rendez-vous -->
-        <section class="projet-section" aria-label="Rendez-vous" data-section="rdv">
+        <section class="projet-section" aria-label="Agenda du projet" data-section="rdv">
           <div class="projet-section-header">
-            <h2>Rendez-vous</h2>
-            <button class="btn btn-primary btn-sm" id="btn-new-rdv">${icon('plus', 14)} Nouveau</button>
+            <h2>Agenda du projet</h2>
+            <button class="btn btn-primary btn-sm" id="btn-new-rdv">${icon('plus', 14)} Nouveau RDV</button>
           </div>
           <div id="rdv-container"><div class="compact-empty"><span>Chargement…</span></div></div>
         </section>
