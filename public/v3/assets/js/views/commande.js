@@ -9,6 +9,11 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 }
 
+function eurosHT(n) {
+  if (n == null || isNaN(n)) return '—';
+  return Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' € HT';
+}
+
 async function api(path, opts = {}) {
   const r = await fetch(path, {
     credentials: 'same-origin',
@@ -57,6 +62,9 @@ function drawCommande(app, detail, html, cmdId) {
           ${fournisseur ? ` · Fournisseur : <strong>${esc(fournisseur.fields?.Nom || '?')}</strong>` : ' · <em>Fournisseur non rattaché</em>'}
           · ${esc(cf.Type || 'Type inconnu')}
           · Statut : <strong>${esc(cf.Statut || '?')}</strong>
+          ${cf['Montant AR'] != null
+            ? ` · AR : <strong>${eurosHT(cf['Montant AR'])}</strong>${cf['Montant HT'] != null ? ` <span class="muted">(estimé ${eurosHT(cf['Montant HT'])})</span>` : ''}`
+            : (cf['Montant HT'] != null ? ` · <span class="muted">estimé ${eurosHT(cf['Montant HT'])} — AR non reçu</span>` : '')}
         </div>
       </div>
       <div class="header-actions">
@@ -277,6 +285,12 @@ async function openMetaEditor(commande, fournisseur, refresh) {
             ${['Créée','Envoyée','Confirmée','Livrée','Posée'].map(v => `<option ${cf.Statut === v ? 'selected' : ''}>${v}</option>`).join('')}
           </select>
         </label>
+        <label>Montant AR — HT confirmé par le fournisseur (accusé de réception)
+          <input name="Montant AR" type="number" step="0.01" min="0" value="${cf['Montant AR'] != null ? cf['Montant AR'] : ''}" placeholder="estimé devis : ${cf['Montant HT'] != null ? cf['Montant HT'] : '—'}">
+        </label>
+        <label>Date AR (réception de l'accusé)
+          <input name="Date AR" type="date" value="${esc(cf['Date AR'] || '')}">
+        </label>
         <label>Date envoi (auto = date pose − 105 j, modifiable)
           <input name="Date envoi" type="date" value="${esc(cf['Date envoi'] || '')}">
         </label>
@@ -328,6 +342,12 @@ async function openMetaEditor(commande, fournisseur, refresh) {
       if (k === 'Fournisseur') {
         // Champ linked : on envoie un array de 1 id (ou [] pour détacher)
         fields[k] = v ? [v] : [];
+      } else if (k === 'Montant AR') {
+        // Devise Airtable : nombre attendu. Vide → null (efface / pas d'AR reçu).
+        fields[k] = v === '' ? null : Number(v);
+      } else if (k === 'Date AR') {
+        // Date Airtable : vide → null pour effacer proprement.
+        fields[k] = v || null;
       } else {
         fields[k] = v;
       }

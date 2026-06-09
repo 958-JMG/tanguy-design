@@ -63,7 +63,7 @@ const FIELD_WHITELIST = {
   'zones-devis':       ['Nom', 'Ordre', 'Notes'],
   'lignes-devis':      ['Notes', 'Alertes'],
   'echeances-devis':   ['Statut', 'Date prévue', 'Date règlement', 'Montant règlé', 'Mode règlement', 'Notes', 'Montant prévu', 'Libellé', 'Ordre'],
-  commandes:           ['Statut', 'Notes', 'Date envoi', 'Fournisseur', 'Contremarque', 'Contact Tanguy', 'Référence courte', 'Livraison semaine', 'Modèle choisi', 'Détails modèle', 'Lignes BC', 'Date livraison prévue', 'Numéro', 'Montant HT', 'Facture reçue', 'Type', 'Date création'],
+  commandes:           ['Statut', 'Notes', 'Date envoi', 'Fournisseur', 'Contremarque', 'Contact Tanguy', 'Référence courte', 'Livraison semaine', 'Modèle choisi', 'Détails modèle', 'Lignes BC', 'Date livraison prévue', 'Numéro', 'Montant HT', 'Montant AR', 'Date AR', 'Facture reçue', 'Type', 'Date création'],
 
   // Sprint v5 — Automatisation Virginie
   'factures-clients':      ['Numéro', 'Projet', 'Client', 'Échéance liée', 'Type', 'Date émission', 'Date échéance', 'Montant HT', 'Montant TVA', 'Montant TTC', 'Montant réglé', 'Date règlement', 'Mode règlement', 'Statut', 'Niveau relance', 'Date dernière relance', 'Notes'],

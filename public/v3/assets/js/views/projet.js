@@ -243,7 +243,13 @@ function renderFiche(app, data) {
 
   // Bilan financier prévi
   const caHT = pf['Budget HT'] || 0;
-  const coutFourn = commandes.reduce((s, c) => s + (c.fields?.['Montant HT'] || 0), 0);
+  // P1a — le coût fournisseurs = montant RÉEL confirmé par l'AR de commande.
+  // Une commande sans AR reçu compte 0 (« 0 strict » validé par JMG) : la marge
+  // n'intègre que du réel confirmé. Le « Montant HT » reste l'estimé devis, affiché
+  // en sous-texte tant que des AR manquent (cf. card Fournisseurs).
+  const coutFourn = commandes.reduce((s, c) => s + (c.fields?.['Montant AR'] || 0), 0);
+  const coutFournEstime = commandes.reduce((s, c) => s + (c.fields?.['Montant HT'] || 0), 0);
+  const arManquants = commandes.filter(c => !(c.fields?.['Montant AR'] > 0)).length;
   const coutArtisans = devisArtisans.reduce((s, d) => s + (d.fields?.['Montant HT'] || 0), 0);
   const retro = devisArtisans.filter(d => {
     const aId = (d.fields?.Artisan || [])[0];
@@ -298,7 +304,7 @@ function renderFiche(app, data) {
       <!-- Bilan KPIs compactés -->
       <div class="kpi-row is-compact" aria-label="Bilan financier prévisionnel">
         <div class="kpi-card"><div class="kpi-value">${euros(caHT)}</div><div class="kpi-label">CA HT</div></div>
-        <div class="kpi-card"><div class="kpi-value">${euros(coutFourn)}</div><div class="kpi-label">Fournisseurs</div></div>
+        <div class="kpi-card"><div class="kpi-value">${euros(coutFourn)}</div><div class="kpi-label">Fournisseurs${arManquants > 0 && coutFournEstime > 0 ? ` <span class="muted" style="font-weight:400" title="${arManquants} commande(s) sans AR reçu — montant confirmé fournisseur manquant">· estimé ${euros(coutFournEstime)}</span>` : ''}</div></div>
         <div class="kpi-card"><div class="kpi-value">${euros(coutArtisans - retro)}</div><div class="kpi-label">Artisans (−5%)</div></div>
         <div class="kpi-card ${margeNegative ? 'is-negative' : ''}" ${margeNegative ? 'aria-label="Marge négative — attention"' : ''}>
           <div class="kpi-value">${euros(margeAbs)}</div>
