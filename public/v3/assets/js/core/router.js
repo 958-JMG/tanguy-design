@@ -11,6 +11,7 @@ import { renderCalendar } from '../views/calendar.js';
 import { renderAdmin } from '../views/admin.js';
 import { renderGestion } from '../views/gestion.js';
 import { renderSav } from '../views/sav.js';
+import { renderTaches } from '../views/taches.js';
 import { renderAide } from '../views/aide.js';
 
 export function navigateTo(route, params = {}) {
@@ -43,6 +44,7 @@ export function router() {
       case 'calendar':         return renderCalendar(app);
       case 'gestion':          return renderGestion(app, rest.length ? decodeURIComponent(rest[0]) : 'facturation');
       case 'sav':              return renderSav(app);
+      case 'taches':           return renderTaches(app);
       case 'admin':            return renderAdmin(app);
       case 'aide':             return renderAide(app);
       default:                 return renderDashboard(app);
