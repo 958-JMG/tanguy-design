@@ -392,6 +392,18 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   background: white;
 }
 
+/* === Finition mobile (revue responsive 2026-06-10) ===
+   - Anti-zoom iOS Safari : tout champ de saisie passe à 16px sous 760px
+     (Safari zoome automatiquement au focus si la police < 16px).
+   - Tap targets : chips de filtre + boutons icône d'action ≥ ~40px. */
+@media (max-width: 760px) {
+  .modal input, .modal select, .modal textarea,
+  .search-input,
+  .lignes-edit-table input, .lignes-edit-table textarea { font-size: 16px; }
+  .chip { padding: 9px 14px; }
+  .btn-sm { padding: 8px 12px; min-height: 40px; }
+}
+
 /* === Toasts === */
 .toast-container {
   position: fixed;

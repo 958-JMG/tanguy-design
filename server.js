@@ -2353,45 +2353,6 @@ app.delete('/api/projets/:id/attachments', requireAuth, async (req, res) => {
   }
 });
 
-// PATCH date pose prévue du projet + recalcul des dates d'échéance liées (fix bug Morales).
-// Voir docs/refonte-v3-2026-05-20/bug-morales-echeances.md.
-app.patch('/api/projets/:id/date-pose', requireAuth, async (req, res) => {
-  const projetId = req.params.id;
-  const { datePose } = req.body || {};
-  if (!datePose || !/^\d{4}-\d{2}-\d{2}$/.test(datePose)) {
-    return res.status(400).json({ error: 'datePose au format YYYY-MM-DD requis' });
-  }
-  try {
-    await atPatch(TABLES.projets.id, projetId, { 'Date pose prévue': datePose });
-    const filter = `FIND('${projetId}', ARRAYJOIN({Projet}))`;
-    const devisList = await atFetchFiltered(TABLES.devis.id, filter);
-    let recalcCount = 0;
-    for (const d of devisList) {
-      const dateDevis = d.fields['Date devis'] || null;
-      const echIds = d.fields['Échéances devis'] || [];
-      if (!echIds.length) continue;
-      const echRecords = await atFetchByIds(TABLES['echeances-devis'].id, echIds);
-      const echeancesForHelper = echRecords.map(r => ({
-        _id: r.id,
-        libelle: r.fields['Libellé'] || '',
-        date_prevue: null,
-      }));
-      const enriched = enrichEcheancesAvecDates(echeancesForHelper, dateDevis, datePose);
-      for (const e of enriched) {
-        if (e.date_prevue) {
-          await atPatch(TABLES['echeances-devis'].id, e._id, { 'Date prévue': e.date_prevue });
-          recalcCount++;
-        }
-      }
-    }
-    logger.info({ projetId, datePose, recalcCount }, 'date-pose mise à jour + échéances recalculées');
-    res.json({ ok: true, recalcCount });
-  } catch (e) {
-    logger.error({ err: e.message, projetId }, '[projets/date-pose] error');
-    res.status(500).json({ error: e.message });
-  }
-});
-
 // --- Helper pour log ---
 function euros(n) {
   if (n == null || isNaN(n)) return '—';
