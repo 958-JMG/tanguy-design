@@ -475,7 +475,10 @@ function renderFiche(app, data) {
         <section class="projet-section" aria-label="Artisans affectés" data-section="artisans">
           <div class="projet-section-header">
             <h2>Artisans affectés <span class="count">(${artisans.length})</span></h2>
-            <button class="btn btn-primary btn-sm" id="btn-add-artisan">${icon('plus', 14)} Affecter</button>
+            <div style="display:flex;gap:6px">
+              ${artisans.length > 0 ? `<button class="btn btn-ghost btn-sm" id="btn-planning-artisans" title="Génère un récap planning (dates + adresse chantier) à envoyer aux artisans par mail">${icon('calendar', 14)} Planning</button>` : ''}
+              <button class="btn btn-primary btn-sm" id="btn-add-artisan">${icon('plus', 14)} Affecter</button>
+            </div>
           </div>
           ${artisans.length === 0
             ? `<div class="compact-empty"><span>Aucun artisan rattaché</span></div>`
@@ -579,6 +582,7 @@ function renderFiche(app, data) {
   // Sprint v3.2 — actions nouvelles
   document.getElementById('btn-import-devis')?.addEventListener('click', () => openModalImportDevis(projet, devis));
   document.getElementById('btn-add-artisan')?.addEventListener('click', () => openModalAddArtisan(projet, artisans));
+  document.getElementById('btn-planning-artisans')?.addEventListener('click', () => openModalPlanningArtisans(projet, client, artisans));
   document.getElementById('btn-import-devis-artisan')?.addEventListener('click', () => openModalImportDevisArtisan(projet, artisans));
   document.getElementById('btn-new-plaud')?.addEventListener('click', () => openModalPlaud(projet, client));
 
@@ -1023,6 +1027,120 @@ function openModalJournal(projet) {
       toast('Entrée journal ajoutée', 'success');
       router();
     } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
+  });
+}
+
+// Sprint v5.x — Planning chantier envoyable aux artisans (mailto souverain, pas de SMTP).
+// Même esprit que le récap commande fournisseur : on construit un récap lisible
+// (référence, dates de pose, adresse du chantier, liste des artisans), on l'affiche
+// dans une modale « à valider avant envoi », puis on ouvre un mailto pré-rempli
+// vers les artisans qui ont un email. Lecture seule des données ; journalisation
+// optionnelle dans le Journal chantier après envoi. Aucune écriture Airtable requise.
+function fmtDateFr(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+}
+
+function buildPlanningRecap(projet, client, artisans) {
+  const pf = projet.fields || {};
+  const cf = client?.fields || {};
+  const ref = pf['Référence'] || '(sans référence)';
+  const debut = fmtDateFr(pf['Date pose prévue']);
+  const fin = fmtDateFr(pf['Date pose fin']);
+
+  let datesLine;
+  if (debut && fin && debut !== fin) datesLine = `Du ${debut} au ${fin}`;
+  else if (debut) datesLine = `Le ${debut}`;
+  else datesLine = 'Dates à confirmer';
+
+  // Adresse du chantier = adresse du client lié
+  const adresseParts = [];
+  if (cf['Adresse']) adresseParts.push(String(cf['Adresse']).trim());
+  const cpVille = [cf['CP'], cf['Ville']].filter(Boolean).join(' ');
+  if (cpVille) adresseParts.push(cpVille);
+  const adresse = adresseParts.length ? adresseParts.join(', ') : 'Adresse à préciser';
+
+  const lines = [];
+  lines.push('Bonjour,');
+  lines.push('');
+  lines.push(`Voici le planning d'intervention pour le chantier ${ref}.`);
+  lines.push('');
+  lines.push(`Référence chantier : ${ref}`);
+  lines.push(`Dates de pose : ${datesLine}`);
+  if (pf['Statut chantier']) lines.push(`Statut chantier : ${pf['Statut chantier']}`);
+  lines.push('');
+  lines.push('Adresse du chantier :');
+  lines.push(adresse);
+  if (cf['Nom']) lines.push(`Client : ${cf['Nom']}`);
+  if (cf['Téléphone']) lines.push(`Téléphone client : ${cf['Téléphone']}`);
+  lines.push('');
+  lines.push('Artisans intervenant sur le chantier :');
+  artisans.forEach(a => {
+    const af = a.fields || {};
+    const spec = af['Spécialité'] ? ` — ${af['Spécialité']}` : '';
+    lines.push(`- ${af['Nom'] || '(sans nom)'}${spec}`);
+  });
+  lines.push('');
+  lines.push('Merci de me confirmer votre disponibilité sur ces dates.');
+  lines.push('Cordialement,');
+  lines.push('Tanguy Design');
+
+  return lines.join('\n');
+}
+
+function openModalPlanningArtisans(projet, client, artisans) {
+  const pf = projet.fields || {};
+  const ref = pf['Référence'] || '';
+
+  // Artisans avec email (destinataires) vs sans email (à contacter manuellement)
+  const withEmail = artisans.filter(a => a.fields?.Email);
+  const noEmail = artisans.filter(a => !a.fields?.Email);
+  const recap = buildPlanningRecap(projet, client, artisans);
+
+  const recipientsLabel = withEmail.length
+    ? withEmail.map(a => esc(a.fields?.Email)).join(', ')
+    : '<span class="muted">Aucun artisan assigné n\'a d\'email renseigné</span>';
+
+  const { modal, close } = modalShell('Planning chantier — à valider avant envoi', `
+    <div class="planning-recap">
+      <div class="muted" style="font-size:13px;margin-bottom:10px">${icon('mail', 14)} Destinataires : ${recipientsLabel}</div>
+      ${noEmail.length ? `<div class="alert" style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px 10px;font-size:13px;margin-bottom:10px">
+        ${icon('users', 14)} À contacter manuellement (pas d'email renseigné) : ${noEmail.map(a => esc(a.fields?.Nom || 'artisan')).join(', ')}
+      </div>` : ''}
+      <pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:13px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin:0;max-height:45vh;overflow:auto">${esc(recap)}</pre>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="planning-cancel">Annuler</button>
+        <button type="button" class="btn btn-primary" id="planning-send" ${withEmail.length ? '' : 'disabled'}>${icon('mail', 14)} Préparer le mail</button>
+      </div>
+    </div>
+  `);
+  hydrateIcons(modal);
+  modal.querySelector('#planning-cancel').onclick = close;
+
+  modal.querySelector('#planning-send')?.addEventListener('click', () => {
+    close();
+    const emails = withEmail.map(a => a.fields.Email).join(',');
+    const subject = `Planning chantier — ${ref}`;
+    const mailto = `mailto:${encodeURIComponent(emails)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(recap)}`;
+
+    // Fallback presse-papier si le mailto dépasse la limite navigateur (~8000),
+    // même garde que l'envoi commande fournisseur.
+    if (mailto.length > 8000) {
+      navigator.clipboard?.writeText(recap).then(() => {
+        toast('Planning trop long pour le mail : contenu copié dans le presse-papier', 'info', 6000);
+        window.location.href = `mailto:${encodeURIComponent(emails)}?subject=${encodeURIComponent(subject)}`;
+      });
+    } else {
+      toast('Mail planning prêt — vérifie les destinataires avant envoi', 'info', 6000);
+      window.location.href = mailto;
+    }
+
+    // Journalisation optionnelle (best-effort, n'interrompt pas l'envoi).
+    const noms = withEmail.map(a => a.fields?.Nom || 'artisan').join(', ');
+    appendJournalEntry(projet.id, `Planning chantier envoyé aux artisans : ${noms}`)
+      .catch(() => { /* silencieux : la journalisation est secondaire */ });
   });
 }
 
