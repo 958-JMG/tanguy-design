@@ -15,9 +15,29 @@ describe('buildRetroApporteurs()', () => {
     { id: 'cliD' }, // pas d'apporteur
   ];
 
-  test('agrège CA HT signé + rétro 3 % par apporteur', () => {
+  test('rétro réservée à Solène par défaut (Virginie exclue de l\'assiette)', () => {
     const { rows, totaux } = buildRetroApporteurs({
       clients,
+      projets: [
+        { clientIds: ['cliA'], budgetHT: 100000, phase: 'Signé' },
+        { clientIds: ['cliB'], budgetHT: 50000, phase: 'Signé' },
+        { clientIds: ['cliC'], budgetHT: 30000, phase: 'Signé' }, // Virginie → ignorée
+      ],
+    });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].apporteur, 'Solène');
+    assert.equal(rows[0].nbDossiers, 2);
+    assert.equal(rows[0].caHT, 150000);
+    assert.equal(rows[0].retro, 4500); // 3 % de 150 000 (CA Solène uniquement)
+    assert.equal(totaux.caHT, 150000); // 30k de Virginie NON compté
+    assert.equal(totaux.nbDossiers, 2);
+    assert.equal(totaux.retro, 4500);
+  });
+
+  test('apporteursRetro paramétrable : agrège plusieurs apporteurs si demandé', () => {
+    const { rows, totaux } = buildRetroApporteurs({
+      clients,
+      apporteursRetro: ['Solène', 'Virginie'],
       projets: [
         { clientIds: ['cliA'], budgetHT: 100000, phase: 'Signé' },
         { clientIds: ['cliB'], budgetHT: 50000, phase: 'Signé' },
@@ -25,15 +45,11 @@ describe('buildRetroApporteurs()', () => {
       ],
     });
     assert.equal(rows.length, 2);
-    // Tri par CA HT décroissant : Solène (150k) avant Virginie (30k)
     assert.equal(rows[0].apporteur, 'Solène');
-    assert.equal(rows[0].nbDossiers, 2);
     assert.equal(rows[0].caHT, 150000);
-    assert.equal(rows[0].retro, 4500); // 3 % de 150 000
     assert.equal(rows[1].apporteur, 'Virginie');
     assert.equal(rows[1].retro, 900);
     assert.equal(totaux.caHT, 180000);
-    assert.equal(totaux.nbDossiers, 3);
     assert.equal(totaux.retro, 5400);
   });
 
