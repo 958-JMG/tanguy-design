@@ -99,6 +99,21 @@ export async function deleteRendezVous(id) {
   return api(`/api/data/rendez-vous/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
+// === SAV (CRUD via /api/data/sav) — onglet SAV local ===
+export async function fetchSav() {
+  const d = await api('/api/data/sav');
+  return (d.records || []).map(r => ({ id: r.id, ...r.fields }));
+}
+export async function createSav(fields) {
+  return api('/api/data/sav', { method: 'POST', body: JSON.stringify({ fields }) });
+}
+export async function patchSav(id, fields) {
+  return api(`/api/data/sav/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ fields }) });
+}
+export async function deleteSav(id) {
+  return api(`/api/data/sav/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 export async function appendJournalEntry(projetId, text) {
   // Server attend `text`, l'auteur est dérivé de req.session.user côté back.
   return api(`/api/projets/${projetId}/journal`, {

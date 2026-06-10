@@ -838,6 +838,8 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 .pipeline-table tr:hover { background: var(--paper); }
 .pipeline-table tr.is-active { background: var(--accent-lo); }
 .pipeline-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+/* Conteneur scrollable horizontalement pour les tableaux larges (mobile 390px) */
+.table-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 
 /* === Palette Cmd+K === */

@@ -52,7 +52,11 @@ const FIELD_WHITELIST = {
   projets:             ['Référence', 'Client', 'Statut', 'Phase commerciale', 'Statut chantier', 'Budget HT', 'Marge prévisionnelle', 'Date découverte', 'Date pose prévue', 'Date pose fin', 'Description', 'Journal chantier', 'Artisans', 'Type de projet', 'Architecte'],
   taches:              ['Titre', 'Statut', 'Assignée à', 'Priorité', 'Échéance', 'Description', 'Projet', 'Type'],
   'reunions-plaud':    ['Titre', 'Date heure', 'Lieu', 'Client nom', 'Type réunion', 'Niveau', 'Synthèse', 'Contexte', 'Points de douleur', 'Attentes', 'Autres informations', 'Tâches identifiées', 'Transcription', 'Projet'],
-  sav:                 ['Titre', 'Description', 'Statut', 'Priorité', 'Date', 'Projet', 'Client'],
+  // SAV (onglet SAV local) — champs RÉELS de la table SAV. Le champ "Type" existe
+  // en multilineText (libre) ; "Type SAV" (singleSelect) + "Statut" (singleSelect)
+  // sont additifs (cf. scripts/setup-sav-fields.js). La Ville est dérivée du client
+  // lié (pas un champ SAV). "Réalisé par" reste éditable (singleSelect collaborateur).
+  sav:                 ['Référence', 'Client', 'Date demande', 'Type', 'Type SAV', 'Statut', 'Commandé', 'Date réception', 'Réalisé par', 'Date réalisation', 'Facturé'],
   'fiches-decouverte': ['Titre', 'Date', 'Client', 'Projet', 'Notes'],
   'rendez-vous':       ['Objet', 'Date et heure', 'Type', 'Statut', 'Client', 'Projet', 'Lieu', 'Assigné à', 'Notes'],
   artisans:            ['Nom', 'Contractuel', 'Téléphone', 'Email', 'Spécialité', 'Notes'],
