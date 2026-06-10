@@ -599,6 +599,24 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 .cal-event.is-start { font-weight: 600; }
 .cal-more { font-size: 10px; padding: 2px 6px; }
 
+/* Agenda v2 — couleurs statiques distinctes par Type de RDV */
+.cal-event.rtype-decouverte         { background: #2f6f9f; }
+.cal-event.rtype-metre              { background: #127a6b; }
+.cal-event.rtype-presentation-devis { background: var(--gold); }
+.cal-event.rtype-suivi-chantier     { background: #6b4f9e; }
+.cal-event.rtype-reception          { background: #2e8b57; }
+.cal-event.rtype-pose               { background: #c25b30; }
+.cal-event.rtype-reception-pose     { background: #2e8b57; }
+.cal-event.rtype-sav                { background: #b23b3b; }
+.cal-event.rtype-autre              { background: #5b5b5b; }
+/* Réception prévisionnelle (marqueur projet, n° de semaine) */
+.cal-event.color-reception { background: #1f7a4d; border: 1px dashed rgba(255,255,255,.6); }
+.legend-dot.dot-reception  { background: #1f7a4d; }
+.cal-legend { flex-wrap: wrap; }
+/* Toggle « Journée entière » de la modale RDV : case + libellé en ligne */
+.rdv-allday { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.rdv-allday input { width: auto; margin: 0; }
+
 @media (max-width: 760px) {
   .cal-cell { min-height: 60px; }
   .cal-event { font-size: 10px; padding: 2px 4px; }
