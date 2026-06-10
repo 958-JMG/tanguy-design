@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * Tâches — multi-assignation (FLAG modèle, à valider par JMG avant usage).
+ * Tâches — multi-assignation (modèle validé par JMG, 2026-06-10).
  *
  * Ajoute un champ ADDITIF « Assignées à » (multipleSelects) à la table Tâches, SANS toucher
  * au champ existant « Assignée à » (singleSelect — règle dure : on ne change jamais le type
- * d'un champ existant). Idée : « Assignée à » reste le responsable principal (rétro-compat
- * dashboard « Mes tâches ») et « Assignées à » liste tous les co-assignés.
+ * d'un champ existant). « Assignée à » reste le responsable principal (rétro-compat dashboard
+ * « Mes tâches ») et « Assignées à » liste tous les co-assignés.
  *
- * ⚠️ Ce champ n'est PAS encore câblé en écriture dans l'UI (décision de modèle = go JMG).
- * Le script ne fait que préparer le terrain. À exécuter seulement après validation.
+ * Le multi-assign est câblé dans la vue « Toutes les tâches » (éditeur + Kanban). Le champ a
+ * été créé en base ; ce script reste pour reproductibilité / autres environnements (idempotent).
  *
  * Usage :
  *   node scripts/setup-taches-multiassign.js          # dry-run
