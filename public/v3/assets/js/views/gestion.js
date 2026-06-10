@@ -468,9 +468,13 @@ function openModalLitige(factureId, onDone) {
 
 async function renderTresorerie(body) {
   try {
-    const plan = await api('/api/tresorerie/plan');
+    const [plan, retro] = await Promise.all([
+      api('/api/tresorerie/plan'),
+      api('/api/retro-apporteurs').catch(() => ({ rows: [], totaux: { nbDossiers: 0, caHT: 0, retro: 0 }, taux: 0.03 })),
+    ]);
     const retardIn = plan.enRetard.encaissements;
     const retardOut = plan.enRetard.decaissements;
+    const tauxPct = ((retro.taux ?? 0.03) * 100).toLocaleString('fr-FR');
 
     body.innerHTML = `
       <div class="kpi-row" style="margin-bottom:16px">
@@ -504,6 +508,29 @@ async function renderTresorerie(body) {
         ${plan.sansDate.encaissements || plan.sansDate.decaissements ? `Sans date : +${euros(plan.sansDate.encaissements)} / −${euros(plan.sansDate.decaissements)} (hors plan). ` : ''}
         ${plan.plusTard.encaissements || plan.plusTard.decaissements ? `Au-delà de 12 sem. : +${euros(plan.plusTard.encaissements)} / −${euros(plan.plusTard.decaissements)}.` : ''}
       </p>
+
+      <div class="section-header"><h2 class="section-title">Rétrocession apporteur — Solène (${tauxPct} %)</h2></div>
+      <p class="muted" style="margin-top:-8px;margin-bottom:12px">Assiette = CA HT des projets signés des clients dont l'apporteur est Solène.</p>
+      ${retro.rows.length ? `
+      <div class="kpi-row" style="margin-bottom:16px">
+        <div class="kpi-card"><div class="kpi-value">${retro.totaux.nbDossiers}</div><div class="kpi-label">Dossiers signés apportés</div></div>
+        <div class="kpi-card"><div class="kpi-value">${euros(retro.totaux.caHT)}</div><div class="kpi-label">CA HT apporté</div></div>
+        <div class="kpi-card"><div class="kpi-value" style="color:var(--accent)">${euros(retro.totaux.retro)}</div><div class="kpi-label">Rétro ${tauxPct} % à reverser</div></div>
+      </div>
+      <table class="pipeline-table" style="margin-bottom:8px">
+        <thead><tr><th>Apporteur</th><th class="num">Dossiers signés</th><th class="num">CA HT apporté</th><th class="num">Rétro ${tauxPct} %</th></tr></thead>
+        <tbody>
+          ${retro.rows.map(r => `
+          <tr>
+            <td><strong>${esc(r.apporteur)}</strong></td>
+            <td class="num">${r.nbDossiers}</td>
+            <td class="num">${euros(r.caHT)}</td>
+            <td class="num" style="font-weight:600;color:var(--accent)">${euros(r.retro)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <p class="muted" style="font-size:12px;margin-bottom:24px">Périmètre : projets signés uniquement, ${tauxPct} % du CA HT (Σ Budget HT) des dossiers dont le client a cet apporteur.</p>
+      ` : `<div class="card" style="margin-bottom:24px"><p class="muted">Aucun dossier signé rattaché à un apporteur d'affaires pour le moment. Renseignez l'apporteur sur la fiche client.</p></div>`}
 
       <div class="section-header"><h2 class="section-title">Export expert-comptable</h2></div>
       <div class="card">

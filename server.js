@@ -17,6 +17,7 @@ const { parseFactureFournisseurPdf } = require('./services/facture-fournisseur-p
 const { buildPlanTresorerie, echeancesFacturees, mondayOf, addDays, toCsv } = require('./services/tresorerie-helper');
 const { recapPaieMois, alertesVisitesMedicales, joursOuvres } = require('./services/rh-helper');
 const { joursRetard, niveauRelanceSuggere, buildEmailRelance, buildEmailRelanceFournisseur, buildMailto } = require('./services/relances-helper');
+const { buildRetroApporteurs, TAUX_RETRO } = require('./services/retro-apporteurs-helper');
 const { canAccess, pickAllowedFields } = require('./services/acl');
 const logger = require('./services/logger');
 const usersStore = require('./services/users-store');
@@ -543,6 +544,32 @@ app.get('/api/admin/marges', requireAuth, async (req, res) => {
     res.json({ ok: true, rows });
   } catch (e) {
     logger.error({ err: e.message }, '[admin/marges] error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Admin : rétrocessions apporteurs d'affaires (rétro 3 %) ---
+// Pour chaque apporteur (champ singleSelect "Apporteur" sur Clients) : nb de dossiers
+// SIGNÉS apportés, CA HT apporté (Σ Budget HT des projets signés), rétro 3 % = 3 % du CA HT.
+// Périmètre : projets Phase commerciale === 'Signé' uniquement (cf. retro-apporteurs-helper).
+// Défensif : si le champ "Apporteur" n'existe pas encore (script schéma non exécuté),
+// aucun client n'a d'apporteur → rows vide, pas d'erreur.
+app.get('/api/retro-apporteurs', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [projets, clients] = await Promise.all([
+      atFetchAll(TABLES.projets.id),
+      atFetchAll(TABLES.clients.id),
+    ]);
+    const clientsNorm = clients.map(c => ({ id: c.id, Apporteur: c.fields?.['Apporteur'] }));
+    const projetsNorm = projets.map(p => ({
+      clientIds: p.fields?.Client || [],
+      budgetHT: p.fields?.['Budget HT'] || 0,
+      phase: p.fields?.['Phase commerciale'] || p.fields?.Statut || '',
+    }));
+    const { rows, totaux } = buildRetroApporteurs({ clients: clientsNorm, projets: projetsNorm });
+    res.json({ ok: true, taux: TAUX_RETRO, rows, totaux });
+  } catch (e) {
+    logger.error({ err: e.message }, '[retro-apporteurs] error');
     res.status(500).json({ error: e.message });
   }
 });
