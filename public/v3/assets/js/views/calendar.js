@@ -142,7 +142,7 @@ export function renderCalendar(app) {
         <span class="legend-dot rtype-pose" style="background:#c25b30;margin-left:10px"></span> Pose (RDV)
         <span class="legend-dot dot-reception" style="margin-left:10px"></span> Réception (Sem.)
         <span class="legend-dot rtype-sav" style="background:#b23b3b;margin-left:10px"></span> SAV
-        <span class="muted" style="flex-basis:100%;margin-top:6px">Glisse une pose ou un RDV pour le déplacer · clic sur un RDV pour l'éditer · clic sur une pose pour la gérer.</span>
+        <span class="muted" style="flex-basis:100%;margin-top:6px">Clic sur un RDV pour l'éditer, sur une pose pour gérer ses dates · sur ordinateur, glisser-déposer pour déplacer.</span>
       </div>
 
       <div class="cal-grid">
@@ -303,10 +303,17 @@ export function renderCalendar(app) {
         <p class="muted" style="margin-top:0">Cette barre vient des dates de pose du projet
           (${esc(p['Date pose prévue'] || '?')}${p['Date pose fin'] ? ` → ${esc(p['Date pose fin'])}` : ''}).
           Ce n'est pas un rendez-vous : pour la retirer du calendrier, on vide ses dates de pose.</p>
+        <label>Date de pose (début)
+          <input type="date" data-pose-debut value="${esc((p['Date pose prévue'] || '').slice(0, 10))}">
+        </label>
+        <label>Date de pose (fin) <span class="muted">(optionnel)</span>
+          <input type="date" data-pose-fin value="${esc((p['Date pose fin'] || '').slice(0, 10))}">
+        </label>
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" data-pose-cancel>Annuler</button>
-          <button type="button" class="btn btn-ghost" data-pose-clear style="color:var(--accent)">${icon('trash', 14)} Retirer du calendrier</button>
-          <button type="button" class="btn btn-primary" data-pose-open>Ouvrir le projet</button>
+          <button type="button" class="btn btn-ghost" data-pose-clear style="color:var(--accent)">${icon('trash', 14)} Retirer</button>
+          <button type="button" class="btn btn-ghost" data-pose-open>Ouvrir</button>
+          <button type="button" class="btn btn-primary" data-pose-save>Enregistrer</button>
         </div>
       </div>`;
     document.body.appendChild(modal);
@@ -323,6 +330,17 @@ export function renderCalendar(app) {
         p['Date pose prévue'] = null; p['Date pose fin'] = null;
         close(); draw();
         toast('Pose retirée du calendrier', 'success');
+      } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
+    };
+    // Fallback mobile au drag (inopérant au doigt) : éditer les dates de pose à la main.
+    modal.querySelector('[data-pose-save]').onclick = async () => {
+      const debut = modal.querySelector('[data-pose-debut]').value || null;
+      const fin = modal.querySelector('[data-pose-fin]').value || null;
+      try {
+        await patchProjet(projetId, { 'Date pose prévue': debut, 'Date pose fin': fin });
+        p['Date pose prévue'] = debut; p['Date pose fin'] = fin;
+        close(); draw();
+        toast('Dates de pose mises à jour', 'success');
       } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
     };
   }

@@ -102,12 +102,6 @@ async function findUser(login) {
   return users.get(String(login).toLowerCase()) || null;
 }
 
-async function verifyPassword(login, password) {
-  const user = await findUser(login);
-  if (!user || !user.actif || !user.hash) return false;
-  return bcrypt.compare(password, user.hash);
-}
-
 async function listUsers() {
   const users = await loadUsers();
   // Ne JAMAIS renvoyer le hash dans la liste publique
@@ -212,7 +206,6 @@ async function getEmail(login) {
 
 module.exports = {
   findUser,
-  verifyPassword,
   listUsers,
   createUser,
   updateUser,

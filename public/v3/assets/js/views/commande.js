@@ -390,6 +390,7 @@ function openLignesEditor(cmdId, lignes, refresh) {
   function drawList() {
     const root = document.getElementById('lignes-editor');
     root.innerHTML = `
+      <div class="table-scroll">
       <table class="lignes-edit-table">
         <thead>
           <tr>
@@ -418,6 +419,7 @@ function openLignesEditor(cmdId, lignes, refresh) {
           `).join('')}
         </tbody>
       </table>
+      </div>
     `;
     hydrateIcons(root);
     root.querySelectorAll('tr[data-idx]').forEach(tr => {
