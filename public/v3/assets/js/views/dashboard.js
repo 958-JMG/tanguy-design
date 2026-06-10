@@ -201,7 +201,11 @@ async function loadMesTaches(assigneeName) {
     if (!r.ok) throw new Error('chargement tâches');
     const d = await r.json();
     const taches = (d.records || [])
-      .filter(t => (t.fields?.['Assignée à'] === assigneeName) && t.fields?.Statut !== 'Terminée');
+      // #53 — « Mes tâches » honore aussi le multi-assign (Assignées à) : un co-assigné
+      // voit la tâche dans son perso, pas seulement l'assigné principal (Assignée à).
+      .filter(t => ((t.fields?.['Assignée à'] === assigneeName)
+                    || (t.fields?.['Assignées à'] || []).includes(assigneeName))
+                   && t.fields?.Statut !== 'Terminée');
 
     if (taches.length === 0) {
       container.innerHTML = '<p class="muted">Aucune tâche en cours assignée. ✨</p>';
