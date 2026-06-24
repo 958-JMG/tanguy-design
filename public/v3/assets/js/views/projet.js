@@ -241,8 +241,17 @@ function renderFiche(app, data) {
   const projetArtisanIds = Array.isArray(pf.Artisans) ? pf.Artisans : [];
   const artisans = allArtisans.filter(a => projetArtisanIds.includes(a.id));
 
-  // Bilan financier prévi
-  const caHT = pf['Budget HT'] || 0;
+  // Bilan financier
+  // P-A (2026-06-24) — CA HT = prévisionnel saisi (Budget HT) tant qu'aucun devis n'est signé,
+  // puis bascule sur le RÉEL (somme des « Total HT final » des devis signés : principal + additifs).
+  // On n'écrase plus le prévi : la bascule est calculée à l'affichage. Si un projet est signé mais
+  // sans total réel exploitable (devis sans montant), on retombe sur le prévi (évite un CA à 0).
+  const budgetPrevi = pf['Budget HT'] || 0;
+  const devisSignes = devis.filter(d => d.fields?.['Statut'] === 'Signé');
+  const caReel = devisSignes.reduce((s, d) => s + (d.fields?.['Total HT final'] || 0), 0);
+  const caEstReel = devisSignes.length > 0 && caReel > 0;
+  const caHT = caEstReel ? caReel : budgetPrevi;
+
   // P1a — le coût fournisseurs = montant RÉEL confirmé par l'AR de commande.
   // Une commande sans AR reçu compte 0 (« 0 strict » validé par JMG) : la marge
   // n'intègre que du réel confirmé. Le « Montant HT » reste l'estimé devis, affiché
@@ -250,8 +259,21 @@ function renderFiche(app, data) {
   const coutFourn = commandes.reduce((s, c) => s + (c.fields?.['Montant AR'] || 0), 0);
   const coutFournEstime = commandes.reduce((s, c) => s + (c.fields?.['Montant HT'] || 0), 0);
   const arManquants = commandes.filter(c => !(c.fields?.['Montant AR'] > 0)).length;
-  const coutArtisans = devisArtisans.reduce((s, d) => s + (d.fields?.['Montant HT'] || 0), 0);
-  const retro = devisArtisans.filter(d => {
+
+  // P-B (2026-06-24) — dédoublonnage des devis artisans : un même devis (même n° + même montant)
+  // a parfois été importé plusieurs fois. On déduplique avant de sommer pour ne pas gonfler la card
+  // Artisans. Les numéros vides ou « AUTO-… » (sans n° réel) ne sont jamais dédupliqués entre eux.
+  const _daSeen = new Set();
+  const devisArtisansUniq = devisArtisans.filter(d => {
+    const num = String(d.fields?.['Numéro devis'] || '').trim();
+    const mt = d.fields?.['Montant HT'] || 0;
+    const key = (!num || num.startsWith('AUTO-')) ? `id:${d.id}` : `${num}|${mt}`;
+    if (_daSeen.has(key)) return false;
+    _daSeen.add(key);
+    return true;
+  });
+  const coutArtisans = devisArtisansUniq.reduce((s, d) => s + (d.fields?.['Montant HT'] || 0), 0);
+  const retro = devisArtisansUniq.filter(d => {
     const aId = (d.fields?.Artisan || [])[0];
     // Lookup sur allArtisans : un devis peut référencer un artisan qui n'est plus dans la liste projet.
     const a = aId ? allArtisans.find(x => x.id === aId) : null;
@@ -303,7 +325,7 @@ function renderFiche(app, data) {
 
       <!-- Bilan KPIs compactés -->
       <div class="kpi-row is-compact" aria-label="Bilan financier prévisionnel">
-        <div class="kpi-card"><div class="kpi-value">${euros(caHT)}</div><div class="kpi-label">CA HT</div></div>
+        <div class="kpi-card"><div class="kpi-value">${euros(caHT)}</div><div class="kpi-label">CA HT <span class="muted" style="font-weight:400" title="${caEstReel ? 'Réel : somme des devis signés' : 'Prévisionnel saisi (aucun devis signé)'}">· ${caEstReel ? 'réel' : 'prévi'}</span></div></div>
         <div class="kpi-card"><div class="kpi-value">${euros(coutFourn)}</div><div class="kpi-label">Fournisseurs${arManquants > 0 && coutFournEstime > 0 ? ` <span class="muted" style="font-weight:400" title="${arManquants} commande(s) sans AR reçu — montant confirmé fournisseur manquant">· estimé ${euros(coutFournEstime)}</span>` : ''}</div></div>
         <div class="kpi-card"><div class="kpi-value">${euros(coutArtisans - retro)}</div><div class="kpi-label">Artisans (−5%)</div></div>
         <div class="kpi-card ${margeNegative ? 'is-negative' : ''}" ${margeNegative ? 'aria-label="Marge négative — attention"' : ''}>

@@ -1054,7 +1054,11 @@ app.get('/api/projets/:id', requireAuth, async (req, res) => {
     const cmdIds    = projet.fields?.['Commandes']  || [];
     const devisIds  = projet.fields?.['Devis']      || [];
     const plaudIds  = projet.fields?.['Réunions Plaud'] || projet.fields?.['Réunions plaud'] || [];
-    const daIds     = projet.fields?.['Devis artisans'] || [];
+    // P-B (2026-06-24) — le champ de lien inverse côté Projets s'appelle « Devis Artisans »
+    // (A majuscule, fldgKzRCotdiqMei6). L'ancien code lisait « Devis artisans » → daIds toujours
+    // vide → les devis artisans ne remontaient jamais sur la fiche projet (card Artisans à 0).
+    // On lit les deux casses par sécurité.
+    const daIds     = projet.fields?.['Devis Artisans'] || projet.fields?.['Devis artisans'] || [];
 
     const [taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans] = await Promise.all([
       atFetchByIds(TABLES.taches.id, tacheIds),
