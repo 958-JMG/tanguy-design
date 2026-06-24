@@ -148,13 +148,16 @@ async function renderFacturation(body) {
       <div class="section-header"><h2 class="section-title">Toutes les factures clients</h2></div>
       ${factures.length ? `
       <table class="pipeline-table">
-        <thead><tr><th>Numéro</th><th>Type</th><th>Émise le</th><th>Échéance</th><th class="num">TTC</th><th class="num">Réglé</th><th>Statut</th><th></th></tr></thead>
+        <thead><tr><th>Numéro</th><th>Client</th><th>Type</th><th>Émise le</th><th>Échéance</th><th class="num">TTC</th><th class="num">Réglé</th><th>Statut</th><th></th></tr></thead>
         <tbody>
           ${factures.map(f => {
             const restant = Math.max(0, (Number(f['Montant TTC']) || 0) - (Number(f['Montant réglé']) || 0));
+            // P-G — nom du client en clair (« pour quel client ») résolu depuis le lien Airtable.
+            const clientNom = (state.clients || []).find(c => c.id === (f['Client'] || [])[0])?.Nom || '—';
             return `
           <tr>
             <td><strong>${esc(f['Numéro'] || '?')}</strong></td>
+            <td>${esc(clientNom)}</td>
             <td>${esc(f['Type'] || '—')}</td>
             <td>${fmtDate(f['Date émission'])}</td>
             <td>${fmtDate(f['Date échéance'])}</td>
