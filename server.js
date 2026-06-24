@@ -1718,7 +1718,47 @@ app.post('/api/plaud/parse', requireAuth, async (req, res) => {
       }
     }
 
-    return { ok: true, record: rec, parsed, niveau: niveauResolu, tachesCreees };
+    // P-E (2026-06-24) — relance client auto J+7 après la découverte (réunion R1).
+    // Idempotent : on ne recrée pas si une relance « suite découverte » existe déjà sur le projet.
+    let relanceTache = null;
+    if (niveauResolu === 'R1' && projetId) {
+      try {
+        const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`, { headers: { Authorization: `Bearer ${AT_KEY}` } });
+        const projet = pr.ok ? await pr.json() : null;
+        const tacheIds = projet?.fields?.['Tâches'] || [];
+        const cliId = (projet?.fields?.Client || [])[0] || clientId;
+        let cliNom = '';
+        if (cliId) {
+          try {
+            const cr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.clients.id}/${cliId}`, { headers: { Authorization: `Bearer ${AT_KEY}` } });
+            if (cr.ok) cliNom = (await cr.json()).fields?.Nom || '';
+          } catch (e) { /* fallback silencieux */ }
+        }
+        let dejaRelance = false;
+        if (tacheIds.length) {
+          const existing = await atFetchByIds(TABLES.taches.id, tacheIds);
+          dejaRelance = existing.some(t => /relance-decouverte|relance.*d[ée]couverte/i.test((t.fields?.Titre || '') + ' ' + (t.fields?.Description || '')));
+        }
+        if (!dejaRelance) {
+          const titre = cliNom ? `[${cliNom}] / Relancer le client (suite découverte)` : 'Relancer le client (suite découverte)';
+          const t = await atCreate(TABLES.taches.id, {
+            'Titre': titre,
+            'Statut': 'À faire',
+            'Priorité': 'Moyenne',
+            'Assignée à': 'Virginie',
+            'Échéance': addDays(todayISO(), 7),
+            'Description': `[relance-decouverte] Relance commerciale automatique 7 jours après la découverte. Reprendre contact avec le client pour faire avancer le projet.`,
+            'Projet': [projetId],
+          });
+          relanceTache = { id: t.id, titre };
+          logger.info({ projetId, tacheId: t.id }, '[plaud] relance découverte J+7 créée (P-E)');
+        }
+      } catch (e) {
+        logger.warn({ err: e.message, projetId }, '[plaud] création relance découverte échouée (P-E)');
+      }
+    }
+
+    return { ok: true, record: rec, parsed, niveau: niveauResolu, tachesCreees, relanceTache };
   });
 });
 
