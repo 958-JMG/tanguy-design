@@ -70,7 +70,9 @@ const TABLES = {
   absences:                { id: 'tbl89I9NcQ9Esb5jp', name: 'Absences' },
   'heures-salaries':       { id: 'tblLecQk6Hdf0rqLK', name: 'Heures salariés' },
   // Sprint v5.1 — Aide utilisateur éditable par les admins depuis le cockpit
-  aide:                    { id: 'tblpOREwCKcKtKEef', name: 'Aide' }
+  aide:                    { id: 'tblpOREwCKcKtKEef', name: 'Aide' },
+  // Chantier Devis express (P-H1, 2026-06) — grille de référence éco-participation
+  'eco-participation':     { id: 'tblJavUnoshZvdKIg', name: 'Éco-participation' }
 };
 
 // Field IDs attachments des tables v5 (upload direct, cf. DA_FIELDS)
