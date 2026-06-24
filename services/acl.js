@@ -49,7 +49,7 @@ const TABLE_ACL = {
 const FIELD_WHITELIST = {
   clients:             ['Nom', 'Type', 'Source', 'Email', 'Téléphone', 'Adresse', 'Ville', 'CP', 'Contact', 'Notes', 'Date contact', 'Date création', 'Architecte référent', 'Apporteur'],
   // Note : POST artisans ouvert à tous (création depuis la modale d'affectation, Lot B #3).
-  projets:             ['Référence', 'Client', 'Statut', 'Phase commerciale', 'Statut chantier', 'Budget HT', 'Marge prévisionnelle', 'Date découverte', 'Date pose prévue', 'Date pose fin', 'Description', 'Journal chantier', 'Artisans', 'Type de projet', 'Architecte'],
+  projets:             ['Référence', 'Client', 'Statut', 'Phase commerciale', 'Statut chantier', 'Budget HT', 'Marge prévisionnelle', 'Date découverte', 'Date pose prévue', 'Date pose fin', 'Description', 'Journal chantier', 'Artisans', 'Type de projet', 'Architecte', 'Motif refus', 'Note refus', 'Date refus'],
   taches:              ['Titre', 'Statut', 'Assignée à', 'Assignées à', 'Priorité', 'Échéance', 'Description', 'Projet', 'Type'],
   'reunions-plaud':    ['Titre', 'Date heure', 'Lieu', 'Client nom', 'Type réunion', 'Niveau', 'Synthèse', 'Contexte', 'Points de douleur', 'Attentes', 'Autres informations', 'Tâches identifiées', 'Transcription', 'Projet'],
   // SAV (onglet SAV local) — champs RÉELS de la table SAV. Le champ "Type" existe

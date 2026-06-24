@@ -299,6 +299,7 @@ function renderFiche(app, data) {
       <div class="projet-title-row">
         <h1 class="page-title projet-title">${esc(pf.Référence || '(sans référence)')}</h1>
         <div class="projet-title-meta">
+          ${phase === 'Refus' ? `<span class="badge" style="background:var(--red-lo,#fde8e8);color:var(--red,#c0392b)" title="${pf['Note refus'] ? esc(pf['Note refus']) : 'Projet refusé'}">Refus${pf['Motif refus'] ? ' · ' + esc(pf['Motif refus']) : ''}</span>` : ''}
           ${chantier && chantier !== 'Archivé' ? `<span class="badge phase-haute" title="Statut chantier">${esc(chantier)}</span>` : ''}
           ${chantier === 'Archivé' ? `<span class="badge" title="Statut chantier">Archivé</span>` : ''}
           <button class="btn btn-ghost btn-sm" id="btn-edit-projet" aria-label="Éditer le projet">${icon('edit', 14)} Éditer</button>
@@ -909,7 +910,7 @@ function openModalEditProjet(projet) {
       <label>Référence <input name="Référence" value="${esc(p.Référence || '')}" required></label>
       <label>Phase commerciale
         <select name="Phase commerciale">
-          ${['Découverte','Dessin','Présentation devis','En attente décision','Signé'].map(v => `<option ${p['Phase commerciale'] === v ? 'selected' : ''}>${v}</option>`).join('')}
+          ${['Découverte','Dessin','Présentation devis','En attente décision','Signé','Refus'].map(v => `<option ${p['Phase commerciale'] === v ? 'selected' : ''}>${v}</option>`).join('')}
         </select>
       </label>
       <label>Statut chantier
