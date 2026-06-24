@@ -1036,11 +1036,15 @@ function openModalEditProjet(projet) {
 function openModalTache(tache, projet, client) {
   const t = tache?.fields || {};
   const clientNom = client?.fields?.Nom || '';
+  // P-G (2026-06-24) — préfixe auto « [Client · Projet] / » pour savoir d'office de quel
+  // client/projet relève la tâche (demande JMG : le nom du projet client devant).
+  const projetRef = projet?.fields?.['Référence'] || '';
+  const autoPrefix = (clientNom && projetRef) ? `${clientNom} · ${projetRef}` : (clientNom || projetRef);
   const isNew = !tache;
   const { modal, close } = modalShell(isNew ? 'Nouvelle tâche' : 'Éditer tâche', `
     <form id="form-tache">
       <label>Titre
-        <input name="Titre" value="${esc(t.Titre || '')}" required placeholder="${clientNom ? '[' + esc(clientNom) + '] / ' : ''}…">
+        <input name="Titre" value="${esc(t.Titre || '')}" required placeholder="${autoPrefix ? '[' + esc(autoPrefix) + '] / ' : ''}…">
       </label>
       <label>Assignée à
         <select name="Assignée à">
@@ -1072,9 +1076,9 @@ function openModalTache(tache, projet, client) {
     const fd = new FormData(e.target);
     const fields = {};
     for (const [k, v] of fd.entries()) if (v) fields[k] = v;
-    // Préfixe auto client si Titre nu (et création seule)
-    if (isNew && clientNom && fields.Titre && !fields.Titre.includes('[')) {
-      fields.Titre = `[${clientNom}] / ${fields.Titre}`;
+    // Préfixe auto « [Client · Projet] » si Titre nu (et création seule)
+    if (isNew && autoPrefix && fields.Titre && !fields.Titre.includes('[')) {
+      fields.Titre = `[${autoPrefix}] / ${fields.Titre}`;
     }
     if (isNew) fields.Projet = [projet.id];
     try {
