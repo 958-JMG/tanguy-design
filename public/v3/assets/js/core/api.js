@@ -230,6 +230,14 @@ export async function marquerEncaisse(echeanceId, mode = null) {
   });
 }
 
+// P-D (2026-06-24) — édition du montant d'une échéance (acompte modifiable + recalcul).
+export async function patchEcheance(echeanceId, fields) {
+  return api(`/api/data/echeances-devis/${encodeURIComponent(echeanceId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ fields }),
+  });
+}
+
 // Crée un artisan (POST ouvert à tous via ACL, Lot B #3). Renvoie { ok, record }.
 export async function createArtisan(fields) {
   return api('/api/data/artisans', { method: 'POST', body: JSON.stringify({ fields }) });
