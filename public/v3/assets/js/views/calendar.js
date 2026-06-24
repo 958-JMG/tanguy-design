@@ -6,7 +6,7 @@
 import { state } from '../core/state.js';
 import { navigateTo } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
-import { patchProjet, fetchRendezVous, patchRendezVous } from '../core/api.js';
+import { patchProjet, fetchRendezVous, patchRendezVous, fetchCommandes, fetchSav } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 import { openModalRdv, rdvTypeSlug, isAllDay, isoWeek } from '../core/rdv.js';
 
@@ -82,6 +82,41 @@ function buildEvents(year, month) {
       allDay: isAllDay(iso),
       colorClass: isReception ? 'color-reception' : rdvTypeSlug(type),
       draggable: true,
+    });
+  }
+
+  // P-F (2026-06-24) — réception des marchandises : livraisons commandes fournisseurs
+  // (« Date livraison prévue ») affichées comme marqueurs (non déplaçables). Couche additive.
+  for (const c of state.commandesAll || []) {
+    const d = parseISODate(String(c['Date livraison prévue'] || '').slice(0, 10));
+    if (!d || d < debutMois || d > finMois) continue;
+    const ref = c['Référence courte'] || c['Numéro'] || 'Commande';
+    events.push({
+      type: 'reception-cmd',
+      id: c.id,
+      titre: `Réception marchandises · ${ref}${c['Statut'] ? ' (' + c['Statut'] + ')' : ''}`,
+      label: `Récept. ${ref}`,
+      start: d,
+      end: d,
+      colorClass: 'color-reception',
+      draggable: false,
+    });
+  }
+
+  // P-F — réceptions SAV (pièces commandées, « Date réception » de la table SAV).
+  for (const s of state.savAll || []) {
+    const d = parseISODate(String(s['Date réception'] || '').slice(0, 10));
+    if (!d || d < debutMois || d > finMois) continue;
+    const ref = s['Référence'] || 'SAV';
+    events.push({
+      type: 'reception-sav',
+      id: s.id,
+      titre: `Réception SAV · ${ref}`,
+      label: `SAV ${ref}`,
+      start: d,
+      end: d,
+      colorClass: 'rtype-sav',
+      draggable: false,
     });
   }
 
@@ -178,7 +213,7 @@ export function renderCalendar(app) {
       </div>
 
       <p class="muted muted-with-icon" style="margin-top:16px">${icon('construction', 14)}
-        Poses chantier et rendez-vous affichés. Réunions Plaud et commandes fournisseurs à venir.
+        Poses, rendez-vous, réceptions marchandises (livraisons commandes) et réceptions SAV affichés.
       </p>
     `;
 
@@ -349,5 +384,12 @@ export function renderCalendar(app) {
   // Charge les rendez-vous puis redessine (les poses s'affichent immédiatement).
   (async () => {
     try { state.rendezVous = await fetchRendezVous(); draw(); } catch (e) { /* poses seules si échec */ }
+  })();
+  // P-F — charge commandes (livraisons) + SAV (réceptions) pour la couche réception de l'agenda.
+  (async () => {
+    try { state.commandesAll = await fetchCommandes(); draw(); } catch (e) { /* sans réceptions commandes si échec */ }
+  })();
+  (async () => {
+    try { state.savAll = await fetchSav(); draw(); } catch (e) { /* sans réceptions SAV si échec */ }
   })();
 }

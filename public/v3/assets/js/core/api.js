@@ -104,6 +104,12 @@ export async function fetchSav() {
   const d = await api('/api/data/sav');
   return (d.records || []).map(r => ({ id: r.id, ...r.fields }));
 }
+
+// P-F (2026-06-24) — toutes les commandes (pour afficher les réceptions/livraisons dans l'agenda).
+export async function fetchCommandes() {
+  const d = await api('/api/data/commandes');
+  return (d.records || []).map(r => ({ id: r.id, ...r.fields }));
+}
 export async function createSav(fields) {
   return api('/api/data/sav', { method: 'POST', body: JSON.stringify({ fields }) });
 }
