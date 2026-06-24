@@ -184,6 +184,8 @@ function openModalSav(ticket, onSaved) {
           ${REALISE_PAR.map(v => `<option ${t['Réalisé par'] === v ? 'selected' : ''}>${esc(v)}</option>`).join('')}
         </select>
       </label>
+      <label style="display:flex;align-items:center;gap:8px;flex-direction:row"><input name="Commandé" type="checkbox" ${t['Commandé'] ? 'checked' : ''} style="width:auto"> Pièce commandée</label>
+      <label>Date de réception prévue (marchandises) <input name="Date réception" type="date" value="${esc(t['Date réception'] || '')}"></label>
       <label>Description / notes <textarea name="Référence" rows="3" placeholder="Décris la demande SAV…">${esc(t['Référence'] || '')}</textarea></label>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="sav-cancel">Annuler</button>
@@ -211,6 +213,9 @@ function openModalSav(ticket, onSaved) {
     if (typeSav) fields['Type SAV'] = typeSav;
     const realise = fd.get('Réalisé par');
     if (realise) fields['Réalisé par'] = realise;
+    // P-F — pièce commandée + date de réception des marchandises (alimente l'agenda).
+    fields['Commandé'] = !!fd.get('Commandé');
+    fields['Date réception'] = fd.get('Date réception') || null;
 
     try {
       if (isNew) await createSav(fields);
