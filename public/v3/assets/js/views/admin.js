@@ -51,6 +51,15 @@ export function renderAdmin(app) {
       <div class="card"><p class="muted">${icon('clock', 14)} Chargement…</p></div>
     </div>
 
+    <!-- Devis express (P-H1) — grille éco-participation éditable -->
+    <div class="section-header" style="margin-top:32px">
+      <h2 class="section-title">Grille éco-participation</h2>
+      <button class="btn btn-primary btn-sm" id="btn-add-ecopart">${icon('plus', 14)} Ajouter une catégorie</button>
+    </div>
+    <div id="ecopart-output">
+      <div class="card"><p class="muted">${icon('clock', 14)} Chargement…</p></div>
+    </div>
+
     <h2 class="section-title" style="margin-top:32px">Sous-sections à venir</h2>
     <div class="kpi-row">
       <div class="kpi-card"><div class="kpi-label">Stock</div><div class="muted">Sprint 6+</div></div>
@@ -64,7 +73,92 @@ export function renderAdmin(app) {
   document.getElementById('btn-gen-ai').addEventListener('click', generateBriefing);
   document.getElementById('btn-load-marges').addEventListener('click', loadMarges);
   document.getElementById('btn-new-user').addEventListener('click', () => openModalNouveauUser());
+  document.getElementById('btn-add-ecopart').addEventListener('click', addEcopart);
   loadUsers();
+  loadEcopart();
+}
+
+// === Devis express (P-H1) — grille éco-participation =========================
+async function loadEcopart() {
+  const out = document.getElementById('ecopart-output');
+  if (!out) return;
+  try {
+    const r = await fetch('/api/data/eco-participation', { credentials: 'same-origin' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+    renderEcopart(out, d.records || []);
+  } catch (e) {
+    out.innerHTML = `<div class="card"><p class="muted">Erreur : ${esc(e.message)}</p></div>`;
+  }
+}
+
+function renderEcopart(out, records) {
+  const rows = records.slice().sort((a, b) =>
+    String(a.fields?.['Catégorie'] || '').localeCompare(String(b.fields?.['Catégorie'] || '')));
+  out.innerHTML = `
+    <div class="card">
+      <p class="muted" style="margin-bottom:10px">Montant éco-participation HT appliqué par défaut dans le Devis express, par catégorie de produit. Modifie un montant puis « Enregistrer ».</p>
+      <table class="pipeline-table">
+        <thead><tr><th>Catégorie</th><th class="num">Montant HT</th><th>Actif</th><th></th></tr></thead>
+        <tbody>
+          ${rows.length === 0 ? '<tr><td colspan="4" class="muted">Aucune catégorie. Ajoute-en une.</td></tr>' : rows.map(rec => {
+            const f = rec.fields || {};
+            return `
+            <tr data-id="${esc(rec.id)}">
+              <td><input class="eco-cat" value="${esc(f['Catégorie'] || '')}" style="width:100%"></td>
+              <td class="num"><input class="eco-montant" type="number" step="0.01" min="0" value="${f['Montant HT'] ?? 0}" style="width:90px;text-align:right"> €</td>
+              <td><input class="eco-actif" type="checkbox" ${f['Actif'] ? 'checked' : ''}></td>
+              <td style="display:flex;gap:4px">
+                <button class="btn btn-ghost btn-sm" data-action="eco-save" data-id="${esc(rec.id)}">${icon('check', 12)} Enregistrer</button>
+                <button class="btn btn-ghost btn-sm" data-action="eco-del" data-id="${esc(rec.id)}" style="color:var(--accent)">${icon('trash', 12)}</button>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  hydrateIcons(out);
+  out.querySelectorAll('[data-action="eco-save"]').forEach(b => b.addEventListener('click', () => saveEcopart(b.dataset.id)));
+  out.querySelectorAll('[data-action="eco-del"]').forEach(b => b.addEventListener('click', () => delEcopart(b.dataset.id)));
+}
+
+async function saveEcopart(id) {
+  const tr = document.querySelector(`#ecopart-output tr[data-id="${id}"]`);
+  if (!tr) return;
+  const fields = {
+    'Catégorie': tr.querySelector('.eco-cat').value.trim(),
+    'Montant HT': Number(tr.querySelector('.eco-montant').value) || 0,
+    'Actif': tr.querySelector('.eco-actif').checked,
+  };
+  try {
+    const r = await fetch(`/api/data/eco-participation/${encodeURIComponent(id)}`, {
+      method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields }),
+    });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || r.statusText); }
+    toast('Éco-participation enregistrée', 'success');
+  } catch (e) { toast('Erreur : ' + e.message, 'error', 5000); }
+}
+
+async function delEcopart(id) {
+  if (!confirm('Supprimer cette ligne de la grille éco-participation ?')) return;
+  try {
+    const r = await fetch(`/api/data/eco-participation/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'same-origin' });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || r.statusText); }
+    toast('Ligne supprimée', 'success');
+    loadEcopart();
+  } catch (e) { toast('Erreur : ' + e.message, 'error', 5000); }
+}
+
+async function addEcopart() {
+  try {
+    const r = await fetch('/api/data/eco-participation', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: { 'Catégorie': 'Nouvelle catégorie', 'Montant HT': 0, 'Actif': true } }),
+    });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || r.statusText); }
+    loadEcopart();
+  } catch (e) { toast('Erreur : ' + e.message, 'error', 5000); }
 }
 
 // === Sprint v4 — Gestion des accès utilisateurs ============================

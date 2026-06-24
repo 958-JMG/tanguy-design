@@ -44,6 +44,8 @@ const TABLE_ACL = {
   // Sprint v5.1 — Aide utilisateur : lecture libre (panneau « ? » + guide),
   // écriture admin only (Virginie édite le contenu depuis le cockpit).
   aide:                    { GET: '*',     POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
+  // Devis express (P-H1) — grille éco-part : lisible par tous (appliquée au devis), maintenue par admin.
+  'eco-participation':     { GET: '*',     POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
 };
 
 const FIELD_WHITELIST = {
@@ -78,6 +80,7 @@ const FIELD_WHITELIST = {
 
   // Sprint v5.1 — Aide utilisateur
   aide:                    ['Titre', 'Page', 'Type', 'Contenu', 'Ordre', 'Visible'],
+  'eco-participation':     ['Catégorie', 'Montant HT', 'Actif', 'Notes'],
 };
 
 /**
