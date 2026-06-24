@@ -11,6 +11,7 @@ import {
   importDevisClient, signDevisTanguy,
   importDevisArtisan, parsePlaud,
   genererTacheFacturation, marquerEncaisse, createClient, createArtisan, fetchRendezVous,
+  patchEcheance,
 } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 import { openModalRdv, renderRdvList, bindRdvList } from '../core/rdv.js';
@@ -699,6 +700,66 @@ function renderFiche(app, data) {
     });
   });
 
+  // ── P-D (2026-06-24) — acomptes paramétrables : édition montant + recalcul ──
+  {
+    const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
+    const dSigne = devis.find(d => d.fields?.Statut === 'Signé');
+    const caTTC = dSigne?.fields?.['Total TTC'] || 0;
+    const factEch = (() => {
+      if (!dSigne) return echeances;
+      const ids = new Set(dSigne.fields?.['Échéances devis'] || []);
+      return ids.size ? echeances.filter(e => ids.has(e.id)) : echeances;
+    })();
+    const ordered = factEch.slice().sort((a, b) => (a.fields?.Ordre || 0) - (b.fields?.Ordre || 0));
+    const acompteEch = ordered.find(e => /acompte|commande|signat/i.test(e.fields?.['Libellé'] || '')) || ordered[0];
+    const soldeEch = [...ordered].reverse().find(e => /solde|fin de pose|r[ée]ception/i.test(e.fields?.['Libellé'] || '')) || ordered[ordered.length - 1];
+    const encaisse = e => e?.fields?.Statut === 'Encaissé';
+
+    // Édition libre du montant d'une échéance
+    app.querySelectorAll('[data-action="edit-echeance"]').forEach(btn => {
+      btn.addEventListener('click', ev => {
+        ev.preventDefault();
+        openModalEditEcheance(btn.dataset.echeance, Number(btn.dataset.montant) || 0);
+      });
+    });
+
+    // Acompte 30 % du TTC + rééquilibrage du solde
+    const btn30 = app.querySelector('[data-action="acompte-30"]');
+    if (btn30) btn30.addEventListener('click', async () => {
+      if (!acompteEch || !soldeEch || acompteEch.id === soldeEch.id) { toast('Il faut au moins 2 échéances distinctes', 'error'); return; }
+      if (encaisse(acompteEch) || encaisse(soldeEch)) { toast('Acompte ou solde déjà encaissé — modification bloquée', 'error', 5000); return; }
+      const newAcompte = round2(0.30 * caTTC);
+      const others = ordered.filter(e => e.id !== acompteEch.id && e.id !== soldeEch.id).reduce((s, e) => s + (e.fields?.['Montant prévu'] || 0), 0);
+      const newSolde = round2(caTTC - newAcompte - others);
+      if (newSolde < 0) { toast('30 % dépasse le total restant', 'error'); return; }
+      const ok = await confirmModal(`Poser l'acompte « ${esc(acompteEch.fields?.['Libellé'] || '?')} » à ${euros(newAcompte)} (30 %) et le solde « ${esc(soldeEch.fields?.['Libellé'] || '?')} » à ${euros(newSolde)} ?`, { okLabel: 'Appliquer' });
+      if (!ok) return;
+      try {
+        await patchEcheance(acompteEch.id, { 'Montant prévu': newAcompte });
+        await patchEcheance(soldeEch.id, { 'Montant prévu': newSolde });
+        toast('Acompte 30 % appliqué', 'success');
+        router();
+      } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
+    });
+
+    // Rééquilibrer le solde = total devis − somme des autres échéances
+    const btnReq = app.querySelector('[data-action="reequilibrer-solde"]');
+    if (btnReq) btnReq.addEventListener('click', async () => {
+      if (!soldeEch) { toast('Aucune échéance de solde', 'error'); return; }
+      if (encaisse(soldeEch)) { toast('Solde déjà encaissé — modification bloquée', 'error', 5000); return; }
+      const others = ordered.filter(e => e.id !== soldeEch.id).reduce((s, e) => s + (e.fields?.['Montant prévu'] || 0), 0);
+      const newSolde = round2(caTTC - others);
+      if (newSolde < 0) { toast('Les autres échéances dépassent déjà le total', 'error'); return; }
+      const ok = await confirmModal(`Ajuster le solde « ${esc(soldeEch.fields?.['Libellé'] || '?')} » à ${euros(newSolde)} pour retomber sur le total du devis ?`, { okLabel: 'Ajuster' });
+      if (!ok) return;
+      try {
+        await patchEcheance(soldeEch.id, { 'Montant prévu': newSolde });
+        toast('Solde rééquilibré', 'success');
+        router();
+      } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
+    });
+  }
+
   // Sprint v3.8 — Suppression d'une entrée journal individuelle
   app.querySelectorAll('[data-action="del-journal"]').forEach(btn => {
     btn.addEventListener('click', async e => {
@@ -1201,6 +1262,11 @@ function renderFacturationSection(echeances, taches, devis) {
         <h3><span aria-hidden="true">${icon('mail', 14)}</span> <span>Facturation client</span></h3>
         ${caHT > 0 || caTTC > 0 ? `<div class="facturation-ca">${caHT > 0 ? 'HT <strong>' + euros(caHT) + '</strong>' : ''}${caTTC > 0 ? ` · TTC <strong>${euros(caTTC)}</strong>` : ''}</div>` : ''}
       </header>
+      ${ordered.length >= 2 && caTTC > 0 ? `
+      <div class="facturation-tools" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px">
+        <button class="btn btn-ghost btn-sm" data-action="acompte-30" title="Pose l'acompte à 30 % du total TTC et ajuste le solde">Acompte 30 %</button>
+        <button class="btn btn-ghost btn-sm" data-action="reequilibrer-solde" title="Ajuste le solde pour que le total des échéances = total du devis">${icon('check', 12)} Rééquilibrer le solde</button>
+      </div>` : ''}
       <ul class="facturation-grid" role="list">
         ${ordered.map(e => {
           const ef = e.fields || {};
@@ -1243,13 +1309,49 @@ function renderFacturationSection(echeances, taches, devis) {
               <div class="facturation-item-amount">
                 <span class="facturation-amount-value">${euros(montantTTC)}</span>
                 <span class="facturation-amount-unit">TTC${pct != null ? ' · ' + pct + ' %' : ''}</span>
+                ${!isEncaisse ? `<button class="btn btn-ghost btn-sm" data-action="edit-echeance" data-echeance="${esc(e.id)}" data-montant="${montantTTC}" title="Modifier le montant" style="padding:2px 6px;margin-left:6px">${icon('pencil', 12)}</button>` : ''}
               </div>
               ${meta ? `<div class="facturation-item-meta">${meta}</div>` : ''}
               ${action}
             </li>`;
         }).join('')}
       </ul>
+      ${caTTC > 0 ? (() => {
+        const ecart = Math.round((totalPrevu - caTTC) * 100) / 100;
+        const ok = Math.abs(ecart) < 1;
+        return `<div class="facturation-total muted" style="font-size:13px;margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+          <span>Total échéances : <strong>${euros(totalPrevu)}</strong> / Devis ${euros(caTTC)} TTC</span>
+          <span style="color:${ok ? 'var(--green,#2e7d32)' : 'var(--red,#c0392b)'}">${ok ? '✓ équilibré' : '· écart ' + euros(ecart)}</span>
+        </div>`;
+      })() : ''}
     </section>`;
+}
+
+// P-D — modale d'édition du montant d'une échéance (acompte ou autre).
+function openModalEditEcheance(echeanceId, currentMontant) {
+  const { modal, close } = modalShell('Modifier le montant', `
+    <form id="form-edit-echeance">
+      <label>Montant TTC (€)
+        <input name="montant" type="number" step="0.01" min="0" value="${currentMontant}" required autofocus>
+      </label>
+      <p class="muted" style="font-size:13px">Après avoir changé l'acompte, clique « Rééquilibrer le solde » pour que le total des échéances retombe sur le devis.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" data-cancel>Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  `);
+  modal.querySelector('[data-cancel]').onclick = close;
+  modal.querySelector('#form-edit-echeance').addEventListener('submit', async e => {
+    e.preventDefault();
+    const val = Math.round((Number(new FormData(e.target).get('montant')) || 0) * 100) / 100;
+    try {
+      await patchEcheance(echeanceId, { 'Montant prévu': val });
+      close();
+      toast('Montant mis à jour', 'success');
+      router();
+    } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
+  });
 }
 
 async function archiveProjet(projet, newChantier) {
