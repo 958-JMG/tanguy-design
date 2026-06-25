@@ -196,6 +196,58 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 .nav-bottom-item small { font-size: 10px; }
 .nav-bottom-item.is-active { color: var(--accent); }
 
+/* Menu déroulant desktop (Gestion ▾ : Gestion / Tâches / Admin) */
+.nav-dropdown { position: relative; display: inline-flex; }
+.nav-dropdown-trigger { cursor: pointer; }
+.nav-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  background: var(--paper);
+  border: 1px solid var(--line2);
+  border-radius: var(--r-md);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.10);
+  padding: 6px;
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 120;
+}
+.nav-dropdown:hover .nav-dropdown-menu,
+.nav-dropdown:focus-within .nav-dropdown-menu { display: flex; }
+.nav-dropdown-menu .nav-item { width: 100%; }
+
+/* Feuille « Plus » (mobile uniquement) — masquée par défaut */
+.nav-sheet, .nav-sheet-backdrop { display: none; }
+.nav-sheet-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 110;
+}
+.nav-sheet-backdrop.is-open { display: block; }
+.nav-sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 60px;
+  background: var(--paper);
+  border-top: 1px solid var(--line);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 24px rgba(0,0,0,0.12);
+  z-index: 115;
+  flex-direction: column;
+  padding: 8px;
+}
+.nav-sheet.is-open { display: flex; }
+.nav-sheet-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  font-size: 15px;
+  color: var(--ink1);
+}
+.nav-sheet-item:hover { background: var(--line); }
+.nav-sheet-item.is-active { color: var(--accent); }
+
 /* Cards et listes (génériques) */
 .card {
   background: white;

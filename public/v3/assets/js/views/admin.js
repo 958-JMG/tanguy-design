@@ -60,6 +60,15 @@ export function renderAdmin(app) {
       <div class="card"><p class="muted">${icon('clock', 14)} Chargement…</p></div>
     </div>
 
+    <!-- Devis express (P-H3) — grille des coefficients de marge par fournisseur -->
+    <div class="section-header" style="margin-top:32px">
+      <h2 class="section-title">Marges fournisseurs (Devis express)</h2>
+      <button class="btn btn-primary btn-sm" id="btn-add-marge">${icon('plus', 14)} Ajouter un fournisseur</button>
+    </div>
+    <div id="marges-output">
+      <div class="card"><p class="muted">${icon('clock', 14)} Chargement…</p></div>
+    </div>
+
     <h2 class="section-title" style="margin-top:32px">Sous-sections à venir</h2>
     <div class="kpi-row">
       <div class="kpi-card"><div class="kpi-label">Stock</div><div class="muted">Sprint 6+</div></div>
@@ -74,8 +83,10 @@ export function renderAdmin(app) {
   document.getElementById('btn-load-marges').addEventListener('click', loadMarges);
   document.getElementById('btn-new-user').addEventListener('click', () => openModalNouveauUser());
   document.getElementById('btn-add-ecopart').addEventListener('click', addEcopart);
+  document.getElementById('btn-add-marge').addEventListener('click', addMarge);
   loadUsers();
   loadEcopart();
+  loadMargesFournisseurs();
 }
 
 // === Devis express (P-H1) — grille éco-participation =========================
@@ -158,6 +169,90 @@ async function addEcopart() {
     });
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || r.statusText); }
     loadEcopart();
+  } catch (e) { toast('Erreur : ' + e.message, 'error', 5000); }
+}
+
+// === Devis express (P-H3) — grille des coefficients de marge par fournisseur ==
+async function loadMargesFournisseurs() {
+  const out = document.getElementById('marges-output');
+  if (!out) return;
+  try {
+    const r = await fetch('/api/data/marges-fournisseurs', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+    const d = await r.json();
+    renderMarges(out, d.records || []);
+  } catch (e) {
+    out.innerHTML = `<div class="card"><p class="muted">Grille indisponible (${esc(e.message)}). La table « Marges fournisseurs » n'est peut-être pas encore créée.</p></div>`;
+  }
+}
+
+function renderMarges(out, records) {
+  const rows = records.slice().sort((a, b) =>
+    String(a.fields?.['Fournisseur'] || '').localeCompare(String(b.fields?.['Fournisseur'] || '')));
+  out.innerHTML = `
+    <div class="card">
+      <p class="muted" style="margin-bottom:10px">Coefficient appliqué au <strong>total net du devis fournisseur</strong> pour obtenir le prix client HT (ex. ×2). Le devis express associe le coefficient au fournisseur détecté. Modifie une valeur puis « Enregistrer ».</p>
+      <table class="pipeline-table">
+        <thead><tr><th>Fournisseur</th><th class="num">Coefficient (×)</th><th>Actif</th><th></th></tr></thead>
+        <tbody>
+          ${rows.length === 0 ? '<tr><td colspan="4" class="muted">Aucun fournisseur. Ajoutes-en un.</td></tr>' : rows.map(rec => {
+            const f = rec.fields || {};
+            return `
+            <tr data-id="${esc(rec.id)}">
+              <td><input class="marge-four" value="${esc(f['Fournisseur'] || '')}" style="width:100%"></td>
+              <td class="num"><input class="marge-coef" type="number" step="0.01" min="0" value="${f['Coefficient'] ?? ''}" placeholder="ex. 2" style="width:90px;text-align:right"></td>
+              <td><input class="marge-actif" type="checkbox" ${f['Actif'] ? 'checked' : ''}></td>
+              <td style="display:flex;gap:4px">
+                <button class="btn btn-ghost btn-sm" data-action="marge-save" data-id="${esc(rec.id)}">${icon('check', 12)} Enregistrer</button>
+                <button class="btn btn-ghost btn-sm" data-action="marge-del" data-id="${esc(rec.id)}" style="color:var(--accent)">${icon('trash', 12)}</button>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  hydrateIcons(out);
+  out.querySelectorAll('[data-action="marge-save"]').forEach(b => b.addEventListener('click', () => saveMarge(b.dataset.id)));
+  out.querySelectorAll('[data-action="marge-del"]').forEach(b => b.addEventListener('click', () => delMarge(b.dataset.id)));
+}
+
+async function saveMarge(id) {
+  const tr = document.querySelector(`#marges-output tr[data-id="${id}"]`);
+  if (!tr) return;
+  const coefRaw = tr.querySelector('.marge-coef').value;
+  const fields = {
+    'Fournisseur': tr.querySelector('.marge-four').value.trim(),
+    'Coefficient': coefRaw === '' ? null : (Number(coefRaw) || 0),
+    'Actif': tr.querySelector('.marge-actif').checked,
+  };
+  try {
+    const r = await fetch(`/api/data/marges-fournisseurs/${encodeURIComponent(id)}`, {
+      method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields }),
+    });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || r.statusText); }
+    toast('Marge fournisseur enregistrée', 'success');
+  } catch (e) { toast('Erreur : ' + e.message, 'error', 5000); }
+}
+
+async function delMarge(id) {
+  if (!confirm('Supprimer ce fournisseur de la grille des marges ?')) return;
+  try {
+    const r = await fetch(`/api/data/marges-fournisseurs/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'same-origin' });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || r.statusText); }
+    toast('Fournisseur supprimé', 'success');
+    loadMargesFournisseurs();
+  } catch (e) { toast('Erreur : ' + e.message, 'error', 5000); }
+}
+
+async function addMarge() {
+  try {
+    const r = await fetch('/api/data/marges-fournisseurs', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: { 'Fournisseur': 'Nouveau fournisseur', 'Coefficient': null, 'Actif': true } }),
+    });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || r.statusText); }
+    loadMargesFournisseurs();
   } catch (e) { toast('Erreur : ' + e.message, 'error', 5000); }
 }
 

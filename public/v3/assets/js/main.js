@@ -29,6 +29,21 @@ window.logout = async () => {
 };
 window.openSearch = openSearch;
 
+// Feuille « Plus » (bottom nav mobile) — ouvre/ferme les items secondaires + admin
+window.toggleMoreNav = () => {
+  const sheet = document.getElementById('nav-sheet');
+  const backdrop = document.getElementById('nav-sheet-backdrop');
+  if (!sheet || !backdrop) return;
+  const open = sheet.classList.toggle('is-open');
+  backdrop.classList.toggle('is-open', open);
+  sheet.setAttribute('aria-hidden', open ? 'false' : 'true');
+};
+// Fermer la feuille au changement de route
+window.addEventListener('hashchange', () => {
+  document.getElementById('nav-sheet')?.classList.remove('is-open');
+  document.getElementById('nav-sheet-backdrop')?.classList.remove('is-open');
+});
+
 // Cmd+K shortcut
 document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'k') {

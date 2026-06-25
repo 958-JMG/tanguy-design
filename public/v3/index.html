@@ -31,15 +31,26 @@
     <button class="nav-item" data-route="sav" onclick="navigateTo('sav')">
       <span class="nav-icon" data-icon="wrench"></span><span class="nav-label">SAV</span>
     </button>
-    <button class="nav-item nav-admin-only" data-route="gestion" onclick="navigateTo('gestion')">
-      <span class="nav-icon" data-icon="landmark"></span><span class="nav-label">Gestion</span>
+    <button class="nav-item" data-route="devis-fournisseur" onclick="navigateTo('devis-fournisseur')">
+      <span class="nav-icon" data-icon="calculator"></span><span class="nav-label">Devis express</span>
     </button>
-    <button class="nav-item nav-admin-only" data-route="taches" onclick="navigateTo('taches')">
-      <span class="nav-icon" data-icon="check"></span><span class="nav-label">Tâches</span>
-    </button>
-    <button class="nav-item nav-admin-only" data-route="admin" onclick="navigateTo('admin')">
-      <span class="nav-icon" data-icon="settings"></span><span class="nav-label">Admin</span>
-    </button>
+    <div class="nav-dropdown nav-admin-only">
+      <button class="nav-item nav-dropdown-trigger" type="button" aria-haspopup="true">
+        <span class="nav-icon" data-icon="landmark"></span><span class="nav-label">Gestion</span>
+        <span class="nav-icon" data-icon="chevronDown" data-icon-size="14"></span>
+      </button>
+      <div class="nav-dropdown-menu">
+        <button class="nav-item" data-route="gestion" onclick="navigateTo('gestion')">
+          <span class="nav-icon" data-icon="landmark"></span><span class="nav-label">Gestion</span>
+        </button>
+        <button class="nav-item" data-route="taches" onclick="navigateTo('taches')">
+          <span class="nav-icon" data-icon="check"></span><span class="nav-label">Tâches</span>
+        </button>
+        <button class="nav-item" data-route="admin" onclick="navigateTo('admin')">
+          <span class="nav-icon" data-icon="settings"></span><span class="nav-label">Admin</span>
+        </button>
+      </div>
+    </div>
   </nav>
   <button class="search-btn" onclick="openSearch()" title="Rechercher (Cmd+K)">
     <span data-icon="search" data-icon-size="16"></span>
@@ -68,11 +79,18 @@
   <button class="nav-bottom-item" data-route="dashboard" onclick="navigateTo('dashboard')"><span data-icon="home"></span><small>Home</small></button>
   <button class="nav-bottom-item" data-route="clients" onclick="navigateTo('clients')"><span data-icon="users"></span><small>Clients</small></button>
   <button class="nav-bottom-item" data-route="pipeline" onclick="navigateTo('pipeline')"><span data-icon="chart"></span><small>Pipeline</small></button>
-  <button class="nav-bottom-item" data-route="calendar" onclick="navigateTo('calendar')"><span data-icon="calendar"></span><small>Calendar</small></button>
-  <button class="nav-bottom-item" data-route="sav" onclick="navigateTo('sav')"><span data-icon="wrench"></span><small>SAV</small></button>
-  <button class="nav-bottom-item nav-admin-only" data-route="gestion" onclick="navigateTo('gestion')"><span data-icon="landmark"></span><small>Gestion</small></button>
-  <button class="nav-bottom-item nav-admin-only" data-route="taches" onclick="navigateTo('taches')"><span data-icon="check"></span><small>Tâches</small></button>
-  <button class="nav-bottom-item nav-admin-only" data-route="admin" onclick="navigateTo('admin')"><span data-icon="settings"></span><small>Admin</small></button>
+  <button class="nav-bottom-item" data-route="devis-fournisseur" onclick="navigateTo('devis-fournisseur')"><span data-icon="calculator"></span><small>Devis exp.</small></button>
+  <button class="nav-bottom-item" type="button" onclick="toggleMoreNav()"><span data-icon="chevronDown"></span><small>Plus</small></button>
+</nav>
+
+<!-- Feuille « Plus » (mobile) : items secondaires + admin -->
+<div class="nav-sheet-backdrop" id="nav-sheet-backdrop" onclick="toggleMoreNav()"></div>
+<nav class="nav-sheet" id="nav-sheet" aria-hidden="true">
+  <button class="nav-sheet-item" data-route="calendar" onclick="navigateTo('calendar'); toggleMoreNav()"><span data-icon="calendar"></span><span>Calendar</span></button>
+  <button class="nav-sheet-item" data-route="sav" onclick="navigateTo('sav'); toggleMoreNav()"><span data-icon="wrench"></span><span>SAV</span></button>
+  <button class="nav-sheet-item nav-admin-only" data-route="gestion" onclick="navigateTo('gestion'); toggleMoreNav()"><span data-icon="landmark"></span><span>Gestion</span></button>
+  <button class="nav-sheet-item nav-admin-only" data-route="taches" onclick="navigateTo('taches'); toggleMoreNav()"><span data-icon="check"></span><span>Tâches</span></button>
+  <button class="nav-sheet-item nav-admin-only" data-route="admin" onclick="navigateTo('admin'); toggleMoreNav()"><span data-icon="settings"></span><span>Admin</span></button>
 </nav>
 
 <script type="module" src="/v3/assets/js/main.js"></script>
