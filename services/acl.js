@@ -46,6 +46,9 @@ const TABLE_ACL = {
   aide:                    { GET: '*',     POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
   // Devis express (P-H1) — grille éco-part : lisible par tous (appliquée au devis), maintenue par admin.
   'eco-participation':     { GET: '*',     POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
+  // Devis express (P-H3) — grille des coefficients de marge par fournisseur : lisible par tous
+  // (appliquée au devis express par toute l'équipe), maintenue par admin.
+  'marges-fournisseurs':   { GET: '*',     POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
 };
 
 const FIELD_WHITELIST = {
@@ -81,6 +84,7 @@ const FIELD_WHITELIST = {
   // Sprint v5.1 — Aide utilisateur
   aide:                    ['Titre', 'Page', 'Type', 'Contenu', 'Ordre', 'Visible'],
   'eco-participation':     ['Catégorie', 'Montant HT', 'Actif', 'Notes'],
+  'marges-fournisseurs':   ['Fournisseur', 'Coefficient', 'Actif', 'Notes'],
 };
 
 /**

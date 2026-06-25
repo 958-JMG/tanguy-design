@@ -13,6 +13,7 @@ import { renderGestion } from '../views/gestion.js';
 import { renderSav } from '../views/sav.js';
 import { renderTaches } from '../views/taches.js';
 import { renderAide } from '../views/aide.js';
+import { renderDevisFournisseur } from '../views/devis-fournisseur.js';
 
 export function navigateTo(route, params = {}) {
   let hash = '#' + route;
@@ -42,6 +43,7 @@ export function router() {
       case 'devis':            return rest.length ? renderDevis(app, decodeURIComponent(rest[0])) : renderDashboard(app);
       case 'pipeline':         return renderPipeline(app, rest.length ? decodeURIComponent(rest.join('/')) : null);
       case 'calendar':         return renderCalendar(app);
+      case 'devis-fournisseur': return renderDevisFournisseur(app);
       case 'gestion':          return renderGestion(app, rest.length ? decodeURIComponent(rest[0]) : 'facturation');
       case 'sav':              return renderSav(app);
       case 'taches':           return renderTaches(app);

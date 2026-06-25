@@ -197,6 +197,22 @@ export async function importDevisClient({ file, projetId = null, clientId = null
   return j;
 }
 
+// Devis express (P-H3) — upload + parse d'un devis FOURNISSEUR. Ne crée rien :
+// retourne le parsing enrichi (coefficient de marge + éco-part + prix client suggéré).
+// (withKeepAlive → check j.error en plus de r.ok, cf. importDevisClient.)
+export async function parseDevisFournisseur({ file, signal = null }) {
+  const fd = new FormData();
+  fd.append('pdf', file);
+  const r = await fetch('/api/devis-fournisseur/parse', { method: 'POST', credentials: 'same-origin', body: fd, signal });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e.error || r.statusText);
+  }
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  return j;
+}
+
 // Signature d'un devis Tanguy → backend crée les commandes fournisseurs avec rétro-planning
 // (date envoi = date pose - 105 jours), génère 4 tâches (acompte, BC, notif artisans, planning J+60),
 // passe le devis à Signé + projet à Commandes.

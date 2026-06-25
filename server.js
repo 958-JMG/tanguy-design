@@ -14,6 +14,7 @@ const { generateFicheMission } = require('./services/fiche-mission-generator');
 const { generateBcPdf } = require('./services/bc-pdf-generator');
 const { enrichEcheancesAvecDates } = require('./services/echeances-helper');
 const { parseFactureFournisseurPdf } = require('./services/facture-fournisseur-parser');
+const { parseDevisFournisseurPdf } = require('./services/devis-fournisseur-parser');
 const { buildPlanTresorerie, echeancesFacturees, mondayOf, addDays, toCsv } = require('./services/tresorerie-helper');
 const { recapPaieMois, alertesVisitesMedicales, joursOuvres } = require('./services/rh-helper');
 const { joursRetard, niveauRelanceSuggere, buildEmailRelance, buildEmailRelanceFournisseur, buildMailto } = require('./services/relances-helper');
@@ -72,7 +73,10 @@ const TABLES = {
   // Sprint v5.1 — Aide utilisateur éditable par les admins depuis le cockpit
   aide:                    { id: 'tblpOREwCKcKtKEef', name: 'Aide' },
   // Chantier Devis express (P-H1, 2026-06) — grille de référence éco-participation
-  'eco-participation':     { id: 'tblJavUnoshZvdKIg', name: 'Éco-participation' }
+  'eco-participation':     { id: 'tblJavUnoshZvdKIg', name: 'Éco-participation' },
+  // Chantier Devis express (P-H3, 2026-06) — grille des coefficients de marge par fournisseur.
+  // Table créée le 2026-06-25 (3 fournisseurs semés : GE/Novamobili/Metron, coefficient à renseigner par JMG).
+  'marges-fournisseurs':   { id: 'tblnmUPDSSgyqqCJM', name: 'Marges fournisseurs' }
 };
 
 // Field IDs attachments des tables v5 (upload direct, cf. DA_FIELDS)
@@ -1127,6 +1131,93 @@ app.get('/api/devis/:id/detail', requireAuth, async (req, res) => {
 // --- DEVIS : import PDF + parsing Claude + création complète ---
 // Param `type` (optionnel) : "Principal" (défaut) ou "Additif".
 // En mode Additif : projetId requis, pas de création auto client/projet.
+// ──────────────────────────────────────────────────────────────────────────
+// Devis express (P-H3) — parsing d'un DEVIS FOURNISSEUR pour pré-remplir un
+// devis client. Accessible à TOUTE l'équipe (requireAuth, pas requireAdmin).
+// Ne crée rien : retourne le parsing enrichi (coefficient de marge fournisseur
+// + éco-participation suggérée + prix client suggéré). La création du devis
+// client se fait en aval (P-H4).
+// ──────────────────────────────────────────────────────────────────────────
+app.post('/api/devis-fournisseur/parse', requireAuth, upload.single('pdf'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'PDF requis' });
+  if (!validatePdfMagicBytes(req.file.buffer)) return res.status(400).json({ error: 'Fichier non reconnu comme PDF (signature %PDF manquante)' });
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY non configurée' });
+
+  await withKeepAlive(req, res, async () => {
+    const t0 = Date.now();
+    logger.info(`[devis-fournisseur/parse] START ${req.file.originalname} (${req.file.size} bytes)`);
+    const parsed = await parseDevisFournisseurPdf(req.file.buffer);
+    logger.info(`[devis-fournisseur/parse] ✓ parsed in ${Date.now() - t0}ms: ${parsed?.fournisseur?.type_detecte || '?'}, total_ht=${parsed?.totaux?.total_ht}`);
+
+    // Enrichissement best-effort : on lit les grilles de référence (marge + éco-part)
+    // pour suggérer un prix client. Si une grille est absente/non configurée, on
+    // dégrade proprement (coefficient null + alerte), sans jamais bloquer le parsing.
+    let marge = { coefficient: null, source: 'aucune', fournisseur_grille: null };
+    let ecopart = { categorie: null, montant_ht: null, source: 'aucune' };
+    try {
+      const margeRecs = await atFetchAll(TABLES['marges-fournisseurs'].id).catch(() => []);
+      const m = matchMargeFournisseur(margeRecs, parsed?.fournisseur);
+      if (m) marge = { coefficient: m.coefficient, source: 'grille', fournisseur_grille: m.nom };
+    } catch (e) { logger.warn(`[devis-fournisseur/parse] marge non résolue: ${e.message}`); }
+    try {
+      const ecoRecs = await atFetchAll(TABLES['eco-participation'].id).catch(() => []);
+      const eco = matchEcoParticipation(ecoRecs, parsed?.categorie_suggeree);
+      if (eco) ecopart = { categorie: eco.categorie, montant_ht: eco.montant, source: 'grille' };
+    } catch (e) { logger.warn(`[devis-fournisseur/parse] éco-part non résolue: ${e.message}`); }
+
+    // Prix client suggéré = total net fournisseur × coefficient (+ éco-part).
+    // Si pas de coefficient connu : on laisse null → l'équipe le saisit dans le builder.
+    const totalHt = Number(parsed?.totaux?.total_ht) || null;
+    const prixClientHt = (totalHt != null && marge.coefficient != null)
+      ? Math.round((totalHt * marge.coefficient + (ecopart.montant_ht || 0)) * 100) / 100
+      : null;
+
+    return {
+      ok: true,
+      parsed,
+      enrichissement: {
+        marge,
+        ecopart,
+        suggestion: { total_ht_fournisseur: totalHt, prix_client_ht: prixClientHt },
+      },
+    };
+  });
+});
+
+// Associe un fournisseur parsé à une ligne de la grille des marges.
+// Match tolérant : type détecté OU nom, insensible casse/accents, par inclusion.
+function matchMargeFournisseur(records, fournisseur) {
+  if (!Array.isArray(records) || !records.length || !fournisseur) return null;
+  const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  const needles = [norm(fournisseur.type_detecte), norm(fournisseur.nom)].filter(Boolean);
+  for (const rec of records) {
+    const f = rec.fields || {};
+    if (f.Actif === false) continue;
+    const hay = norm(f.Fournisseur);
+    if (!hay) continue;
+    if (needles.some((n) => n && (hay.includes(n) || n.includes(hay)))) {
+      const coef = Number(f.Coefficient);
+      return { nom: f.Fournisseur, coefficient: Number.isFinite(coef) && coef > 0 ? coef : null };
+    }
+  }
+  return null;
+}
+
+// Associe une catégorie suggérée à une ligne de la grille éco-participation.
+function matchEcoParticipation(records, categorie) {
+  if (!Array.isArray(records) || !records.length || !categorie) return null;
+  const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  const needle = norm(categorie);
+  for (const rec of records) {
+    const f = rec.fields || {};
+    if (f.Actif === false) continue;
+    if (norm(f['Catégorie']) === needle) {
+      return { categorie: f['Catégorie'], montant: Number(f['Montant HT']) || 0 };
+    }
+  }
+  return null;
+}
+
 app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'PDF requis' });
   if (!validatePdfMagicBytes(req.file.buffer)) return res.status(400).json({ error: 'Fichier non reconnu comme PDF (signature %PDF manquante)' });

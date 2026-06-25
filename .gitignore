@@ -33,3 +33,6 @@ MAIL_*.md
 backups/
 .claude/
 Type de bon de commande/
+
+# Devis express (P-H3) — PDF fournisseurs réels (données clients), jamais dans le repo
+devis-fournisseurs/
