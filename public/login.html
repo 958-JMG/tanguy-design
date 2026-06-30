@@ -70,6 +70,7 @@ button{
   transition:background .15s;
 }
 button:hover{background:var(--gold-light)}
+button:disabled{opacity:.5;cursor:default}
 .err{
   background:rgba(224,116,116,.12);
   border:1px solid rgba(224,116,116,.4);
@@ -78,6 +79,20 @@ button:hover{background:var(--gold-light)}
   font-size:12px;margin-bottom:16px;display:none;
 }
 .footer{font-size:10px;color:#4A4742;text-align:center;letter-spacing:.08em;text-transform:uppercase}
+
+/* ======= 2FA ======= */
+.step{display:none}
+.step.active{display:block}
+.code-input{text-align:center;font-size:24px;letter-spacing:.4em;font-weight:500}
+.totp-help{font-size:11px;color:#8A8680;line-height:1.6;margin-bottom:18px;text-align:center}
+.qr-zone{display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:20px}
+.qr-zone img{width:188px;height:188px;border-radius:8px;background:var(--paper);padding:8px}
+.secret-line{font-size:11px;color:#8A8680;text-align:center;word-break:break-all}
+.secret-line code{color:var(--gold-light);font-size:12px;letter-spacing:.06em;user-select:all}
+.steps-num{font-size:11px;color:#8A8680;line-height:1.7;margin-bottom:18px}
+.steps-num b{color:var(--paper);font-weight:500}
+.link-back{display:inline-block;margin-top:14px;font-size:10px;color:#6A6660;text-transform:uppercase;letter-spacing:.08em;cursor:pointer;background:none;width:auto;padding:0}
+.link-back:hover{color:var(--gold);background:none}
 
 /* ======= RESPONSIVE ======= */
 @media(max-width:480px){
@@ -100,16 +115,50 @@ button:hover{background:var(--gold-light)}
 <div class="wrap">
   <div class="logo"><img src="/img/logo.jpg" alt="Tanguy Design" style="width:220px;height:auto;border-radius:8px;display:block;border:2px solid #fff;box-shadow:0 0 0 1px rgba(255,255,255,.15)"></div>
 
-  <form class="box" onsubmit="return doLogin(event)">
-    <h1>Cockpit Chantiers</h1>
-    <div class="sub">Accès réservé · 4 collaborateurs</div>
+  <div class="box">
     <div class="err" id="err"></div>
-    <label>Identifiant</label>
-    <input id="login" autocomplete="username" autofocus required placeholder="prénom">
-    <label>Mot de passe</label>
-    <input id="password" type="password" autocomplete="current-password" required placeholder="••••••••">
-    <button type="submit">Se connecter</button>
-  </form>
+
+    <!-- ÉTAPE 1 — Mot de passe -->
+    <form class="step active" id="step-password">
+      <h1>Cockpit Chantiers</h1>
+      <div class="sub">Accès réservé · 4 collaborateurs</div>
+      <label>Identifiant</label>
+      <input id="login" autocomplete="username" autofocus required placeholder="prénom">
+      <label>Mot de passe</label>
+      <input id="password" type="password" autocomplete="current-password" required placeholder="••••••••">
+      <button type="submit">Se connecter</button>
+    </form>
+
+    <!-- ÉTAPE 2 — Code TOTP (2FA déjà configuré) -->
+    <form class="step" id="step-totp">
+      <h1>Vérification</h1>
+      <div class="sub">Authentification en deux étapes</div>
+      <div class="totp-help">Ouvrez votre application <b style="color:#B8956A">Google Authenticator</b> et saisissez le code à 6 chiffres affiché pour Tanguy Design.</div>
+      <label>Code de vérification</label>
+      <input id="totp-code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="······" required>
+      <button type="submit">Valider</button>
+      <button type="button" class="link-back" data-back>← Recommencer</button>
+    </form>
+
+    <!-- ÉTAPE 3 — Enrôlement (1ère connexion) -->
+    <form class="step" id="step-enroll">
+      <h1>Configuration sécurité</h1>
+      <div class="sub">Première connexion — activez le 2FA</div>
+      <div class="steps-num">
+        <b>1.</b> Installez <b>Google Authenticator</b> (ou Authy, 1Password) sur votre téléphone.<br>
+        <b>2.</b> Scannez ce QR code dans l'application :
+      </div>
+      <div class="qr-zone">
+        <img id="enroll-qr" alt="QR code 2FA">
+        <div class="secret-line">Saisie manuelle : <code id="enroll-secret"></code></div>
+      </div>
+      <div class="steps-num"><b>3.</b> Saisissez le code à 6 chiffres généré pour confirmer :</div>
+      <label>Code de confirmation</label>
+      <input id="enroll-code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="······" required>
+      <button type="submit">Activer le 2FA</button>
+      <button type="button" class="link-back" data-back>← Recommencer</button>
+    </form>
+  </div>
 
   <div class="footer">© Tanguy Design · Auray</div>
 </div>
