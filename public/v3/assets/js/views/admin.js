@@ -180,13 +180,13 @@ async function loadMargesFournisseurs() {
     const r = await fetch('/api/data/marges-fournisseurs', { credentials: 'same-origin' });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
     const d = await r.json();
-    renderMarges(out, d.records || []);
+    renderMargesFournisseurs(out, d.records || []);
   } catch (e) {
     out.innerHTML = `<div class="card"><p class="muted">Grille indisponible (${esc(e.message)}). La table « Marges fournisseurs » n'est peut-être pas encore créée.</p></div>`;
   }
 }
 
-function renderMarges(out, records) {
+function renderMargesFournisseurs(out, records) {
   const rows = records.slice().sort((a, b) =>
     String(a.fields?.['Fournisseur'] || '').localeCompare(String(b.fields?.['Fournisseur'] || '')));
   out.innerHTML = `
