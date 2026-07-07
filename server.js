@@ -22,6 +22,7 @@ const { buildRetroApporteurs, TAUX_RETRO } = require('./services/retro-apporteur
 const { canAccess, pickAllowedFields } = require('./services/acl');
 const logger = require('./services/logger');
 const usersStore = require('./services/users-store');
+const s3Transfert = require('./services/s3-transfert');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -2394,26 +2395,143 @@ function renderBcHtml({ commande, fournisseur, lignes }) {
 }
 
 // --- PROJET ATTACHMENTS : upload + suppression dans les 3 zones ---
+// Chantier fichiers volumineux (2026-07, incident Virginie : fichiers design
+// > 5 Mo rejetés par un 500 muet) :
+//  - ≤ 5 Mo  → chemin historique INCHANGÉ : upload direct via l'API content
+//              Airtable (atUploadAttachment), zéro régression.
+//  - 5-100 Mo → relais Scaleway Object Storage (bucket tanguy-transfert) :
+//              PUT S3 → URL présignée GET 15 min → PATCH Airtable {url, filename}
+//              (Airtable ingère lui-même le fichier) → re-lecture du record pour
+//              vérifier l'ingestion → DeleteObject S3 (best effort loggé).
+//  - > 100 Mo → 413 JSON propre (LIMIT_FILE_SIZE multer intercepté ci-dessous).
+// Si les env S3 (S3_TRANSFERT_BUCKET / AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)
+// sont absentes, les > 5 Mo reçoivent un 413 JSON clair avec consigne SwissTransfer
+// — jamais de 500 muet.
+const AIRTABLE_DIRECT_LIMIT = 5 * 1024 * 1024;    // limite API upload direct Airtable
+const UPLOAD_MAX_BYTES = 100 * 1024 * 1024;       // plafond cockpit (relais S3)
 const uploadAny = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 } // Airtable content API limit
+  limits: { fileSize: UPLOAD_MAX_BYTES }
 });
 
-app.post('/api/projets/:id/attachments', requireAuth, uploadAny.single('file'), async (req, res) => {
+function toMo(bytes) { return (bytes / 1024 / 1024).toFixed(1).replace('.', ','); }
+
+// Wrapper du middleware multer : transforme LIMIT_FILE_SIZE en 413 JSON lisible
+// (avant : erreur multer non gérée → 500 HTML muet côté client).
+function uploadSingleWithLimit(fieldName) {
+  const mw = uploadAny.single(fieldName);
+  return (req, res, next) => {
+    mw(req, res, (err) => {
+      if (err && err.code === 'LIMIT_FILE_SIZE') {
+        const declared = Number(req.headers['content-length']) || 0;
+        const approx = declared ? ` (~${toMo(declared)} Mo reçus)` : '';
+        logger.warn({ path: req.path, contentLength: declared }, '[projets/upload] fichier > 100 Mo refusé');
+        return res.status(413).json({
+          error: `Fichier trop volumineux${approx} — la limite est de ${toMo(UPLOAD_MAX_BYTES)} Mo. Pour un fichier plus gros, envoyez-le à jmg@958.fr via SwissTransfer.`,
+          limitMo: 100,
+        });
+      }
+      if (err) {
+        logger.error('[projets/upload] multer error:', err);
+        return res.status(400).json({ error: err.message || 'upload invalide' });
+      }
+      next();
+    });
+  };
+}
+
+// Vérifie par re-lecture du record que l'attachment relayé a bien été ingéré par
+// Airtable (URL re-hébergée *.airtableusercontent.com, plus l'URL S3 présignée).
+// Poll toutes les 3 s, 10 essais max (~30 s).
+async function waitAirtableIngestion(projetId, fieldName, filename, s3Host) {
+  for (let i = 0; i < 10; i++) {
+    await new Promise(r => setTimeout(r, i === 0 ? 1500 : 3000));
+    const r = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`,
+      { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!r.ok) continue;
+    const atts = ((await r.json()).fields?.[fieldName]) || [];
+    const mine = atts.filter(a => a.filename === filename);
+    if (mine.some(a => a.id && a.url && !a.url.includes(s3Host))) return true;
+  }
+  return false;
+}
+
+app.post('/api/projets/:id/attachments', requireAuth, uploadSingleWithLimit('file'), async (req, res) => {
   const projetId = req.params.id;
   const field = req.body.field;
   if (!req.file) return res.status(400).json({ error: 'file requis' });
   if (!(field in PROJET_ATTACHMENT_FIELDS)) {
     return res.status(400).json({ error: `field invalide (attendu: ${Object.keys(PROJET_ATTACHMENT_FIELDS).join(', ')})` });
   }
+  const size = req.file.size;
+
+  // ── Chemin historique (≤ 5 Mo) : upload direct Airtable, INCHANGÉ ──
+  if (size <= AIRTABLE_DIRECT_LIMIT) {
+    try {
+      const fieldId = await resolveProjetFieldId(field);
+      const ct = req.file.mimetype || 'application/octet-stream';
+      await atUploadAttachment(projetId, fieldId, req.file.buffer, req.file.originalname, ct);
+      res.json({ ok: true, filename: req.file.originalname });
+    } catch (e) {
+      logger.error('[projets/upload] error:', e);
+      res.status(500).json({ error: e.message });
+    }
+    return;
+  }
+
+  // ── Chemin relais S3 (5-100 Mo) ──
+  if (!s3Transfert.isConfigured()) {
+    logger.warn({ size, field }, '[projets/upload] fichier > 5 Mo refusé (relais S3 non configuré)');
+    return res.status(413).json({
+      error: `Ce fichier fait ${toMo(size)} Mo — le dépôt direct est limité à 5 Mo pour l'instant ; envoyez-le à jmg@958.fr via SwissTransfer.`,
+      limitMo: 5,
+    });
+  }
+  const filename = req.file.originalname;
+  let s3Key = null;
   try {
-    const fieldId = await resolveProjetFieldId(field);
+    await resolveProjetFieldId(field); // vérifie que le champ existe côté Airtable
     const ct = req.file.mimetype || 'application/octet-stream';
-    await atUploadAttachment(projetId, fieldId, req.file.buffer, req.file.originalname, ct);
-    res.json({ ok: true, filename: req.file.originalname });
+    logger.info({ projetId, field, filename, sizeMo: toMo(size) }, '[projets/upload] relais S3 : PUT bucket transfert');
+    const { key, url } = await s3Transfert.uploadToTransfert(req.file.buffer, filename, ct);
+    s3Key = key;
+
+    // PATCH du champ attachment : on préserve les pièces existantes (un PATCH
+    // d'attachment REMPLACE la liste — il faut renvoyer les ids existants).
+    const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${projetId}`,
+      { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!pr.ok) throw new Error('projet introuvable');
+    const existing = ((await pr.json()).fields?.[field]) || [];
+    const next = existing.map(a => ({ id: a.id })).concat([{ url, filename }]);
+    await atPatch(TABLES.projets.id, projetId, { [field]: next });
+
+    // Vérification : Airtable a re-hébergé le fichier (URL airtableusercontent).
+    const s3Host = new URL(url).host;
+    const ingested = await waitAirtableIngestion(projetId, field, filename, s3Host);
+
+    // Nettoyage du bucket transfert (best effort loggé).
+    if (ingested) {
+      s3Transfert.deleteFromTransfert(key).catch(e =>
+        logger.warn({ key, err: e.message }, '[projets/upload] DeleteObject S3 échoué (best effort) — prévoir lifecycle bucket'));
+    } else {
+      // Ingestion pas encore visible : on garde l'objet jusqu'à expiration de
+      // l'URL présignée (15 min) puis suppression différée best effort.
+      logger.warn({ projetId, field, filename, key }, '[projets/upload] ingestion Airtable non confirmée après ~30 s — suppression S3 différée à 16 min');
+      const t = setTimeout(() => {
+        s3Transfert.deleteFromTransfert(key).catch(e =>
+          logger.warn({ key, err: e.message }, '[projets/upload] DeleteObject S3 différé échoué (best effort)'));
+      }, 16 * 60 * 1000);
+      if (typeof t.unref === 'function') t.unref(); // ne bloque pas l'arrêt du process
+    }
+
+    res.json({ ok: true, filename, relayed: true, ingested });
   } catch (e) {
-    logger.error('[projets/upload] error:', e);
-    res.status(500).json({ error: e.message });
+    logger.error('[projets/upload] relais S3 error:', e);
+    // Nettoyage best effort si l'objet a été poussé avant l'échec.
+    if (s3Key) {
+      s3Transfert.deleteFromTransfert(s3Key).catch(() => logger.warn({ key: s3Key }, '[projets/upload] cleanup S3 après échec impossible'));
+    }
+    res.status(500).json({ error: `Envoi du fichier volumineux échoué : ${e.message}. Réessayez, ou envoyez-le à jmg@958.fr via SwissTransfer.` });
   }
 });
 

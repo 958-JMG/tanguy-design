@@ -933,18 +933,49 @@ function bindAttachmentCards(app, projetId) {
   });
 }
 
+// Chantier fichiers volumineux (2026-07) : plafond 100 Mo (relais Scaleway côté
+// serveur au-delà de 5 Mo). En cas de refus, on affiche le message JSON du
+// serveur (taille, limite, consigne SwissTransfer) — plus d'échec générique.
+const UPLOAD_MAX_MO = 100;
+let uploadEnCours = false;
+
 async function doUpload(file, field, projetId) {
-  if (file.size > 5 * 1024 * 1024) {
-    toast(`Fichier trop volumineux (${(file.size / 1024 / 1024).toFixed(1)} MB > 5 MB max Airtable)`, 'error', 5000);
+  const sizeMo = file.size / 1024 / 1024;
+  const sizeLabel = sizeMo.toFixed(1).replace('.', ',');
+  if (sizeMo > UPLOAD_MAX_MO) {
+    toast(`${file.name} fait ${sizeLabel} Mo — la limite est de ${UPLOAD_MAX_MO} Mo. Envoyez-le à jmg@958.fr via SwissTransfer.`, 'error', 8000);
     return;
   }
-  toast(`Upload de ${file.name}…`, 'info', 3000);
+  if (uploadEnCours) {
+    toast('Un envoi est déjà en cours — patiente quelques secondes.', 'info', 3000);
+    return;
+  }
+
+  // État visuel pendant l'upload (un fichier de 100 Mo peut prendre ~1 min).
+  const card = document.querySelector(`.attachment-card[data-field="${CSS.escape(field)}"]`);
+  const drop = card?.querySelector('[data-action="drop"]');
+  const dropText = drop?.textContent;
+  const gros = sizeMo > 5;
+  if (drop) {
+    drop.classList.add('is-uploading');
+    drop.innerHTML = `<span class="upload-spinner" aria-hidden="true"></span> Envoi de ${esc(file.name)} (${sizeLabel} Mo)…`;
+  }
+  toast(`Envoi de ${file.name} (${sizeLabel} Mo)…${gros ? ' Fichier volumineux : cela peut prendre une minute, ne ferme pas la page.' : ''}`, 'info', gros ? 8000 : 3000);
+
+  uploadEnCours = true;
   try {
     await uploadAttachment(projetId, field, file);
     toast(`${file.name} ajouté à ${field}`, 'success');
     router();
   } catch (err) {
-    toast('Erreur upload : ' + err.message, 'error', 5000);
+    // err.message = message JSON du serveur (taille, limite, consigne) si dispo.
+    toast(err.message || 'Erreur pendant l’envoi du fichier.', 'error', 9000);
+  } finally {
+    uploadEnCours = false;
+    if (drop) {
+      drop.classList.remove('is-uploading');
+      drop.textContent = dropText;
+    }
   }
 }
 

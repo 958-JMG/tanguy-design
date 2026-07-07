@@ -844,6 +844,30 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 }
 .attachment-drop:hover { background: var(--paper); border-color: var(--accent); color: var(--ink2); }
 .attachment-drop.is-active { background: var(--accent-lo); border-color: var(--accent); color: var(--accent); border-style: solid; }
+/* Chantier fichiers volumineux (2026-07) : état "envoi en cours" + spinner SVG-less */
+.attachment-drop.is-uploading {
+  background: var(--accent-lo);
+  border-color: var(--accent);
+  border-style: solid;
+  color: var(--ink2);
+  cursor: progress;
+  pointer-events: none;
+}
+.upload-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  vertical-align: -2px;
+  border: 2px solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: upload-spin 0.8s linear infinite;
+}
+@keyframes upload-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .upload-spinner { animation: none; border-top-color: var(--accent); opacity: 0.5; }
+}
 
 /* Badges priorité (réutilise les phase- classes) */
 .badge.phase-haute { background: var(--accent-lo); color: var(--accent); }
