@@ -11,6 +11,7 @@ on:
       - 'server.js'
       - 'services/**'
       - 'scripts/**'
+      - 'public/v3/assets/js/**'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/test.yml'
@@ -41,6 +42,26 @@ jobs:
 
       - name: Syntax check tous scripts
         run: for f in scripts/*.js; do node --check "$f" || exit 1; done
+
+      # Valide chaque module ES front comme le ferait un navigateur (mode strict).
+      # `node --check` seul parse en mode script laxiste : une fonction déclarée 2×
+      # ne lève PAS d'erreur → collision au merge invisible en CI mais fatale en prod
+      # (écran figé « Chargement… », incident admin.js/renderMarges du 2026-07-01).
+      # `--input-type=module` force le mode module strict qui, lui, échoue.
+      - name: Valide modules ES front (mode strict navigateur)
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            if ! node --check --input-type=module - < "$f"; then
+              echo "::error file=$f::Module ES invalide en mode strict — $f"
+              fail=1
+            fi
+          done < <(find public/v3/assets/js -type f -name '*.js' | sort)
+          if [ "$fail" -ne 0 ]; then
+            echo "Au moins un module ES front ne parse pas en mode strict — build échoué."
+            exit 1
+          fi
+          echo "OK — tous les modules ES front parsent en mode strict navigateur."
 
       - name: Run tests
         run: npm test
