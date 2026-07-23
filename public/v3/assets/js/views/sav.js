@@ -156,15 +156,17 @@ function openModalSav(ticket, onSaved) {
   const t = ticket || {};
   const selectedClient = Array.isArray(t['Client']) ? t['Client'][0] : '';
   const clients = (state.clients || []).slice().sort((a, b) => String(a.Nom || '').localeCompare(String(b.Nom || '')));
+  const initialClientName = clients.find(c => c.id === selectedClient)?.Nom || '';
   const today = new Date().toISOString().slice(0, 10);
 
   const { modal, close } = modalShell(isNew ? 'Nouveau ticket SAV' : 'Éditer le ticket SAV', `
     <form id="form-sav">
       <label>Client
-        <select name="Client" required>
-          <option value="">— Sélectionner —</option>
-          ${clients.map(c => `<option value="${esc(c.id)}" ${selectedClient === c.id ? 'selected' : ''}>${esc(c.Nom || '(sans nom)')}${c.Ville ? ` — ${esc(c.Ville)}` : ''}</option>`).join('')}
-        </select>
+        <input name="__clientName" list="sav-client-list" autocomplete="off" required
+               value="${esc(initialClientName)}" placeholder="Rechercher un client…">
+        <datalist id="sav-client-list">
+          ${clients.map(c => `<option value="${esc(c.Nom || '')}">${esc(c.Ville || '')}</option>`).join('')}
+        </datalist>
       </label>
       <label>Date de la demande <input name="Date demande" type="date" value="${esc(t['Date demande'] || today)}"></label>
       <label>Type
@@ -198,11 +200,14 @@ function openModalSav(ticket, onSaved) {
   modal.querySelector('#form-sav').addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const clientId = fd.get('Client');
-    if (!clientId) { toast('Sélectionne un client', 'error'); return; }
+    // Résolution du nom saisi → id (match exact sur le Nom, insensible à la casse) — même
+    // pattern que l'agenda (core/rdv.js). Garde la trace : le ticket reste LIÉ au record client.
+    const clientName = String(fd.get('__clientName') || '').trim();
+    const clientMatch = clients.find(c => (c.Nom || '').toLowerCase() === clientName.toLowerCase());
+    if (!clientMatch) { toast('Client introuvable — choisis un nom dans la liste', 'error'); return; }
 
     const fields = {};
-    fields['Client'] = [clientId];
+    fields['Client'] = [clientMatch.id];
     const dateDemande = fd.get('Date demande');
     if (dateDemande) fields['Date demande'] = dateDemande;
     const ref = (fd.get('Référence') || '').trim();
