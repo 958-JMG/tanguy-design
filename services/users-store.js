@@ -71,6 +71,9 @@ async function fetchFromAirtable() {
       actif: f.Actif !== false, // default true si pas set
       dateCreation: f['Date création'] || null,
       notes: f.Notes || '',
+      // 2FA TOTP (Sprint sécu) — secret chiffré au repos, voir services/totp.js
+      totpSecret: f['TOTP secret'] || '',
+      twoFAActif: !!f['2FA actif'],
       source: 'airtable',
     });
   }
@@ -112,6 +115,7 @@ async function listUsers() {
     displayName: u.displayName,
     admin: u.admin,
     actif: u.actif,
+    twoFAActif: !!u.twoFAActif,
     dateCreation: u.dateCreation,
     source: u.source,
   }));
@@ -193,6 +197,51 @@ async function disableUser(userId) {
   return updateUser(userId, { actif: false });
 }
 
+// ============================================================================
+// 2FA TOTP
+// ============================================================================
+
+/**
+ * Enregistre le secret TOTP (déjà CHIFFRÉ par services/totp.js) d'un user et
+ * active son 2FA. Appelé à la fin de l'enrôlement réussi.
+ */
+async function setTotp(userId, encryptedSecret) {
+  if (!BASE_ID || !AT_KEY) throw new Error('Airtable non configuré');
+  if (!userId) throw new Error('userId requis');
+  if (!encryptedSecret) throw new Error('secret requis');
+  const r = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${USERS_TABLE_ID}/${userId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${AT_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: { 'TOTP secret': encryptedSecret, '2FA actif': true } }),
+  });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(`setTotp: ${r.status} ${e.error?.message || ''}`);
+  }
+  cache = null;
+  return { ok: true };
+}
+
+/**
+ * Réinitialise le 2FA d'un user (break-glass : perte du téléphone).
+ * Vide le secret + décoche 2FA actif → l'user devra ré-enrôler au prochain login.
+ */
+async function clearTotp(userId) {
+  if (!BASE_ID || !AT_KEY) throw new Error('Airtable non configuré');
+  if (!userId) throw new Error('userId requis');
+  const r = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${USERS_TABLE_ID}/${userId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${AT_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: { 'TOTP secret': '', '2FA actif': false } }),
+  });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(`clearTotp: ${r.status} ${e.error?.message || ''}`);
+  }
+  cache = null;
+  return { ok: true };
+}
+
 async function isAdmin(login) {
   const u = await findUser(login);
   return u?.admin === true && u?.actif !== false;
@@ -211,6 +260,8 @@ module.exports = {
   updateUser,
   resetPassword,
   disableUser,
+  setTotp,
+  clearTotp,
   isAdmin,
   getEmail,
   refreshCache: () => loadUsers(true),
