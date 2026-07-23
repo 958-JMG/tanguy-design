@@ -735,7 +735,18 @@ app.post('/api/support/feedback', requireAuth, async (req, res) => {
 });
 
 // --- Auth ---
-app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+// Cache-busting login.js (même logique que /v3) : Cloudflare force max-age=14400 sur
+// les .js → sans ?v=, un login.js périmé peut boucler silencieusement après un deploy
+// qui change le flux d'auth (vécu au passage 2FA, 2026-07-23). HTML servi no-cache.
+let _loginHtml = null;
+app.get('/login', (req, res) => {
+  if (!_loginHtml) {
+    _loginHtml = fs.readFileSync(path.join(__dirname, 'public', 'login.html'), 'utf8')
+      .replace('src="/assets/js/login.js"', `src="/assets/js/login.js?v=${V3_VERSION}"`);
+  }
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  res.type('html').send(_loginHtml);
+});
 
 app.post('/api/login', loginLimiter, async (req, res) => {
   const { login, password } = req.body || {};
