@@ -9,7 +9,7 @@ import {
   appendJournalEntry, deleteJournalEntry, uploadAttachment, deleteAttachment,
   fetchArtisans, setProjetArtisans,
   importDevisClient, signDevisTanguy,
-  importDevisArtisan, parsePlaud,
+  importDevisArtisan, parsePlaud, patchDevisArtisan,
   genererTacheFacturation, marquerEncaisse, createClient, createArtisan, fetchRendezVous,
   patchEcheance,
 } from '../core/api.js';
@@ -551,6 +551,7 @@ function renderFiche(app, data) {
                   </div>
                 </div>
                 ${df['Description travaux'] ? `<div class="muted" style="margin-top:4px;font-size:12px">${esc(String(df['Description travaux']).slice(0,150))}${df['Description travaux'].length > 150 ? '…' : ''}</div>` : ''}
+                ${(df.Statut || 'À valider') === 'À valider' ? `<div style="margin-top:8px;text-align:right"><button class="btn btn-primary btn-sm" data-action="valider-devis-artisan" data-id="${esc(d.id)}">${icon('check', 14)} Valider</button></div>` : ''}
               </div>`;
             }).join('')}</div>`}
         </section>
@@ -802,6 +803,29 @@ function renderFiche(app, data) {
         router();
       } catch (err) {
         toast('Erreur retrait : ' + err.message, 'error', 5000);
+      }
+    });
+  });
+
+  // Devis artisan : bouton « Valider » (passe le statut « À valider » → « Validé »)
+  app.querySelectorAll('[data-action="valider-devis-artisan"]').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.preventDefault();
+      const id = btn.dataset.id;
+      const da = devisArtisans.find(x => x.id === id);
+      const num = da?.fields?.['Numéro devis'] || '';
+      const ok = await confirmModal(`Valider le devis artisan ${num} ?`.replace('  ', ' '), { okLabel: 'Valider', danger: false });
+      if (!ok) return;
+      btn.disabled = true;
+      btn.innerHTML = 'Validation…';
+      try {
+        await patchDevisArtisan(id, { 'Statut': 'Validé' });
+        toast('Devis artisan validé', 'success');
+        router();
+      } catch (err) {
+        toast('Erreur validation : ' + err.message, 'error', 5000);
+        btn.disabled = false;
+        btn.innerHTML = `${icon('check', 14)} Valider`;
       }
     });
   });

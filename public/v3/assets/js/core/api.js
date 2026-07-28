@@ -73,6 +73,13 @@ export async function patchTache(tacheId, fields) {
   });
 }
 
+export async function patchDevisArtisan(id, fields) {
+  return api(`/api/data/devis-artisans/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ fields }),
+  });
+}
+
 export async function createTache(fields) {
   return api(`/api/data/taches`, {
     method: 'POST',
