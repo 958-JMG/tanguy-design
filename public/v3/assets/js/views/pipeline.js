@@ -26,7 +26,7 @@ function esc(s) {
 }
 function euros(n) {
   if (n == null || isNaN(n)) return '—';
-  return Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  return Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
 }
 
 // Sprint v3.19 — Âge "depuis dernière activité" (R1/R2 le plus récent, dernière
@@ -243,10 +243,10 @@ function renderProjetCard(p, phaseKey, clientById) {
   return `
     <article class="pipeline-card ${isStuck ? 'is-stuck' : ''}">
       <a href="#projet/${esc(p.id)}" class="pipeline-card-main" data-id="${esc(p.id)}">
-        <div class="pipeline-card-ref">${esc(p['Référence'] || '(sans référence)')}</div>
         <div class="pipeline-card-client">${esc(cNom)}</div>
+        <div class="pipeline-card-ref">${esc(p['Référence'] || '(sans référence)')}</div>
         <div class="pipeline-card-foot">
-          ${budget ? `<span class="pipeline-card-budget">${euros(budget)}</span>` : '<span class="muted">— € —</span>'}
+          ${budget ? `<span class="pipeline-card-budget">${euros(budget)}</span>` : '<span class="pipeline-card-budget pipeline-card-budget--todo">à chiffrer</span>'}
           ${days != null
             ? `<span class="pipeline-card-age ${isStuck ? 'is-stuck' : ''}" title="${days} jours depuis la dernière activité enregistrée">${days} j</span>`
             : ''}

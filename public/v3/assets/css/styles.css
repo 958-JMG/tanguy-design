@@ -1711,7 +1711,10 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   cursor: pointer;
 }
 .pipeline-card-main:hover { text-decoration: none; }
-.pipeline-card-ref {
+/* Uniformisation 2026-07-28 : le CLIENT en 1re ligne (gras), la nature du
+   chantier en sous-titre (atténué). Les intitulés « Cuisine »/« Salle de bain »
+   ne disent rien sans le client. */
+.pipeline-card-client {
   font-weight: 600;
   font-size: 13px;
   color: var(--ink1);
@@ -1720,7 +1723,7 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.pipeline-card-client {
+.pipeline-card-ref {
   font-size: 12px;
   color: var(--ink3);
   white-space: nowrap;
@@ -1737,6 +1740,7 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   font-variant-numeric: tabular-nums;
 }
 .pipeline-card-budget { color: var(--ink2); font-weight: 500; }
+.pipeline-card-budget--todo { color: var(--ink3); font-weight: 400; font-style: italic; }
 .pipeline-card-age { color: var(--ink3); }
 .pipeline-card-age.is-stuck { color: var(--accent); font-weight: 600; }
 .pipeline-card-action {
