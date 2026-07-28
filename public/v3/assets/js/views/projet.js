@@ -1422,7 +1422,7 @@ function openModalImportDevis(projet, devisExistants) {
       <label>Fichier PDF
         <input type="file" name="pdf" accept="application/pdf" required>
       </label>
-      <p class="muted" style="font-size:12px">Le parsing Claude peut prendre 1 à 2 minutes — ne ferme pas la modale.</p>
+      <p class="muted" style="font-size:12px">L'analyse du PDF prend 1 à 2 minutes. Tu peux fermer sans risque : l'import se termine tout seul, et réimporter le même fichier ne crée jamais de doublon.</p>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="cancel">Annuler</button>
         <button type="submit" class="btn btn-primary" id="submit-btn">Importer</button>
@@ -1431,47 +1431,51 @@ function openModalImportDevis(projet, devisExistants) {
   `);
   const cancelBtn = document.getElementById('cancel');
   cancelBtn.onclick = close;
+  let submitting = false; // garde anti double-envoi
   document.getElementById('form-import-devis').addEventListener('submit', async e => {
     e.preventDefault();
+    if (submitting) return;
     const fd = new FormData(e.target);
     const file = fd.get('pdf');
     const type = fd.get('type');
     if (!file || file.size === 0) return;
+    submitting = true;
     const btn = document.getElementById('submit-btn');
     btn.disabled = true;
 
-    // Compteur temps écoulé + bouton annuler (parsing peut prendre 1-3 min selon taille PDF)
+    // Compteur de temps écoulé (le parsing prend 1-3 min selon la taille du PDF).
+    // On NE coupe PAS la requête à la fermeture : l'anti-doublon serveur rend
+    // l'annulation/relance sans danger, donc « Fermer » laisse l'import se terminer.
     const startTime = Date.now();
-    const controller = new AbortController();
-    let aborted = false;
     const update = () => {
       const sec = Math.floor((Date.now() - startTime) / 1000);
       const min = Math.floor(sec / 60);
       const remSec = sec % 60;
-      btn.innerHTML = `Parsing… ${min > 0 ? min + 'min ' : ''}${remSec}s`;
+      btn.innerHTML = `Analyse… ${min > 0 ? min + 'min ' : ''}${remSec}s`;
     };
     const interval = setInterval(update, 1000);
     update();
-    cancelBtn.innerHTML = 'Annuler';
+    // Le bouton « Annuler » devient « Fermer » : ferme la fenêtre mais l'import continue.
+    cancelBtn.innerHTML = 'Fermer';
     cancelBtn.onclick = () => {
-      aborted = true;
-      controller.abort();
+      toast('Import en cours en arrière-plan, tu peux continuer. Ne réimporte pas ce devis.', 'info', 6000);
+      close();
     };
 
     try {
-      const result = await importDevisClient({ file, projetId: projet.id, type, signal: controller.signal });
+      const result = await importDevisClient({ file, projetId: projet.id, type });
       clearInterval(interval);
-      const lignes = result.lignes_count || result.zones_count || result.devis?.id ? 'OK' : '?';
-      toast(`Devis ${type} importé`, 'success', 5000);
+      if (result.deduplicated) {
+        toast('Ce devis avait déjà été importé — doublon évité', 'info', 6000);
+      } else {
+        toast(`Devis ${type} importé`, 'success', 5000);
+      }
       close();
       router();
     } catch (err) {
       clearInterval(interval);
-      if (aborted || err.name === 'AbortError') {
-        toast('Import annulé', 'info', 3000);
-      } else {
-        toast('Erreur import : ' + err.message, 'error', 8000);
-      }
+      toast('Erreur import : ' + err.message, 'error', 8000);
+      submitting = false;
       btn.disabled = false;
       btn.innerHTML = 'Importer';
       cancelBtn.innerHTML = 'Annuler';
