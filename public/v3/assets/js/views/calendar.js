@@ -41,17 +41,29 @@ function buildEvents(year, month) {
   const finMois   = new Date(year, month + 1, 0);
   const events = [];
 
+  // Uniformisation 2026-07-28 : chaque entrée d'agenda commence par le CLIENT.
+  // « Pose SDB » ou « Présentation devis » seuls ne disent rien sans le nom.
+  const clientById = new Map((state.clients || []).map(c => [c.id, c]));
+  const clientNom = (link) => {
+    const v = (link || [])[0];
+    if (!v) return '';
+    // Le lien peut être un id (rec…) résolu via state.clients, ou déjà un nom brut.
+    return clientById.get(v)?.Nom || (typeof v === 'string' && !v.startsWith('rec') ? v : '');
+  };
+  const prefixe = (nom, reste) => (nom ? `${nom} · ${reste}` : reste);
+
   // Projets : période pose (Date pose prévue → Date pose fin, défaut +5j si fin manquante)
   for (const p of state.projets || []) {
     const dStart = parseISODate(p['Date pose prévue']);
     if (!dStart) continue;
     const dEnd = parseISODate(p['Date pose fin']) || new Date(dStart.getTime() + 5 * 86400000);
     if (dEnd < debutMois || dStart > finMois) continue;
+    const poseLabel = prefixe(clientNom(p.Client), p.Référence || 'Pose');
     events.push({
       type: 'pose',
       id: p.id,
-      label: p.Référence || '?',
-      titre: p.Référence || '?',
+      label: poseLabel,
+      titre: poseLabel,
       start: dStart,
       end: dEnd,
       colorClass: 'color-accent',
@@ -70,12 +82,20 @@ function buildEvents(year, month) {
     if (!d || d < debutMois || d > finMois) continue;
     const type = f.Type || '';
     const isReception = type === 'Réception';
-    const titre = `${type ? type + ' · ' : ''}${f.Objet || 'RDV'}`;
+    const cNom = clientNom(f.Client);
+    const objet = f.Objet || type || 'RDV';
+    // Tooltip complet : client · type · objet. Libellé affiché : client d'abord.
+    const titre = `${cNom ? cNom + ' · ' : ''}${type ? type + ' · ' : ''}${f.Objet || 'RDV'}`;
+    // Sans client, on retombe sur l'ancien libellé « Type · Objet » (aucune perte d'info).
+    const sansClient = `${type ? type + ' · ' : ''}${f.Objet || 'RDV'}`;
+    const label = isReception
+      ? prefixe(cNom, `Récept. S${isoWeek(d)}`)
+      : (cNom ? `${cNom} · ${objet}` : sansClient);
     events.push({
       type: 'rdv',
       id: r.id,
       titre,
-      label: isReception ? `Récept. S${isoWeek(d)}` : titre,
+      label,
       start: d,
       end: d,
       iso,                          // ISO complet conservé pour préserver l'heure au drag
