@@ -178,9 +178,6 @@ export async function renderDashboard(app) {
         ? `<p class="muted">Pas d'alertes prioritaires.</p>`
         : `<ul class="alerts-list">${alertes.map(a => `<li>${icon('alert', 14)} ${a.text}</li>`).join('')}</ul>`}
     </div>
-
-    <h2 class="section-title">Prochains jalons</h2>
-    <div class="card"><p class="muted">À venir — Sprint 3 (intégration calendar drag-drop).</p></div>
   `;
 
   hydrateIcons(app);
