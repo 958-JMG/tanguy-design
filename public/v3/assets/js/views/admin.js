@@ -69,13 +69,6 @@ export function renderAdmin(app) {
       <div class="card"><p class="muted">${icon('clock', 14)} Chargement…</p></div>
     </div>
 
-    <h2 class="section-title" style="margin-top:32px">Sous-sections à venir</h2>
-    <div class="kpi-row">
-      <div class="kpi-card"><div class="kpi-label">Stock</div><div class="muted">Sprint 6+</div></div>
-      <div class="kpi-card"><div class="kpi-label">Artisans + rétro 5 %</div><div class="muted">Sprint 6+</div></div>
-      <div class="kpi-card"><div class="kpi-label">Fournisseurs / familles</div><div class="muted">Sprint 6+</div></div>
-      <div class="kpi-card"><div class="kpi-label">Templates tâches par étape</div><div class="muted">Sprint 6+</div></div>
-    </div>
   `;
 
   hydrateIcons(app);

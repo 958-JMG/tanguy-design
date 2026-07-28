@@ -52,11 +52,13 @@ function buildEvents(year, month) {
   };
   const prefixe = (nom, reste) => (nom ? `${nom} · ${reste}` : reste);
 
-  // Projets : période pose (Date pose prévue → Date pose fin, défaut +5j si fin manquante)
+  // Projets : période pose (Date pose prévue → Date pose fin). Sans date de fin,
+  // la pose est un marqueur d'UN jour — plus de span +5j par défaut qui remplissait
+  // le calendrier de barres vides (jours de continuation « · ») sur les jours suivants.
   for (const p of state.projets || []) {
     const dStart = parseISODate(p['Date pose prévue']);
     if (!dStart) continue;
-    const dEnd = parseISODate(p['Date pose fin']) || new Date(dStart.getTime() + 5 * 86400000);
+    const dEnd = parseISODate(p['Date pose fin']) || dStart;
     if (dEnd < debutMois || dStart > finMois) continue;
     const poseLabel = prefixe(clientNom(p.Client), p.Référence || 'Pose');
     events.push({
