@@ -18,6 +18,7 @@ const { parseDevisFournisseurPdf } = require('./services/devis-fournisseur-parse
 const { buildPlanTresorerie, echeancesFacturees, mondayOf, addDays, toCsv } = require('./services/tresorerie-helper');
 const { recapPaieMois, alertesVisitesMedicales, joursOuvres } = require('./services/rh-helper');
 const { joursRetard, niveauRelanceSuggere, buildEmailRelance, buildEmailRelanceFournisseur, buildMailto } = require('./services/relances-helper');
+const { DEVIS_IMPORT_HASH_FIELD, computeImportHash, buildHashFilterFormula } = require('./services/devis-idempotency');
 const { buildRetroApporteurs, TAUX_RETRO } = require('./services/retro-apporteurs-helper');
 const { canAccess, pickAllowedFields } = require('./services/acl');
 const logger = require('./services/logger');
@@ -1358,10 +1359,38 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
     return res.status(400).json({ error: 'Devis additif : projetId requis (le projet doit déjà exister)' });
   }
 
+  // Anti-doublon — empreinte du PDF calculée AVANT le parsing (voir services/devis-idempotency).
+  // Si l'utilisatrice annule/ferme puis recommence avec le MÊME fichier, on retrouvera le
+  // devis déjà créé et on renverra celui-ci au lieu d'en créer un second.
+  const importHash = computeImportHash(req.file.buffer);
+
   // RC Pro 2026 — withKeepAlive : envoie 1 byte toutes les 20s pendant que Claude
   // analyse le PDF (peut prendre 60-120s avec Sonnet 4.5 vision). Sans ça, Cloudflare
   // coupe à 100s sans byte reçu → HTTP 524.
   await withKeepAlive(req, res, async () => {
+    // 0. Dédup : ce PDF a-t-il déjà été importé ? Court-circuite tout (pas de re-parsing,
+    //    pas de nouveau record). Dégrade proprement si le champ n'existe pas encore en base
+    //    (déploiement avant migration) : on log et on continue sans dédup.
+    let hashFieldAvailable = true;
+    try {
+      const dejaImporte = await atFetchFiltered(TABLES.devis.id, buildHashFilterFormula(importHash));
+      if (dejaImporte.length > 0) {
+        const rec = dejaImporte[0];
+        logger.info(`[devis/import] DÉDUP — PDF déjà importé, renvoie devis existant ${rec.id} (${rec.fields?.['Numéro devis'] || '?'})`);
+        return {
+          ok: true,
+          deduplicated: true,
+          devis: { id: rec.id },
+          devisId: rec.id,
+          numero_devis: rec.fields?.['Numéro devis'] || null,
+          message: 'Ce devis a déjà été importé (doublon évité).'
+        };
+      }
+    } catch (e) {
+      hashFieldAvailable = false;
+      logger.warn(`[devis/import] dédup indisponible (champ « ${DEVIS_IMPORT_HASH_FIELD} » manquant ?) — import sans anti-doublon : ${e.message}`);
+    }
+
     const t0 = Date.now();
     logger.info(`[devis/import] START parsing ${req.file.originalname} (${req.file.size} bytes, type=${typeDevis}, projetId=${projetId||'auto'})`);
     const parsed = await parseDevisPdf(req.file.buffer);
@@ -1396,7 +1425,10 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
       'TVA taux 2 base': parsed.totaux?.tva_taux_2_base || null,
       'TVA taux 2 montant': parsed.totaux?.tva_taux_2_montant || null,
       'Total TTC': parsed.totaux?.total_ttc || null,
-      'Alertes parsing': parsed.alertes_parsing || ''
+      'Alertes parsing': parsed.alertes_parsing || '',
+      // Empreinte anti-doublon (voir dédup en tête de route). null si le champ n'existe
+      // pas encore en base → nettoyé juste après, l'import reste possible.
+      [DEVIS_IMPORT_HASH_FIELD]: hashFieldAvailable ? importHash : null
     };
     // --- Résolution Client (par nom normalisé) ---
     // En mode Additif : on récupère le client du projet existant, pas de création auto.
