@@ -45,9 +45,8 @@
     e.preventDefault();
     clearErr();
     const login = document.getElementById('login').value;
-    const password = document.getElementById('password').value;
-    const { ok, data } = await postJson('/api/login', { login, password });
-    if (!ok) return showErr(data.error || 'Identifiants invalides');
+    const { ok, data } = await postJson('/api/login', { login });
+    if (!ok) return showErr(data.error || 'Identifiant inconnu');
     if (data.step === 'totp') return goStep('step-totp');
     if (data.step === 'enroll') return startEnroll();
     // Connecté directement (mode dégradé env, Airtable indisponible)
@@ -92,7 +91,8 @@
   // --- Boutons "Recommencer" ----------------------------------------------------
   document.querySelectorAll('[data-back]').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.getElementById('password').value = '';
+      const p = document.getElementById('password');
+      if (p) p.value = '';
       goStep('step-password');
     });
   });
