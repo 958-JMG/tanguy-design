@@ -9,7 +9,7 @@ import {
   appendJournalEntry, deleteJournalEntry, uploadAttachment, deleteAttachment,
   fetchArtisans, setProjetArtisans,
   importDevisClient, signDevisTanguy,
-  importDevisArtisan, parsePlaud, patchDevisArtisan,
+  importDevisArtisan, parsePlaud, patchDevisArtisan, deleteDevisArtisan,
   genererTacheFacturation, marquerEncaisse, createClient, createArtisan, fetchRendezVous,
   patchEcheance,
 } from '../core/api.js';
@@ -551,7 +551,10 @@ function renderFiche(app, data) {
                   </div>
                 </div>
                 ${df['Description travaux'] ? `<div class="muted" style="margin-top:4px;font-size:12px">${esc(String(df['Description travaux']).slice(0,150))}${df['Description travaux'].length > 150 ? '…' : ''}</div>` : ''}
-                ${(df.Statut || 'À valider') === 'À valider' ? `<div style="margin-top:8px;text-align:right"><button class="btn btn-primary btn-sm" data-action="valider-devis-artisan" data-id="${esc(d.id)}">${icon('check', 14)} Valider</button></div>` : ''}
+                ${((df.Statut || 'À valider') === 'À valider' || state.isAdmin) ? `<div style="margin-top:8px;text-align:right;display:flex;gap:6px;justify-content:flex-end">
+                  ${(df.Statut || 'À valider') === 'À valider' ? `<button class="btn btn-primary btn-sm" data-action="valider-devis-artisan" data-id="${esc(d.id)}">${icon('check', 14)} Valider</button>` : ''}
+                  ${state.isAdmin ? `<button class="btn btn-ghost btn-sm" data-action="supprimer-devis-artisan" data-id="${esc(d.id)}" data-artisan="${esc(aNom)}" style="color:var(--accent)" title="Supprimer ce devis pour réimporter la version modifiée">${icon('trash', 14)} Supprimer</button>` : ''}
+                </div>` : ''}
               </div>`;
             }).join('')}</div>`}
         </section>
@@ -826,6 +829,28 @@ function renderFiche(app, data) {
         toast('Erreur validation : ' + err.message, 'error', 5000);
         btn.disabled = false;
         btn.innerHTML = `${icon('check', 14)} Valider`;
+      }
+    });
+  });
+
+  // Devis artisan : bouton « Supprimer » (admin) — pour réimporter une version modifiée.
+  app.querySelectorAll('[data-action="supprimer-devis-artisan"]').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.preventDefault();
+      const id = btn.dataset.id;
+      const nom = btn.dataset.artisan || 'cet artisan';
+      const ok = await confirmModal(`Supprimer le devis artisan de ${nom} ? Vous pourrez réimporter la version modifiée juste après.`, { okLabel: 'Supprimer', danger: true });
+      if (!ok) return;
+      btn.disabled = true;
+      btn.innerHTML = 'Suppression…';
+      try {
+        await deleteDevisArtisan(id);
+        toast('Devis artisan supprimé — réimportez le nouveau PDF', 'success', 4000);
+        router();
+      } catch (err) {
+        toast('Erreur suppression : ' + err.message, 'error', 5000);
+        btn.disabled = false;
+        btn.innerHTML = `${icon('trash', 14)} Supprimer`;
       }
     });
   });
