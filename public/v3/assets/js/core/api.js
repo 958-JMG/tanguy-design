@@ -80,6 +80,12 @@ export async function patchDevisArtisan(id, fields) {
   });
 }
 
+// Supprime un devis artisan (admin). Sert à réimporter une version modifiée :
+// on supprime l'ancien, on réimporte le nouveau PDF.
+export async function deleteDevisArtisan(id) {
+  return api(`/api/data/devis-artisans/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 export async function createTache(fields) {
   return api(`/api/data/taches`, {
     method: 'POST',
