@@ -296,12 +296,13 @@ function renderUsers(container, users) {
           <td>${esc(u.displayName || '—')}</td>
           <td>${esc(u.email || '—')}</td>
           <td>${u.admin ? `<span class="badge phase-signe">${icon('star', 11)} Admin</span>` : '<span class="muted">Membre</span>'}</td>
-          <td>${u.actif ? '<span class="badge phase-signe">Actif</span>' : '<span class="badge" style="background:var(--accent-lo);color:var(--accent)">Désactivé</span>'}</td>
+          <td>${u.actif ? '<span class="badge phase-signe">Actif</span>' : '<span class="badge" style="background:var(--accent-lo);color:var(--accent)">Désactivé</span>'}${u.source === 'airtable' ? (u.twoFAActif ? ' <span class="badge phase-signe" title="2FA activé (Google Authenticator)" style="opacity:.75">2FA</span>' : ' <span class="badge" title="2FA pas encore configuré" style="background:var(--accent-lo);color:var(--accent);opacity:.75">2FA à faire</span>') : ''}</td>
           <td class="muted" style="font-size:11px">${esc(u.source)}</td>
           <td>
             ${u.source === 'airtable' ? `
               <button class="btn btn-ghost btn-sm" data-action="edit-user" data-id="${esc(u.id)}">${icon('edit', 12)}</button>
               <button class="btn btn-ghost btn-sm" data-action="reset-user" data-id="${esc(u.id)}" title="Reset mot de passe">${icon('mail', 12)}</button>
+              ${u.twoFAActif ? `<button class="btn btn-ghost btn-sm" data-action="reset-2fa" data-id="${esc(u.id)}" data-login="${esc(u.login)}" title="Réinitialiser le 2FA (téléphone perdu ou changé)">${icon('phone', 12)}</button>` : ''}
               ${u.actif ? `<button class="btn btn-ghost btn-sm" data-action="disable-user" data-id="${esc(u.id)}" data-login="${esc(u.login)}" style="color:var(--accent)" title="Désactiver">${icon('trash', 12)}</button>` : ''}
             ` : '<span class="muted" style="font-size:11px">via env</span>'}
           </td>
@@ -323,6 +324,23 @@ function renderUsers(container, users) {
       e.stopPropagation();
       const u = users.find(x => x.id === b.dataset.id);
       if (u) openModalResetPassword(u);
+    });
+  });
+  container.querySelectorAll('[data-action="reset-2fa"]').forEach(b => {
+    b.addEventListener('click', async e => {
+      e.stopPropagation();
+      const login = b.dataset.login;
+      if (!confirm(`Réinitialiser le 2FA de ${login} ?\n\nSon Google Authenticator actuel sera invalidé. La personne devra rescanner un nouveau QR code à sa prochaine connexion (mot de passe inchangé).`)) return;
+      try {
+        const r = await fetch(`/api/admin/users/${encodeURIComponent(b.dataset.id)}/reset-2fa`, {
+          method: 'POST', credentials: 'same-origin',
+        });
+        if (!r.ok) { const err = await r.json().catch(()=>({})); throw new Error(err.error || r.statusText); }
+        toast(`2FA de ${login} réinitialisé. Ré-enrôlement requis à sa prochaine connexion.`, 'success', 5000);
+        loadUsers();
+      } catch (err) {
+        toast('Erreur : ' + err.message, 'error', 5000);
+      }
     });
   });
   container.querySelectorAll('[data-action="disable-user"]').forEach(b => {
