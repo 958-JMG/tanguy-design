@@ -272,6 +272,36 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+// === Rôle POSEUR (accès terrain restreint) ========================================
+// Un poseur se connecte comme les autres (identifiant + TOTP) mais n'a accès QU'À
+// l'espace /poseur et ses endpoints /api/poseur/* : documents des chantiers + ajout
+// de photos. Tout le reste de l'API lui est refusé côté SERVEUR (pas seulement l'UI).
+// Un admin n'est jamais restreint (peut prévisualiser l'espace poseur).
+async function isRestrictedPoseur(req) {
+  const login = req.session?.user;
+  if (!login || ADMIN_LOGINS.has(login)) return false;
+  try {
+    const u = await usersStore.findUser(login);
+    return !!(u && u.poseur && !u.admin && u.actif !== false);
+  } catch { return false; }
+}
+// Endpoints /api/poseur/* : accessibles aux poseurs ET aux admins (aperçu).
+function requirePoseur(req, res, next) {
+  const login = req.session?.user;
+  if (!login) return res.status(401).json({ error: 'not authenticated' });
+  if (ADMIN_LOGINS.has(login)) return next();
+  usersStore.findUser(login)
+    .then(u => (u && u.poseur && u.actif !== false) ? next() : res.status(403).json({ error: 'réservé aux poseurs' }))
+    .catch(() => res.status(403).json({ error: 'réservé aux poseurs' }));
+}
+// Verrou global : un poseur restreint ne peut toucher QUE /api/me, /api/logout, /api/poseur/*.
+app.use('/api', async (req, res, next) => {
+  if (!(await isRestrictedPoseur(req))) return next();
+  const p = req.path; // relatif au mount '/api'
+  if (p === '/me' || p === '/logout' || p === '/poseur' || p.startsWith('/poseur/')) return next();
+  return res.status(403).json({ error: 'Accès réservé — espace poseur' });
+});
+
 // ACL complète /api/data/:table : cf. services/acl.js (Sprint 0.7).
 // Mapping (table × verb × role) + whitelist des champs modifiables par table.
 // Remplace l'ancien requireAdminIfRestrictedTable qui ne protégeait que `stock`.
@@ -395,6 +425,16 @@ const upload = multer({
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/pdf') cb(null, true);
     else cb(new Error('Seuls les fichiers PDF sont acceptés'));
+  }
+});
+
+// Upload d'images (photos chantier des poseurs). iPhone : JPEG / HEIC / PNG.
+const uploadImage = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (/^image\//.test(file.mimetype || '')) cb(null, true);
+    else cb(new Error('Seules les images sont acceptées'));
   }
 });
 
@@ -898,9 +938,9 @@ app.get('/api/admin/users', requireAdminUsers, async (req, res) => {
 });
 
 app.post('/api/admin/users', requireAdminUsers, async (req, res) => {
-  const { login, password, email, displayName, admin, notes } = req.body || {};
+  const { login, password, email, displayName, admin, poseur, notes } = req.body || {};
   try {
-    const created = await usersStore.createUser({ login, password, email, displayName, admin, notes });
+    const created = await usersStore.createUser({ login, password, email, displayName, admin, poseur, notes });
     logger.info({ by: req.session.user, login: created.login }, '[admin/users] user créé');
     res.json({ ok: true, user: created });
   } catch (e) {
@@ -910,9 +950,9 @@ app.post('/api/admin/users', requireAdminUsers, async (req, res) => {
 });
 
 app.patch('/api/admin/users/:id', requireAdminUsers, async (req, res) => {
-  const { email, displayName, admin, actif, notes } = req.body || {};
+  const { email, displayName, admin, poseur, actif, notes } = req.body || {};
   try {
-    await usersStore.updateUser(req.params.id, { email, displayName, admin, actif, notes });
+    await usersStore.updateUser(req.params.id, { email, displayName, admin, poseur, actif, notes });
     logger.info({ by: req.session.user, id: req.params.id }, '[admin/users] user updated');
     res.json({ ok: true });
   } catch (e) {
@@ -3616,8 +3656,119 @@ const v3Index = (req, res) => {
   res.setHeader('Cache-Control', 'no-cache, must-revalidate');
   res.type('html').send(v3IndexHtml);
 };
-// Sprint v3.12 — La racine sert maintenant le cockpit v3 (cutover).
-app.get('/',    requireAuth, v3Index);
+
+// ================================================================================
+// ESPACE POSEUR — accès terrain restreint (documents chantier + photos)
+// ================================================================================
+const POSEUR_TAG = (login) => `p-${String(login).toLowerCase()}__`; // préfixe fichier = propriété
+
+// Liste des chantiers actifs — champs minimaux, AUCUNE donnée financière.
+app.get('/api/poseur/chantiers', requireAuth, requirePoseur, async (req, res) => {
+  try {
+    const [projets, clients] = await Promise.all([
+      atFetchAll(TABLES.projets.id),
+      atFetchAll(TABLES.clients.id).catch(() => []),
+    ]);
+    const clientNom = {};
+    for (const c of clients) clientNom[c.id] = c.fields?.Nom || c.fields?.['Nom complet'] || '';
+    const chantiers = projets
+      .filter(p => p.fields?.Nom && p.fields['Phase commerciale'] !== 'Refus' && !p.fields['Archivé'])
+      .map(p => ({
+        id: p.id,
+        nom: p.fields.Nom,
+        ville: p.fields.Ville || p.fields['Ville chantier'] || '',
+        adresse: p.fields['Adresse chantier'] || '',
+        client: (p.fields.Client || []).map(id => clientNom[id]).filter(Boolean).join(', '),
+        phase: p.fields['Phase commerciale'] || '',
+      }))
+      .sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+    res.json({ chantiers });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Documents d'un chantier (4 catégories). Marque les photos "mine" (supprimables).
+app.get('/api/poseur/chantiers/:id', requireAuth, requirePoseur, async (req, res) => {
+  try {
+    const login = String(req.session.user).toLowerCase();
+    const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${req.params.id}`,
+      { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!pr.ok) return res.status(404).json({ error: 'chantier introuvable' });
+    const f = (await pr.json()).fields || {};
+    const mapAtt = (arr, taggable) => (arr || []).map(a => ({
+      id: a.id, url: a.url, filename: a.filename, type: a.type,
+      thumb: a.thumbnails?.large?.url || a.thumbnails?.small?.url || a.url,
+      mine: taggable ? String(a.filename || '').startsWith(POSEUR_TAG(login)) : false,
+    }));
+    res.json({
+      id: req.params.id,
+      nom: f.Nom || '',
+      adresse: f['Adresse chantier'] || f.Ville || '',
+      docs: {
+        'Plan 3D':          mapAtt(f['Plan 3D'], false),
+        'Plan technique':   mapAtt(f['Plan technique'], false),
+        'Documents projet': mapAtt(f['Documents projet'], false),
+        'Images':           mapAtt(f['Images'], true),
+      },
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Ajout d'une photo (champ Images) — taguée au nom du poseur.
+app.post('/api/poseur/chantiers/:id/photos', requireAuth, requirePoseur, uploadImage.single('photo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'photo requise' });
+  try {
+    const login = String(req.session.user).toLowerCase();
+    const fieldId = await resolveProjetFieldId('Images');
+    const safe = (req.file.originalname || 'photo.jpg').replace(/[^\w.\-]+/g, '_').slice(-60);
+    const filename = `${POSEUR_TAG(login)}${Date.now()}__${safe}`;
+    await atUploadAttachment(req.params.id, fieldId, req.file.buffer, filename, req.file.mimetype);
+    logger.info(`[poseur] photo ajoutée par ${login} au chantier ${req.params.id}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Suppression d'une photo — UNIQUEMENT si ajoutée par ce poseur (ou admin).
+app.delete('/api/poseur/chantiers/:id/photos/:attId', requireAuth, requirePoseur, async (req, res) => {
+  try {
+    const login = String(req.session.user).toLowerCase();
+    const pr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${req.params.id}`,
+      { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!pr.ok) return res.status(404).json({ error: 'chantier introuvable' });
+    const images = (await pr.json()).fields?.['Images'] || [];
+    const target = images.find(a => a.id === req.params.attId);
+    if (!target) return res.status(404).json({ error: 'photo introuvable' });
+    const isAdmin = ADMIN_LOGINS.has(req.session.user);
+    if (!isAdmin && !String(target.filename || '').startsWith(POSEUR_TAG(login))) {
+      return res.status(403).json({ error: 'Vous ne pouvez supprimer que vos propres photos.' });
+    }
+    const remaining = images.filter(a => a.id !== req.params.attId).map(a => ({ id: a.id }));
+    const patch = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.projets.id}/${req.params.id}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${AT_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: { 'Images': remaining } }),
+    });
+    if (!patch.ok) { const e = await patch.json().catch(() => ({})); throw new Error(e.error?.message || patch.status); }
+    logger.info(`[poseur] photo supprimée par ${login} sur ${req.params.id}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Page mobile de l'espace poseur (cache-busting du JS comme /login et /v3).
+let _poseurHtml = null;
+app.get('/poseur', requireAuth, (req, res) => {
+  if (!_poseurHtml) {
+    _poseurHtml = fs.readFileSync(path.join(__dirname, 'public', 'poseur.html'), 'utf8')
+      .replace('src="/assets/js/poseur.js"', `src="/assets/js/poseur.js?v=${V3_VERSION}"`);
+  }
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  res.type('html').send(_poseurHtml);
+});
+
+// Sprint v3.12 — La racine sert le cockpit v3 (cutover). Les poseurs → espace dédié.
+app.get('/', requireAuth, async (req, res) => {
+  if (await isRestrictedPoseur(req)) return res.redirect('/poseur');
+  return v3Index(req, res);
+});
 app.get('/v3',  requireAuth, v3Index);  // alias pour bookmarks existants
 app.get('/v3/', requireAuth, v3Index);  // idem
 

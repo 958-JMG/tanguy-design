@@ -74,6 +74,8 @@ async function fetchFromAirtable() {
       // 2FA TOTP (Sprint sécu) — secret chiffré au repos, voir services/totp.js
       totpSecret: f['TOTP secret'] || '',
       twoFAActif: !!f['2FA actif'],
+      // Rôle poseur (accès terrain restreint aux documents chantier)
+      poseur: !!f.Poseur,
       source: 'airtable',
     });
   }
@@ -114,6 +116,7 @@ async function listUsers() {
     email: u.email,
     displayName: u.displayName,
     admin: u.admin,
+    poseur: !!u.poseur,
     actif: u.actif,
     twoFAActif: !!u.twoFAActif,
     dateCreation: u.dateCreation,
@@ -121,20 +124,23 @@ async function listUsers() {
   }));
 }
 
-async function createUser({ login, password, email, displayName, admin = false, notes = '' }) {
+async function createUser({ login, password, email, displayName, admin = false, poseur = false, notes = '' }) {
   if (!BASE_ID || !AT_KEY) throw new Error('Airtable non configuré');
   const loginLo = String(login || '').toLowerCase().trim();
   if (!loginLo) throw new Error('Login requis');
-  if (!password || password.length < 8) throw new Error('Mot de passe ≥ 8 caractères');
   const existing = await findUser(loginLo);
   if (existing) throw new Error(`Login "${loginLo}" déjà utilisé`);
-  const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  // Connexion passwordless (TOTP) : le mot de passe n'est plus utilisé au login.
+  // On stocke tout de même un hash (aléatoire si non fourni) pour ne pas laisser le champ vide.
+  const pwd = (password && password.length >= 8) ? password : require('crypto').randomBytes(24).toString('hex');
+  const hash = await bcrypt.hash(pwd, BCRYPT_ROUNDS);
   const fields = {
     'Login': loginLo,
     'Hash bcrypt': hash,
     'Email': email || '',
     'Display name': displayName || loginLo,
     'Admin': !!admin,
+    'Poseur': !!poseur,
     'Actif': true,
     'Date création': new Date().toISOString().slice(0, 10),
     'Notes': notes || '',
@@ -161,6 +167,7 @@ async function updateUser(userId, patch) {
   if (patch.email !== undefined) fields.Email = patch.email || '';
   if (patch.displayName !== undefined) fields['Display name'] = patch.displayName || '';
   if (patch.admin !== undefined) fields.Admin = !!patch.admin;
+  if (patch.poseur !== undefined) fields.Poseur = !!patch.poseur;
   if (patch.actif !== undefined) fields.Actif = !!patch.actif;
   if (patch.notes !== undefined) fields.Notes = patch.notes || '';
   if (Object.keys(fields).length === 0) throw new Error('Aucun champ à mettre à jour');

@@ -295,7 +295,7 @@ function renderUsers(container, users) {
           <td><strong>${esc(u.login)}</strong></td>
           <td>${esc(u.displayName || '—')}</td>
           <td>${esc(u.email || '—')}</td>
-          <td>${u.admin ? `<span class="badge phase-signe">${icon('star', 11)} Admin</span>` : '<span class="muted">Membre</span>'}</td>
+          <td>${u.admin ? `<span class="badge phase-signe">${icon('star', 11)} Admin</span>` : (u.poseur ? `<span class="badge">${icon('hammer', 11)} Poseur</span>` : '<span class="muted">Membre</span>')}</td>
           <td>${u.actif ? '<span class="badge phase-signe">Actif</span>' : '<span class="badge" style="background:var(--accent-lo);color:var(--accent)">Désactivé</span>'}${u.source === 'airtable' ? (u.twoFAActif ? ' <span class="badge phase-signe" title="2FA activé (Google Authenticator)" style="opacity:.75">2FA</span>' : ' <span class="badge" title="2FA pas encore configuré" style="background:var(--accent-lo);color:var(--accent);opacity:.75">2FA à faire</span>') : ''}</td>
           <td class="muted" style="font-size:11px">${esc(u.source)}</td>
           <td>
@@ -379,14 +379,15 @@ function openModalNouveauUser() {
         <label>Email professionnel
           <input name="email" type="email" required placeholder="ex : marie@tanguydesign.com">
         </label>
-        <label>Mot de passe initial (min 8 caractères, à communiquer au user)
-          <input name="password" type="text" required minlength="8" placeholder="Génère un mot de passe fort">
-          <small class="muted">Le user pourra changer son mot de passe à la 1re connexion (TODO).</small>
-        </label>
         <label style="display:flex;align-items:center;gap:8px;flex-direction:row">
           <input name="admin" type="checkbox">
           <span>Admin (accès Marges, Stock, Gestion users)</span>
         </label>
+        <label style="display:flex;align-items:center;gap:8px;flex-direction:row">
+          <input name="poseur" type="checkbox">
+          <span>Poseur (accès terrain : uniquement documents &amp; photos des chantiers)</span>
+        </label>
+        <small class="muted" style="display:block;margin:-4px 0 8px">Connexion sans mot de passe : la personne enrôle son authentificateur (QR) à sa 1re connexion.</small>
         <label>Notes (optionnel)
           <textarea name="notes" rows="2" placeholder="ex : Pose chantier, arrive en mars"></textarea>
         </label>
@@ -408,8 +409,8 @@ function openModalNouveauUser() {
       login: fd.get('login'),
       displayName: fd.get('displayName'),
       email: fd.get('email'),
-      password: fd.get('password'),
       admin: fd.get('admin') === 'on',
+      poseur: fd.get('poseur') === 'on',
       notes: fd.get('notes') || '',
     };
     try {
@@ -442,6 +443,10 @@ function openModalEditUser(u) {
           <span>Admin (accès Marges, Stock, Gestion users)</span>
         </label>
         <label style="display:flex;align-items:center;gap:8px;flex-direction:row">
+          <input name="poseur" type="checkbox" ${u.poseur ? 'checked' : ''}>
+          <span>Poseur (accès terrain : uniquement documents &amp; photos des chantiers)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;flex-direction:row">
           <input name="actif" type="checkbox" ${u.actif ? 'checked' : ''}>
           <span>Compte actif</span>
         </label>
@@ -464,6 +469,7 @@ function openModalEditUser(u) {
       displayName: fd.get('displayName'),
       email: fd.get('email'),
       admin: fd.get('admin') === 'on',
+      poseur: fd.get('poseur') === 'on',
       actif: fd.get('actif') === 'on',
       notes: fd.get('notes') || '',
     };
