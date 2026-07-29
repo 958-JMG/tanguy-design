@@ -750,40 +750,29 @@ app.get('/login', (req, res) => {
 });
 
 app.post('/api/login', loginLimiter, async (req, res) => {
-  const { login, password } = req.body || {};
+  const { login } = req.body || {};
   const ip = clientIp(req);
-  if (!login || !password) return res.status(400).json({ error: 'login + password requis' });
+  if (!login) return res.status(400).json({ error: 'identifiant requis' });
   const loginLc = String(login).toLowerCase();
   // Account lockout (Sprint 4 P1-5)
   if (accountIsLocked(loginLc)) {
     logger.warn({ login: loginLc, ip }, '[auth] login REJECTED (account locked)');
     return res.status(429).json({ error: 'Trop de tentatives. Compte temporairement verrouillé (15 min).' });
   }
-  // Sprint v4 — vérification via users-store (Airtable + fallback env var)
+  // === Auth SANS mot de passe (standard 9·58) =====================================
+  // L'identité est prouvée UNIQUEMENT par l'authentificateur TOTP (Google
+  // Authenticator). L'identifiant ne fait qu'ouvrir l'étape 2FA : enrôlement (QR) à
+  // la 1re connexion, puis code à 6 chiffres à chaque fois. Aucun mot de passe.
   const user = await usersStore.findUser(loginLc);
   if (!user || !user.actif) {
     accountRegisterFail(loginLc);
     logger.warn({ login: loginLc, ip, reason: user ? 'user désactivé' : 'inconnu' }, '[auth] login FAIL');
-    return res.status(401).json({ error: 'identifiants invalides' });
+    return res.status(401).json({ error: 'identifiant inconnu' });
   }
-  const ok = await bcrypt.compare(password, user.hash);
-  if (!ok) {
-    accountRegisterFail(loginLc);
-    logger.warn({ login: loginLc, ip }, '[auth] login FAIL (bad password)');
-    return res.status(401).json({ error: 'identifiants invalides' });
-  }
-  accountRegisterSuccess(loginLc);
-
-  // === 2FA TOTP (Google Authenticator) ============================================
-  // Mode dégradé / break-glass : si l'utilisateur vient du fallback env var
-  // (Airtable indisponible), on ne peut ni lire ni écrire de secret TOTP → login
-  // par mot de passe seul. USERS_HASHES reste donc un vrai break-glass en cas de
-  // panne Airtable.
   if (user.source !== 'airtable') {
-    req.session.user = loginLc;
-    req.session.pending2fa = null;
-    logger.warn({ login: loginLc, ip }, '[auth] login OK (mode dégradé env — 2FA contournée, Airtable down)');
-    return res.json({ ok: true, user: loginLc });
+    // Sans mot de passe, seuls les comptes Airtable (porteurs du secret TOTP) sont éligibles.
+    logger.error({ login: loginLc, ip }, '[auth] login FAIL — compte hors Airtable, 2FA impossible');
+    return res.status(401).json({ error: 'Compte non éligible à la connexion sans mot de passe.' });
   }
 
   const secretClear = (user.twoFAActif && user.totpSecret) ? totp.decryptSecret(user.totpSecret) : null;
@@ -791,14 +780,14 @@ app.post('/api/login', loginLimiter, async (req, res) => {
     // 2FA déjà enrôlé → étape "code".
     req.session.user = null;
     req.session.pending2fa = { login: loginLc, uid: user.id, ts: Date.now() };
-    logger.info({ login: loginLc, ip }, '[auth] password OK → étape TOTP');
+    logger.info({ login: loginLc, ip }, '[auth] identifiant OK → étape TOTP');
     return res.json({ ok: true, step: 'totp' });
   }
 
   // Pas (encore) de 2FA valide → enrôlement OBLIGATOIRE avant tout accès.
   req.session.user = null;
   req.session.pending2fa = { login: loginLc, uid: user.id, ts: Date.now(), needEnroll: true };
-  logger.info({ login: loginLc, ip }, '[auth] password OK → enrôlement 2FA requis');
+  logger.info({ login: loginLc, ip }, '[auth] identifiant OK → enrôlement 2FA requis');
   return res.json({ ok: true, step: 'enroll' });
 });
 

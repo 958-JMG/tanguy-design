@@ -118,15 +118,13 @@ button:disabled{opacity:.5;cursor:default}
   <div class="box">
     <div class="err" id="err"></div>
 
-    <!-- ÉTAPE 1 — Mot de passe -->
+    <!-- ÉTAPE 1 — Identifiant (connexion sans mot de passe, standard 9·58) -->
     <form class="step active" id="step-password">
       <h1>Cockpit Chantiers</h1>
-      <div class="sub">Accès réservé · 4 collaborateurs</div>
+      <div class="sub">Accès réservé · connexion par authentificateur</div>
       <label>Identifiant</label>
       <input id="login" autocomplete="username" autofocus required placeholder="prénom">
-      <label>Mot de passe</label>
-      <input id="password" type="password" autocomplete="current-password" required placeholder="••••••••">
-      <button type="submit">Se connecter</button>
+      <button type="submit">Continuer</button>
     </form>
 
     <!-- ÉTAPE 2 — Code TOTP (2FA déjà configuré) -->
