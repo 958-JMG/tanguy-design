@@ -273,12 +273,10 @@ function renderFiche(app, data) {
     _daSeen.add(key);
     return true;
   });
-  const retro = devisArtisansUniq.filter(d => {
-    const aId = (d.fields?.Artisan || [])[0];
-    // Lookup sur allArtisans : un devis peut référencer un artisan qui n'est plus dans la liste projet.
-    const a = aId ? allArtisans.find(x => x.id === aId) : null;
-    return a?.fields?.Contractuel;
-  }).reduce((s, d) => s + (d.fields?.['Montant HT'] || 0) * 0.05, 0);
+  // Rétro-commission 9·58 : 5% du montant total de TOUS les devis artisans (aligné sur
+  // l'import, qui stocke déjà 'Rétro-commission HT' = 5% pour chaque devis). Plus de
+  // filtre « contractuel » — le 5% s'applique à tous les devis artisans.
+  const retro = devisArtisansUniq.reduce((s, d) => s + (d.fields?.['Rétro-commission HT'] || (d.fields?.['Montant HT'] || 0) * 0.05), 0);
   // Modèle Tanguy : les devis artisans ne sont PAS un coût pour Tanguy (le client les
   // paie) — seule la rétro-commission 5% des artisans contractuels est un revenu.
   const margeAbs = caHT - coutFourn + retro;
@@ -538,7 +536,7 @@ function renderFiche(app, data) {
               const aNom = a?.fields?.Nom || '?';
               const isContractuel = a?.fields?.Contractuel;
               const montantHT = df['Montant HT'] || 0;
-              const retroCom = df['Rétro-commission HT'] || (isContractuel ? montantHT * 0.05 : 0);
+              const retroCom = df['Rétro-commission HT'] || montantHT * 0.05;
               return `
               <div class="card commande-card">
                 <div class="commande-head">
@@ -548,7 +546,7 @@ function renderFiche(app, data) {
                   </div>
                   <div style="text-align:right">
                     <div><strong>${euros(montantHT)}</strong> <span class="muted" style="font-size:11px">HT</span></div>
-                    ${isContractuel ? `<div class="muted" style="font-size:12px">Rétro 5% : <strong>${euros(retroCom)}</strong></div>` : ''}
+                    <div class="muted" style="font-size:12px">Rétro 5% : <strong>${euros(retroCom)}</strong></div>
                   </div>
                 </div>
                 ${df['Description travaux'] ? `<div class="muted" style="margin-top:4px;font-size:12px">${esc(String(df['Description travaux']).slice(0,150))}${df['Description travaux'].length > 150 ? '…' : ''}</div>` : ''}
