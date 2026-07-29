@@ -25,6 +25,13 @@ COPY --chown=tanguy:nodejs . .
 
 USER tanguy
 
+# Cache-buster déterministe : le SHA du commit est injecté au build et exposé en
+# GITHUB_SHA au runtime. server.js s'en sert pour le suffixe ?v= des assets /v3 et
+# login.js → même version sur TOUTES les instances (fini la loterie de cache froid
+# quand le container scale > 1). Sans build-arg (build local), fallback "dev".
+ARG GIT_SHA=dev
+ENV GITHUB_SHA=$GIT_SHA
+
 ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000

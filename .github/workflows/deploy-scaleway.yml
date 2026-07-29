@@ -55,6 +55,7 @@ jobs:
           docker buildx build \
             --platform linux/amd64 \
             --push \
+            --build-arg GIT_SHA=${{ github.sha }} \
             --tag "$IMAGE_SHA" \
             --tag "$IMAGE_LATEST" \
             "${{ env.CONTEXT_DIR }}"
