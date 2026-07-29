@@ -273,14 +273,15 @@ function renderFiche(app, data) {
     _daSeen.add(key);
     return true;
   });
-  const coutArtisans = devisArtisansUniq.reduce((s, d) => s + (d.fields?.['Montant HT'] || 0), 0);
   const retro = devisArtisansUniq.filter(d => {
     const aId = (d.fields?.Artisan || [])[0];
     // Lookup sur allArtisans : un devis peut référencer un artisan qui n'est plus dans la liste projet.
     const a = aId ? allArtisans.find(x => x.id === aId) : null;
     return a?.fields?.Contractuel;
   }).reduce((s, d) => s + (d.fields?.['Montant HT'] || 0) * 0.05, 0);
-  const margeAbs = caHT - coutFourn - coutArtisans + retro;
+  // Modèle Tanguy : les devis artisans ne sont PAS un coût pour Tanguy (le client les
+  // paie) — seule la rétro-commission 5% des artisans contractuels est un revenu.
+  const margeAbs = caHT - coutFourn + retro;
   const margePct = caHT > 0 ? (margeAbs / caHT) * 100 : null;
 
   // Calcul des actions prioritaires selon la phase (Sprint v3.3)
@@ -329,7 +330,7 @@ function renderFiche(app, data) {
       <div class="kpi-row is-compact" aria-label="Bilan financier prévisionnel">
         <div class="kpi-card"><div class="kpi-value">${euros(caHT)}</div><div class="kpi-label">CA HT <span class="muted" style="font-weight:400" title="${caEstReel ? 'Réel : somme des devis signés' : 'Prévisionnel saisi (aucun devis signé)'}">· ${caEstReel ? 'réel' : 'prévi'}</span></div></div>
         <div class="kpi-card"><div class="kpi-value">${euros(coutFourn)}</div><div class="kpi-label">Fournisseurs${arManquants > 0 && coutFournEstime > 0 ? ` <span class="muted" style="font-weight:400" title="${arManquants} commande(s) sans AR reçu — montant confirmé fournisseur manquant">· estimé ${euros(coutFournEstime)}</span>` : ''}</div></div>
-        <div class="kpi-card"><div class="kpi-value">${euros(coutArtisans - retro)}</div><div class="kpi-label">Artisans (−5%)</div></div>
+        <div class="kpi-card"><div class="kpi-value">${euros(retro)}</div><div class="kpi-label">Rétro artisans 5%</div></div>
         <div class="kpi-card ${margeNegative ? 'is-negative' : ''}" ${margeNegative ? 'aria-label="Marge négative — attention"' : ''}>
           <div class="kpi-value">${euros(margeAbs)}</div>
           <div class="kpi-label">Marge ${margePct != null ? '(' + margePct.toFixed(1) + ' %)' : ''}</div>
