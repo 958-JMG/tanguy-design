@@ -412,7 +412,9 @@ async function signFlow(devis, projet) {
   if (btn) { btn.disabled = true; btn.innerHTML = 'Signature en cours…'; }
   try {
     const result = await signDevisTanguy(devis.id);
-    toast(`Devis signé · ${result.commandes_creees} commande(s) · ${result.taches_creees} tâche(s)`, 'success', 6000);
+    const fe = result.factures_echeances;
+    const feMsg = fe && fe.created ? ` · ${fe.created} facture(s) brouillon Pennylane` : '';
+    toast(`Devis signé · ${result.commandes_creees} commande(s) · ${result.taches_creees} tâche(s)${feMsg}`, 'success', 6500);
     // Retour fiche projet pour voir les BC générés
     if (projet?.id) {
       location.hash = '#projet/' + projet.id;
