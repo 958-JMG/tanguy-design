@@ -18,6 +18,7 @@ const { parseDevisFournisseurPdf } = require('./services/devis-fournisseur-parse
 const { buildPlanTresorerie, echeancesFacturees, mondayOf, addDays, toCsv } = require('./services/tresorerie-helper');
 const { recapPaieMois, alertesVisitesMedicales, joursOuvres } = require('./services/rh-helper');
 const { joursRetard, niveauRelanceSuggere, buildEmailRelance, buildEmailRelanceFournisseur, buildMailto } = require('./services/relances-helper');
+const pennylane = require('./services/pennylane');
 const { DEVIS_IMPORT_HASH_FIELD, computeImportHash, buildHashFilterFormula } = require('./services/devis-idempotency');
 const { buildRetroApporteurs, TAUX_RETRO } = require('./services/retro-apporteurs-helper');
 const { canAccess, pickAllowedFields } = require('./services/acl');
@@ -1283,6 +1284,128 @@ app.get('/api/devis/:id/detail', requireAuth, async (req, res) => {
     res.json({ ok: true, devis, zones, lignes, echeances });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// DEVIS → BROUILLON PENNYLANE
+// Crée (ou retrouve) un devis BROUILLON dans Pennylane à partir d'un devis
+// Tanguy. Le cockpit ne finalise ni n'envoie RIEN : Virginie termine dans
+// Pennylane (envoi) ou télécharge le PDF pour l'envoyer depuis sa boîte mail.
+//   → Règle dure : aucun email ne part automatiquement à un client.
+//
+// Anti-doublon : id client Pennylane stocké sur la fiche Client, id devis sur
+// la fiche Devis (idempotent). Si un client homonyme existe côté Pennylane sans
+// correspondance exacte, on RENVOIE les candidats pour que Virginie confirme.
+// ──────────────────────────────────────────────────────────────────────────
+const PL_CUST_FIELD = 'Pennylane customer ID';
+const PL_QUOTE_FIELD = 'Pennylane quote ID';
+const PL_NUM_FIELD = 'Pennylane numéro';
+function pennylaneQuoteUrl(raw, id) {
+  return (raw && (raw.public_url || raw.url || (raw.quote && (raw.quote.public_url || raw.quote.url)))) ||
+    (id ? `https://app.pennylane.com/app#/estimates/${id}` : 'https://app.pennylane.com');
+}
+
+app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
+  const devisId = req.params.id;
+  const body = req.body || {};
+  try {
+    if (!process.env.PENNYLANE_API_KEY) return res.status(500).json({ error: 'PENNYLANE_API_KEY non configurée' });
+
+    // 1) Devis + champs
+    const dr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.devis.id}/${devisId}`,
+      { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!dr.ok) return res.status(404).json({ error: 'Devis introuvable' });
+    const devis = await dr.json();
+    const f = devis.fields || {};
+
+    // 2) Idempotence : déjà poussé → on renvoie le lien, pas de doublon.
+    if (f[PL_QUOTE_FIELD] && !body.force) {
+      return res.json({ ok: true, already: true, quoteId: f[PL_QUOTE_FIELD], number: f[PL_NUM_FIELD] || null,
+        openUrl: pennylaneQuoteUrl(null, f[PL_QUOTE_FIELD]) });
+    }
+
+    // 3) Lignes Pennylane (mapping par nature + réconciliation TTC)
+    const { lines, reconciliation, warnings } = pennylane.buildInvoiceLines(f);
+    if (!lines.length) return res.status(422).json({ error: 'Devis sans montant exploitable — rien à pousser', warnings });
+
+    // 4) Résolution client (anti-doublon)
+    const clientId = (f['Client'] || [])[0];
+    if (!clientId) return res.status(422).json({ error: 'Devis sans client lié' });
+    const [client] = await atFetchByIds(TABLES.clients.id, [clientId]);
+    const cf = (client && client.fields) || {};
+    const nom = cf['Nom'] || '';
+    let customerId = cf[PL_CUST_FIELD] || body.pennylane_customer_id || null;
+    let customerCreated = false;
+
+    if (!customerId) {
+      const match = await pennylane.findCustomerByName(nom);
+      if (match.exact) {
+        customerId = match.exact.id;
+      } else if (match.candidates.length && !body.create_customer) {
+        // Pas de correspondance exacte mais des homonymes → Virginie tranche.
+        return res.json({ ok: false, needsCustomerConfirmation: true, clientNom: nom, candidates: match.candidates });
+      } else {
+        const adresse = String(cf['Adresse'] || '').split('\n');
+        const cpVille = (adresse[1] || '').trim().match(/^(\d{5})\s+(.*)$/);
+        const created = await pennylane.createCustomer({
+          name: nom,
+          isCompany: !!(cf['Type'] && cf['Type'] !== 'Particulier'),
+          email: cf['Email'] || undefined,
+          address: (adresse[0] || '').trim() || undefined,
+          postal_code: cpVille ? cpVille[1] : undefined,
+          city: cpVille ? cpVille[2] : undefined,
+        });
+        customerId = created.id; customerCreated = true;
+      }
+    }
+    if (!customerId) return res.status(422).json({ error: 'Client Pennylane non résolu' });
+
+    // Persiste l'id client si nouveau/résolu (évite de rechercher au prochain devis).
+    if (clientId && cf[PL_CUST_FIELD] !== String(customerId)) {
+      await atPatch(TABLES.clients.id, clientId, { [PL_CUST_FIELD]: String(customerId) });
+    }
+
+    // 5) Devis brouillon (date du jour, échéance +30 j)
+    const today = new Date();
+    const iso = d => d.toISOString().slice(0, 10);
+    const deadline = new Date(today.getTime() + 30 * 86400000);
+    const quote = await pennylane.createDraftQuote({ customer_id: customerId, date: iso(today), deadline: iso(deadline), lines, external_reference: f['Numéro devis'] });
+
+    // 6) Persiste les identifiants sur le devis
+    await atPatch(TABLES.devis.id, devisId, { [PL_QUOTE_FIELD]: String(quote.id), [PL_NUM_FIELD]: quote.number || '' });
+
+    logger.info({ devisId, quoteId: quote.id, customerCreated, reconOk: reconciliation.ok }, 'devis poussé en brouillon Pennylane');
+    res.json({
+      ok: true, quoteId: quote.id, number: quote.number, status: quote.status,
+      openUrl: pennylaneQuoteUrl(quote.raw, quote.id),
+      customerId, customerCreated, reconciliation, warnings,
+    });
+  } catch (e) {
+    logger.error({ err: e.message, devisId }, 'échec push devis Pennylane');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Télécharge le PDF officiel du devis Pennylane (bouton « télécharger »).
+app.get('/api/devis/:id/pennylane/pdf', requireAuth, async (req, res) => {
+  const devisId = req.params.id;
+  try {
+    if (!process.env.PENNYLANE_API_KEY) return res.status(500).json({ error: 'PENNYLANE_API_KEY non configurée' });
+    const dr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.devis.id}/${devisId}`,
+      { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!dr.ok) return res.status(404).json({ error: 'Devis introuvable' });
+    const f = (await dr.json()).fields || {};
+    const quoteId = f[PL_QUOTE_FIELD];
+    if (!quoteId) return res.status(409).json({ error: 'Ce devis n\'a pas encore de brouillon Pennylane' });
+    const pdf = await pennylane.fetchQuotePdf(quoteId);
+    const fname = `devis-${(f['Numéro devis'] || quoteId).toString().replace(/[^\w.-]+/g, '_')}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+    res.send(pdf);
+  } catch (e) {
+    logger.error({ err: e.message, devisId }, 'échec PDF Pennylane');
+    res.status(502).json({ error: e.message });
   }
 });
 

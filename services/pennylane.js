@@ -1,0 +1,233 @@
+'use strict';
+// ────────────────────────────────────────────────────────────────────────────
+// Pennylane — création de DEVIS BROUILLON depuis un devis Tanguy.
+//
+// Principe : le cockpit CRÉE un brouillon dans Pennylane (jamais finalisé,
+// jamais envoyé au client automatiquement). Virginie termine ensuite dans
+// Pennylane (envoi) OU télécharge le PDF pour l'envoyer depuis sa boîte mail.
+//   → Règle dure 9·58 : AUCUN email ne part automatiquement à un client.
+//
+// Écriture Pennylane limitée à : créer un client, créer un devis brouillon.
+//   → JAMAIS de delete / archive / finalize / send depuis ce module.
+//
+// Le mapping (devis → lignes Pennylane) est PUR et testable sans réseau.
+// Adapté du client Pennylane de cockpit-pilotage (throttle + retry 429).
+// ────────────────────────────────────────────────────────────────────────────
+
+const BASE = 'https://app.pennylane.com/api/external/v2';
+
+function apiKey() {
+  const k = process.env.PENNYLANE_API_KEY;
+  if (!k) throw new Error('PENNYLANE_API_KEY absente (secret non configuré)');
+  return k;
+}
+function headers(extra = {}) {
+  return { Authorization: 'Bearer ' + apiKey(), Accept: 'application/json', ...extra };
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let lastReq = 0;
+async function throttle() { const w = Math.max(0, 280 - (Date.now() - lastReq)); if (w) await sleep(w); lastReq = Date.now(); }
+
+async function apiGet(path) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await throttle();
+    const r = await fetch(BASE + path, { headers: headers() });
+    if (r.status === 429) { await sleep(1200 * (attempt + 1)); continue; }
+    if (!r.ok) throw new Error(`Pennylane GET ${path.split('?')[0]} → HTTP ${r.status}`);
+    return r.json();
+  }
+  throw new Error(`Pennylane GET ${path.split('?')[0]} → 429 (limite de débit)`);
+}
+
+async function apiPost(path, body) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await throttle();
+    const r = await fetch(BASE + path, { method: 'POST', headers: headers({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) });
+    if (r.status === 429) { await sleep(1200 * (attempt + 1)); continue; }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.message || (Array.isArray(j.errors) && j.errors.join('; ')) || `Pennylane POST ${path} → HTTP ${r.status}`);
+    return j;
+  }
+  throw new Error(`Pennylane POST ${path} → 429 (limite de débit)`);
+}
+
+// ── Helpers purs (montants / TVA) ──────────────────────────────────────────
+const num = v => { const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : v; return Number.isFinite(n) ? n : 0; };
+const round2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
+
+// Normalise un nom pour le matching client (accents, casse, espaces, ponctuation).
+function normalizeName(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')   // enlève les accents
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+// Convertit un pourcentage de TVA en enum Pennylane. null/absent → défaut 20 %
+// (FR_200) ; un 0 EXPLICITE → exempt.
+function vatEnum(pct) {
+  if (pct == null || pct === '') return 'FR_200';
+  const p = num(pct);
+  const table = { 20: 'FR_200', 10: 'FR_100', 5.5: 'FR_055', 2.1: 'FR_021', 0: 'exempt' };
+  if (table[p]) return table[p];
+  // tolère 0.2 / 0.1 (fraction) ou valeurs approchées
+  if (p > 0 && p < 1) return vatEnum(round2(p * 100));
+  if (Math.abs(p - 20) < 0.01) return 'FR_200';
+  if (Math.abs(p - 10) < 0.01) return 'FR_100';
+  if (Math.abs(p - 5.5) < 0.01) return 'FR_055';
+  return 'FR_200';
+}
+const enumPct = { FR_200: 20, FR_100: 10, FR_055: 5.5, FR_021: 2.1, exempt: 0 };
+
+// ── Mapping PUR : devis Tanguy (fields Airtable) → lignes Pennylane ─────────
+// Construit le devis client PAR TAUX DE TVA, à partir des bases OFFICIELLES du
+// devis (« TVA taux 1/2 base + pourcentage »). Décision fondée sur les données
+// réelles (2026-07-31) : les champs « par nature » (Total HT après remise, Pose
+// HT, Livraison HT…) sont des artefacts de parsing INCOHÉRENTS (ex. « après
+// remise » > articles ; pose tantôt 20 % tantôt 10 %). Les bases TVA, elles,
+// réconcilient exactement : base1+base2 = Total HT final ; +montants = Total TTC.
+// L'éco-participation est DÉJÀ incluse dans les bases (pas de ligne séparée).
+// Le brouillon reste éditable par Virginie dans Pennylane si elle veut détailler.
+//
+// f = devis.fields (cf. table Devis). Retourne { lines, reconciliation, warnings }.
+function buildInvoiceLines(f = {}) {
+  const warnings = [];
+  const lines = [];
+  const push = (label, ht, vatPct) => {
+    const amount = round2(num(ht));
+    if (amount === 0) return;
+    lines.push({
+      label: String(label).slice(0, 200),
+      quantity: 1,
+      unit: 'piece',
+      raw_currency_unit_price: amount.toFixed(2),
+      vat_rate: vatEnum(vatPct),
+    });
+  };
+  const labelFor = pct => pct >= 20 ? 'Fourniture cuisine sur-mesure et prestations (TVA 20 %)'
+    : pct === 10 ? 'Fourniture et prestations (TVA réduite 10 %)'
+    : pct === 5.5 ? 'Fourniture et prestations (TVA réduite 5,5 %)'
+    : `Fourniture et prestations (TVA ${pct} %)`;
+
+  // 1) Une ligne par taux de TVA renseigné (source fiable et réconciliable).
+  for (const r of [
+    { base: 'TVA taux 1 base', pct: 'TVA taux 1 pourcentage' },
+    { base: 'TVA taux 2 base', pct: 'TVA taux 2 pourcentage' },
+  ]) {
+    if (f[r.base] == null || num(f[r.base]) === 0) continue;
+    const pct = f[r.pct] != null ? num(f[r.pct]) : 20;
+    push(labelFor(pct), f[r.base], pct);
+  }
+
+  // 2) Repli : aucune base TVA → Total HT final (ou après remise / articles) @ TVA taux 1 (ou 20 %).
+  if (lines.length === 0) {
+    const htf = f['Total HT final'] ?? f['Total HT après remise'] ?? f['Total HT articles'];
+    if (htf != null && num(htf) !== 0) {
+      warnings.push('Bases TVA absentes : repli sur le Total HT final @ TVA taux 1');
+      push(labelFor(f['TVA taux 1 pourcentage'] != null ? num(f['TVA taux 1 pourcentage']) : 20),
+        htf, f['TVA taux 1 pourcentage'] != null ? num(f['TVA taux 1 pourcentage']) : 20);
+    }
+  }
+
+  // 3) Réconciliation TTC calculé vs Total TTC du devis (garde-fou anti silent-fail).
+  const computedTtc = round2(lines.reduce((s, l) => s + num(l.raw_currency_unit_price) * (1 + enumPct[l.vat_rate] / 100), 0));
+  const expectedTtc = f['Total TTC'] != null ? round2(num(f['Total TTC'])) : null;
+  const diff = expectedTtc != null ? round2(computedTtc - expectedTtc) : null;
+  const ok = expectedTtc == null ? null : Math.abs(diff) <= 1; // tolérance 1 € (arrondis TVA)
+  if (expectedTtc != null && !ok) {
+    warnings.push(`TTC recalculé ${computedTtc} € ≠ Total TTC devis ${expectedTtc} € (écart ${diff} €)`);
+  }
+  if (expectedTtc == null) warnings.push('Total TTC absent du devis : réconciliation impossible');
+  if (lines.length === 0) warnings.push('Aucun montant exploitable sur le devis (rien à pousser)');
+
+  return { lines, reconciliation: { computedTtc, expectedTtc, diff, ok }, warnings };
+}
+
+// ── Réseau : clients ────────────────────────────────────────────────────────
+async function listAllCustomers() {
+  const out = []; let cursor = null, guard = 0;
+  while (true) {
+    const j = await apiGet('/customers' + (cursor ? `?cursor=${cursor}` : ''));
+    out.push(...(Array.isArray(j.items) ? j.items : []));
+    cursor = j.next_cursor || null;
+    if (!(j.has_more === true && cursor) || ++guard > 200) break;
+  }
+  return out;
+}
+
+// Cherche un client Pennylane existant par nom normalisé. Retourne
+// { exact, candidates[] } — jamais de création ici (décision côté appelant).
+async function findCustomerByName(name) {
+  const target = normalizeName(name);
+  if (!target) return { exact: null, candidates: [] };
+  const all = await listAllCustomers();
+  const scored = all.map(c => {
+    const cn = normalizeName(c.name || c.company_name || c.reference);
+    return { id: String(c.id), name: c.name || c.company_name || c.reference || ('Client ' + c.id), norm: cn };
+  });
+  const exact = scored.find(c => c.norm === target) || null;
+  const candidates = scored.filter(c => c.norm !== target && (c.norm.includes(target) || target.includes(c.norm))).slice(0, 5);
+  return { exact, candidates };
+}
+
+// Crée un client PARTICULIER (défaut agence cuisine) ou SOCIÉTÉ selon `isCompany`.
+async function createCustomer({ name, isCompany = false, first_name, last_name, address, postal_code, city, country_alpha2 = 'FR', email }) {
+  const billing = (address || postal_code || city) ? { billing_address: { address: address || '', postal_code: postal_code || '', city: city || '', country_alpha2 } } : {};
+  let j, id;
+  if (isCompany) {
+    j = await apiPost('/company_customers', { name, ...billing, ...(email ? { emails: [email] } : {}) });
+  } else {
+    // Découpe "PRENOM NOM" si first/last non fournis.
+    let fn = first_name, ln = last_name;
+    if (!fn && !ln) { const parts = String(name || '').trim().split(/\s+/); fn = parts.shift() || name || 'Client'; ln = parts.join(' ') || '-'; }
+    j = await apiPost('/individual_customers', { first_name: fn, last_name: ln || '-', ...billing, ...(email ? { emails: [email] } : {}) });
+  }
+  id = j && (j.id || (j.customer && j.customer.id) || (j.individual_customer && j.individual_customer.id) || (j.company_customer && j.company_customer.id));
+  return { id: String(id || ''), raw: j };
+}
+
+// ── Réseau : devis brouillon ────────────────────────────────────────────────
+// Crée un DEVIS BROUILLON. `lines` = sortie de buildInvoiceLines().lines.
+// `external_reference` (optionnel) = n° de devis Tanguy, reporté sur le devis Pennylane.
+async function createDraftQuote({ customer_id, date, deadline, lines, external_reference }) {
+  if (!customer_id) throw new Error('customer_id requis');
+  if (!Array.isArray(lines) || lines.length === 0) throw new Error('aucune ligne à pousser');
+  // NB : Pennylane /quotes n'accepte pas de `label` au niveau devis (les libellés
+  // vivent sur invoice_lines). On reporte la réf. du devis Tanguy via external_reference.
+  const body = { customer_id, date, deadline, invoice_lines: lines };
+  if (external_reference) body.external_reference = String(external_reference).slice(0, 190);
+  const j = await apiPost('/quotes', body);
+  const q = j.quote || j;
+  // Un brouillon non finalisé a quote_number = 0 (numéroté par Pennylane à l'envoi) → on ne le remonte pas.
+  const rawNum = q.quote_number ?? q.number;
+  return {
+    id: String(q.id || ''),
+    number: (rawNum && String(rawNum) !== '0') ? String(rawNum) : null,
+    status: q.status || 'draft',
+    public_file_url: q.public_file_url || null,
+    raw: j,
+  };
+}
+
+// Récupère le PDF d'un devis (retour Buffer) — pour le bouton « télécharger ».
+// Pennylane v2 : pas d'endpoint /pdf ; l'objet devis porte un `public_file_url`
+// (lien PDF public signé, sans auth). On le lit et on télécharge le fichier.
+async function fetchQuotePdf(quoteId) {
+  const j = await apiGet(`/quotes/${quoteId}`);
+  const q = j.quote || j;
+  const url = q && q.public_file_url;
+  if (!url) throw new Error('PDF Pennylane indisponible (public_file_url absent)');
+  const rr = await fetch(url);
+  if (!rr.ok) throw new Error(`PDF Pennylane indisponible (HTTP ${rr.status})`);
+  return Buffer.from(await rr.arrayBuffer());
+}
+
+module.exports = {
+  // purs (testables sans réseau)
+  buildInvoiceLines, normalizeName, vatEnum,
+  // réseau
+  findCustomerByName, createCustomer, createDraftQuote, fetchQuotePdf, listAllCustomers,
+  BASE,
+};
