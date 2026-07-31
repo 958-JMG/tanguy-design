@@ -315,6 +315,18 @@ export async function fetchDevisDetail(devisId) {
   return api(`/api/devis/${devisId}/detail`);
 }
 
+// Pousse un devis Tanguy en BROUILLON dans Pennylane (jamais envoyé auto).
+// opts : { pennylane_customer_id?, create_customer?, force? }.
+// Réponses possibles : { ok:true, quoteId, openUrl, ... } | { ok:true, already:true }
+//   | { ok:false, needsCustomerConfirmation:true, candidates:[...] }.
+export async function pushDevisToPennylane(devisId, opts = {}) {
+  return api(`/api/devis/${devisId}/pennylane`, { method: 'POST', body: JSON.stringify(opts) });
+}
+// URL de téléchargement du PDF officiel du devis Pennylane.
+export function pennylanePdfUrl(devisId) {
+  return `/api/devis/${devisId}/pennylane/pdf`;
+}
+
 // PATCH champs header devis (Numéro, Type, Statut, Date, Notes…).
 export async function patchDevis(devisId, fields) {
   return api(`/api/data/devis/${devisId}`, {

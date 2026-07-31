@@ -7,6 +7,7 @@ import { router } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
 import {
   fetchDevisDetail, patchDevis, signDevisTanguy, importDevisClient,
+  pushDevisToPennylane, pennylanePdfUrl,
 } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 
@@ -39,6 +40,7 @@ function renderFiche(app, data) {
   const statut = f.Statut || 'Brouillon';
   const isSigned = statut === 'Signé';
   const type = f['Type devis'] || 'Principal';
+  const plQuote = f['Pennylane quote ID'];
 
   // Resolve projet + client depuis state (déjà chargé via navigation)
   const projetId = (f.Projet || [])[0];
@@ -84,9 +86,17 @@ function renderFiche(app, data) {
       <div class="header-actions">
         <button class="btn btn-ghost btn-sm" id="btn-edit-devis">${icon('edit', 14)} Éditer</button>
         <button class="btn btn-ghost btn-sm" id="btn-reimport-devis">${icon('plus', 14)} Re-importer PDF</button>
+        ${plQuote
+          ? `<a class="btn btn-ghost btn-sm" href="${esc(pennylanePdfUrl(devis.id))}">${icon('download', 14)} Télécharger PDF</a>
+             <a class="btn btn-ghost btn-sm" href="https://app.pennylane.com" target="_blank" rel="noopener">${icon('external-link', 14)} Ouvrir dans Pennylane</a>`
+          : `<button class="btn btn-ghost btn-sm" id="btn-pennylane">${icon('file-text', 14)} Générer le brouillon Pennylane</button>`}
         ${!isSigned ? `<button class="btn btn-primary btn-sm" id="btn-sign-devis">${icon('check', 14)} Signer ce devis</button>` : ''}
       </div>
     </div>
+
+    ${plQuote ? `<div class="card" style="margin-bottom:16px;display:flex;align-items:center;gap:8px">
+      ${icon('check-circle', 16)}<span>Brouillon dans Pennylane${f['Pennylane numéro'] ? ` · ${esc(f['Pennylane numéro'])}` : ''}. Virginie l'envoie depuis Pennylane ou télécharge le PDF pour l'envoyer depuis sa boîte mail.</span>
+    </div>` : ''}
 
     <!-- Totaux KPIs -->
     <div class="kpi-row" style="margin-bottom:24px;display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
@@ -146,6 +156,66 @@ function renderFiche(app, data) {
   document.getElementById('btn-edit-devis')?.addEventListener('click', () => openModalEditDevis(devis));
   document.getElementById('btn-reimport-devis')?.addEventListener('click', () => openReimportDevis(devis, projet));
   document.getElementById('btn-sign-devis')?.addEventListener('click', () => signFlow(devis, projet));
+  document.getElementById('btn-pennylane')?.addEventListener('click', () => pennylaneFlow(devis));
+}
+
+// Génère le devis brouillon dans Pennylane. Gère la confirmation anti-doublon
+// (homonyme sans correspondance exacte) et la réconciliation TTC.
+async function pennylaneFlow(devis, opts = {}) {
+  const btn = document.getElementById('btn-pennylane');
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Création du brouillon…'; }
+  try {
+    const r = await pushDevisToPennylane(devis.id, opts);
+
+    // Homonyme sans correspondance exacte → Virginie tranche (jamais de doublon auto).
+    if (r && r.needsCustomerConfirmation) {
+      if (btn) { btn.disabled = false; btn.innerHTML = `${'Générer le brouillon Pennylane'}`; }
+      const choice = await chooseCustomerModal(r.clientNom, r.candidates);
+      if (!choice) return;
+      return pennylaneFlow(devis, choice === '__new__' ? { create_customer: true } : { pennylane_customer_id: choice });
+    }
+
+    if (r && r.already) {
+      toast('Ce devis est déjà dans Pennylane', 'info', 5000);
+    } else {
+      toast('Brouillon créé dans Pennylane' + (r.customerCreated ? ' · client créé' : ''), 'success', 6000);
+      if (r.reconciliation && r.reconciliation.ok === false) {
+        toast(`⚠️ Écart TTC ${r.reconciliation.diff} € — vérifie le devis dans Pennylane avant envoi`, 'error', 9000);
+      }
+    }
+    // Re-render pour afficher « ouvrir / télécharger »
+    renderDevis(document.getElementById('app'), devis.id);
+  } catch (err) {
+    toast('Erreur Pennylane : ' + err.message, 'error', 8000);
+    if (btn) { btn.disabled = false; btn.innerHTML = 'Générer le brouillon Pennylane'; }
+  }
+}
+
+// Modale de choix client quand un homonyme existe côté Pennylane sans match exact.
+// Retourne un id client Pennylane, '__new__' (créer), ou null (annulé).
+function chooseCustomerModal(nom, candidates) {
+  return new Promise(resolve => {
+    const modal = document.createElement('div');
+    modal.className = 'modal-bg';
+    modal.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true">
+        <h2>Client dans Pennylane</h2>
+        <p class="muted" style="margin-top:0">Aucune correspondance exacte pour <strong>${esc(nom)}</strong>. Choisis le bon client Pennylane pour éviter un doublon, ou crée-le.</p>
+        <div style="display:flex;flex-direction:column;gap:8px;margin:12px 0">
+          ${candidates.map(c => `<button type="button" class="btn btn-ghost" data-id="${esc(c.id)}" style="justify-content:flex-start">${esc(c.name)}</button>`).join('')}
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="pl-cancel">Annuler</button>
+          <button type="button" class="btn btn-primary" id="pl-new">Créer « ${esc(nom)} » dans Pennylane</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    const done = v => { modal.remove(); resolve(v); };
+    modal.addEventListener('click', e => { if (e.target === modal) done(null); });
+    modal.querySelectorAll('button[data-id]').forEach(b => b.onclick = () => done(b.dataset.id));
+    modal.querySelector('#pl-cancel').onclick = () => done(null);
+    modal.querySelector('#pl-new').onclick = () => done('__new__');
+  });
 }
 
 function renderZone(zone, lignes) {
