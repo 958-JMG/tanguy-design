@@ -1409,6 +1409,110 @@ app.get('/api/devis/:id/pennylane/pdf', requireAuth, async (req, res) => {
   }
 });
 
+// Résout le client Pennylane pour une fiche Client Airtable (id stocké > match exact
+// > création). Retourne { customerId, customerCreated } ou { needsCustomerConfirmation }.
+const PL_ECH_FIELD = 'Pennylane invoice ID';
+async function resolvePennylaneCustomer(clientId, body = {}) {
+  const [client] = await atFetchByIds(TABLES.clients.id, [clientId]);
+  const cf = (client && client.fields) || {};
+  const nom = cf['Nom'] || '';
+  let customerId = cf[PL_CUST_FIELD] || body.pennylane_customer_id || null;
+  let customerCreated = false;
+  if (!customerId) {
+    const match = await pennylane.findCustomerByName(nom);
+    if (match.exact) customerId = match.exact.id;
+    else if (match.candidates.length && !body.create_customer) return { needsCustomerConfirmation: true, clientNom: nom, candidates: match.candidates };
+    else {
+      const adresse = String(cf['Adresse'] || '').split('\n');
+      const cpVille = (adresse[1] || '').trim().match(/^(\d{5})\s+(.*)$/);
+      const created = await pennylane.createCustomer({
+        name: nom, isCompany: !!(cf['Type'] && cf['Type'] !== 'Particulier'), email: cf['Email'] || undefined,
+        address: (adresse[0] || '').trim() || undefined, postal_code: cpVille ? cpVille[1] : undefined, city: cpVille ? cpVille[2] : undefined,
+      });
+      customerId = created.id; customerCreated = true;
+    }
+  }
+  if (customerId && cf[PL_CUST_FIELD] !== String(customerId)) {
+    await atPatch(TABLES.clients.id, clientId, { [PL_CUST_FIELD]: String(customerId) });
+  }
+  return { customerId: String(customerId), customerCreated };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ÉCHÉANCES → FACTURES BROUILLON PENNYLANE
+// Depuis les échéances du devis (à la commande / livraison / solde), crée une
+// FACTURE BROUILLON par échéance dans Pennylane — tout prêt, Virginie envoie
+// chacune au bon moment (jamais auto). Montant d'échéance (TTC) réparti au
+// prorata des taux de TVA du devis. Idempotent par échéance ; saute celles déjà
+// encaissées (déjà facturées ailleurs).
+// ──────────────────────────────────────────────────────────────────────────
+app.post('/api/devis/:id/echeances-factures', requireAuth, async (req, res) => {
+  const devisId = req.params.id;
+  const body = req.body || {};
+  try {
+    if (!process.env.PENNYLANE_API_KEY) return res.status(500).json({ error: 'PENNYLANE_API_KEY non configurée' });
+    const dr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.devis.id}/${devisId}`, { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!dr.ok) return res.status(404).json({ error: 'Devis introuvable' });
+    const devis = await dr.json();
+    const f = devis.fields || {};
+    const echIds = f['Échéances devis'] || [];
+    if (!echIds.length) return res.status(422).json({ error: 'Ce devis n\'a pas d\'échéances' });
+    const clientId = (f['Client'] || [])[0];
+    if (!clientId) return res.status(422).json({ error: 'Devis sans client lié' });
+
+    const resolved = await resolvePennylaneCustomer(clientId, body);
+    if (resolved.needsCustomerConfirmation) return res.json({ ok: false, ...resolved });
+    const { customerId, customerCreated } = resolved;
+
+    const echeances = await atFetchByIds(TABLES['echeances-devis'].id, echIds);
+    echeances.sort((a, b) => ((a.fields?.Ordre || 0) - (b.fields?.Ordre || 0)));
+    const iso = d => d.toISOString().slice(0, 10);
+    const today = iso(new Date());
+    const results = [];
+    for (const e of echeances) {
+      const ef = e.fields || {};
+      const libelle = ef['Libellé'] || 'Échéance';
+      if (ef[PL_ECH_FIELD]) { results.push({ echId: e.id, libelle, already: true, invoiceId: ef[PL_ECH_FIELD] }); continue; }
+      if ((ef['Statut'] || '') === 'Encaissé') { results.push({ echId: e.id, libelle, skipped: 'déjà encaissée' }); continue; }
+      const { lines, reconciliation, warnings } = pennylane.buildEcheanceInvoiceLines(f, ef['Montant prévu'], libelle);
+      if (!lines.length) { results.push({ echId: e.id, libelle, error: 'échéance sans montant exploitable', warnings }); continue; }
+      // Échéance de règlement : la date prévue, mais jamais dans le passé (Pennylane refuse) → plancher = aujourd'hui.
+      const dueRaw = ef['Date prévue'] || today;
+      const dueDate = dueRaw < today ? today : dueRaw;
+      const inv = await pennylane.createDraftInvoice({
+        customer_id: customerId, date: today, deadline: dueDate, lines,
+        external_reference: `${f['Numéro devis'] || ''} · ${libelle}`.trim(),
+      });
+      await atPatch(TABLES['echeances-devis'].id, e.id, { [PL_ECH_FIELD]: String(inv.id) });
+      results.push({ echId: e.id, libelle, invoiceId: inv.id, montant: ef['Montant prévu'], reconciliation, warnings });
+    }
+    const created = results.filter(r => r.invoiceId && !r.already).length;
+    logger.info({ devisId, created, customerCreated }, 'factures échéance Pennylane générées');
+    res.json({ ok: true, customerId, customerCreated, created, results });
+  } catch (e) {
+    logger.error({ err: e.message, devisId }, 'échec factures échéance Pennylane');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PDF d'une facture d'échéance Pennylane (par id d'échéance Airtable).
+app.get('/api/echeances/:id/pennylane/pdf', requireAuth, async (req, res) => {
+  const echId = req.params.id;
+  try {
+    if (!process.env.PENNYLANE_API_KEY) return res.status(500).json({ error: 'PENNYLANE_API_KEY non configurée' });
+    const [ech] = await atFetchByIds(TABLES['echeances-devis'].id, [echId]);
+    const invoiceId = ech && ech.fields && ech.fields[PL_ECH_FIELD];
+    if (!invoiceId) return res.status(409).json({ error: 'Cette échéance n\'a pas encore de facture Pennylane' });
+    const pdf = await pennylane.fetchInvoicePdf(invoiceId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="facture-${invoiceId}.pdf"`);
+    res.send(pdf);
+  } catch (e) {
+    logger.error({ err: e.message, echId }, 'échec PDF facture échéance');
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // --- DEVIS : import PDF + parsing Claude + création complète ---
 // Param `type` (optionnel) : "Principal" (défaut) ou "Additif".
 // En mode Additif : projetId requis, pas de création auto client/projet.

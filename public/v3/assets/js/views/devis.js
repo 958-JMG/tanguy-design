@@ -8,6 +8,7 @@ import { icon, hydrateIcons } from '../core/lucide.js';
 import {
   fetchDevisDetail, patchDevis, signDevisTanguy, importDevisClient,
   pushDevisToPennylane, pennylanePdfUrl,
+  pushEcheancesFactures, echeancePdfUrl,
 } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 
@@ -90,6 +91,7 @@ function renderFiche(app, data) {
           ? `<a class="btn btn-ghost btn-sm" href="${esc(pennylanePdfUrl(devis.id))}">${icon('download', 14)} Télécharger PDF</a>
              <a class="btn btn-ghost btn-sm" href="https://app.pennylane.com" target="_blank" rel="noopener">${icon('external-link', 14)} Ouvrir dans Pennylane</a>`
           : `<button class="btn btn-ghost btn-sm" id="btn-pennylane">${icon('file-text', 14)} Générer le brouillon Pennylane</button>`}
+        ${echeances.length ? `<button class="btn btn-ghost btn-sm" id="btn-pennylane-echeances">${icon('file-text', 14)} Factures d'échéance (brouillon)</button>` : ''}
         ${!isSigned ? `<button class="btn btn-primary btn-sm" id="btn-sign-devis">${icon('check', 14)} Signer ce devis</button>` : ''}
       </div>
     </div>
@@ -131,11 +133,13 @@ function renderFiche(app, data) {
             <th>Date encaissement</th>
             <th>Statut</th>
             <th class="num">Montant</th>
+            <th>Pennylane</th>
           </tr>
         </thead>
         <tbody>
           ${echeances.map(e => {
             const ef = e.fields || {};
+            const inv = ef['Pennylane invoice ID'];
             return `
             <tr>
               <td>${esc(ef['Libellé'] || ef.Libelle || '?')}</td>
@@ -143,6 +147,7 @@ function renderFiche(app, data) {
               <td>${esc(ef['Date encaissement'] || '—')}</td>
               <td><span class="badge">${esc(ef.Statut || '—')}</span></td>
               <td class="num">${ef['Montant prévu'] != null ? eurosPrecis(ef['Montant prévu']) : '—'}</td>
+              <td>${inv ? `<a class="btn btn-ghost btn-sm" href="${esc(echeancePdfUrl(e.id))}">${icon('download', 13)} PDF</a>` : '<span class="muted" style="font-size:12px">—</span>'}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -157,6 +162,34 @@ function renderFiche(app, data) {
   document.getElementById('btn-reimport-devis')?.addEventListener('click', () => openReimportDevis(devis, projet));
   document.getElementById('btn-sign-devis')?.addEventListener('click', () => signFlow(devis, projet));
   document.getElementById('btn-pennylane')?.addEventListener('click', () => pennylaneFlow(devis));
+  document.getElementById('btn-pennylane-echeances')?.addEventListener('click', () => pennylaneEcheancesFlow(devis));
+}
+
+// Génère les factures brouillon d'échéance dans Pennylane (acompte/livraison/solde).
+async function pennylaneEcheancesFlow(devis, opts = {}) {
+  const btn = document.getElementById('btn-pennylane-echeances');
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Création des factures…'; }
+  try {
+    const r = await pushEcheancesFactures(devis.id, opts);
+    if (r && r.needsCustomerConfirmation) {
+      if (btn) { btn.disabled = false; btn.innerHTML = 'Factures d\'échéance (brouillon)'; }
+      const choice = await chooseCustomerModal(r.clientNom, r.candidates);
+      if (!choice) return;
+      return pennylaneEcheancesFlow(devis, choice === '__new__' ? { create_customer: true } : { pennylane_customer_id: choice });
+    }
+    const created = r.created || 0;
+    const already = (r.results || []).filter(x => x.already).length;
+    const skipped = (r.results || []).filter(x => x.skipped).length;
+    const errs = (r.results || []).filter(x => x.error);
+    const reconKo = (r.results || []).filter(x => x.reconciliation && x.reconciliation.ok === false);
+    toast(`${created} facture(s) brouillon créée(s)${already ? ` · ${already} déjà présente(s)` : ''}${skipped ? ` · ${skipped} encaissée(s) ignorée(s)` : ''}`, 'success', 7000);
+    if (errs.length) toast(`⚠️ ${errs.length} échéance(s) sans montant exploitable`, 'error', 8000);
+    if (reconKo.length) toast(`⚠️ écart TVA sur ${reconKo.length} facture(s) — vérifie dans Pennylane`, 'error', 9000);
+    renderDevis(document.getElementById('app'), devis.id);
+  } catch (err) {
+    toast('Erreur factures Pennylane : ' + err.message, 'error', 8000);
+    if (btn) { btn.disabled = false; btn.innerHTML = 'Factures d\'échéance (brouillon)'; }
+  }
 }
 
 // Génère le devis brouillon dans Pennylane. Gère la confirmation anti-doublon

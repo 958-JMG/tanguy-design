@@ -145,6 +145,57 @@ function buildInvoiceLines(f = {}) {
   return { lines, reconciliation: { computedTtc, expectedTtc, diff, ok }, warnings };
 }
 
+// Libellé de nature selon le taux (partagé) — préfixé du libellé d'échéance.
+function natureLabel(pct) {
+  return pct >= 20 ? 'Fourniture et prestations (TVA 20 %)'
+    : pct === 10 ? 'Pose et prestations (TVA réduite 10 %)'
+    : pct === 5.5 ? 'Prestations (TVA réduite 5,5 %)'
+    : `Prestations (TVA ${pct} %)`;
+}
+
+// ── Mapping PUR : une ÉCHÉANCE (acompte/livraison/solde) → lignes de facture ──
+// Le montant d'échéance est TTC. On le répartit AU PRORATA des bases TVA du devis
+// (même taux, même proportion) → la facture d'échéance porte la bonne TVA, et la
+// SOMME des échéances = le devis au centime (chaque fraction × TotalTTC).
+// devisFields = fields du devis · echMontantTtc = 'Montant prévu' · echLibelle = 'Libellé'.
+function buildEcheanceInvoiceLines(devisFields = {}, echMontantTtc, echLibelle = 'Échéance') {
+  const warnings = [];
+  const lines = [];
+  const montant = round2(num(echMontantTtc));
+  const totalTtc = num(devisFields['Total TTC']);
+  const prefix = String(echLibelle || 'Échéance').trim();
+  const push = (label, ht, pct) => {
+    const amount = round2(num(ht));
+    if (amount === 0) return;
+    lines.push({ label: `${prefix} — ${label}`.slice(0, 200), quantity: 1, unit: 'piece',
+      raw_currency_unit_price: amount.toFixed(2), vat_rate: vatEnum(pct) });
+  };
+
+  if (montant === 0) { warnings.push('Échéance sans montant'); return { lines, reconciliation: { computedTtc: 0, expectedTtc: 0, diff: 0, ok: true }, warnings }; }
+
+  const bases = [
+    { base: num(devisFields['TVA taux 1 base']), pct: devisFields['TVA taux 1 pourcentage'] != null ? num(devisFields['TVA taux 1 pourcentage']) : 20 },
+    { base: num(devisFields['TVA taux 2 base']), pct: devisFields['TVA taux 2 pourcentage'] != null ? num(devisFields['TVA taux 2 pourcentage']) : 10 },
+  ].filter(b => b.base > 0);
+
+  if (bases.length && totalTtc > 0) {
+    const fraction = montant / totalTtc;                 // part de l'échéance dans le devis
+    for (const b of bases) push(natureLabel(b.pct), round2(fraction * b.base), b.pct);
+  } else {
+    // Repli : pas de bases TVA exploitables → 1 ligne, HT = TTC / (1 + tva1) @ tva1 (défaut 20 %).
+    const pct = devisFields['TVA taux 1 pourcentage'] != null ? num(devisFields['TVA taux 1 pourcentage']) : 20;
+    warnings.push('Bases TVA du devis absentes : échéance en 1 ligne @ TVA taux 1');
+    push(natureLabel(pct), round2(montant / (1 + pct / 100)), pct);
+  }
+
+  // Réconciliation : la facture d'échéance doit totaliser le montant TTC de l'échéance.
+  const computedTtc = round2(lines.reduce((s, l) => s + num(l.raw_currency_unit_price) * (1 + enumPct[l.vat_rate] / 100), 0));
+  const diff = round2(computedTtc - montant);
+  const ok = Math.abs(diff) <= 1;
+  if (!ok) warnings.push(`Facture recalculée ${computedTtc} € ≠ montant échéance ${montant} € (écart ${diff} €)`);
+  return { lines, reconciliation: { computedTtc, expectedTtc: montant, diff, ok }, warnings };
+}
+
 // ── Réseau : clients ────────────────────────────────────────────────────────
 async function listAllCustomers() {
   const out = []; let cursor = null, guard = 0;
@@ -211,6 +262,26 @@ async function createDraftQuote({ customer_id, date, deadline, lines, external_r
   };
 }
 
+// Crée une FACTURE BROUILLON (draft:true) — sert aux factures d'échéance (acompte,
+// livraison, solde). Jamais finalisée ni envoyée : Virginie relit et envoie dans Pennylane.
+// `lines` = sortie de buildEcheanceInvoiceLines().lines.
+async function createDraftInvoice({ customer_id, date, deadline, lines, external_reference }) {
+  if (!customer_id) throw new Error('customer_id requis');
+  if (!Array.isArray(lines) || lines.length === 0) throw new Error('aucune ligne à facturer');
+  const body = { customer_id, date, deadline, draft: true, invoice_lines: lines };
+  if (external_reference) body.external_reference = String(external_reference).slice(0, 190);
+  const j = await apiPost('/customer_invoices', body);
+  const inv = j.invoice || j.customer_invoice || j;
+  const rawNum = inv.invoice_number ?? inv.number;
+  return {
+    id: String(inv.id || ''),
+    number: (rawNum && String(rawNum) !== '0') ? String(rawNum) : null,
+    status: inv.status || 'draft',
+    public_file_url: inv.public_file_url || null,
+    raw: j,
+  };
+}
+
 // Récupère le PDF d'un devis (retour Buffer) — pour le bouton « télécharger ».
 // Pennylane v2 : pas d'endpoint /pdf ; l'objet devis porte un `public_file_url`
 // (lien PDF public signé, sans auth). On le lit et on télécharge le fichier.
@@ -224,10 +295,22 @@ async function fetchQuotePdf(quoteId) {
   return Buffer.from(await rr.arrayBuffer());
 }
 
+// PDF d'une facture (retour Buffer) — même principe que fetchQuotePdf (public_file_url).
+async function fetchInvoicePdf(invoiceId) {
+  const j = await apiGet(`/customer_invoices/${invoiceId}`);
+  const inv = j.invoice || j.customer_invoice || j;
+  const url = inv && inv.public_file_url;
+  if (!url) throw new Error('PDF facture Pennylane indisponible (public_file_url absent)');
+  const rr = await fetch(url);
+  if (!rr.ok) throw new Error(`PDF facture Pennylane indisponible (HTTP ${rr.status})`);
+  return Buffer.from(await rr.arrayBuffer());
+}
+
 module.exports = {
   // purs (testables sans réseau)
-  buildInvoiceLines, normalizeName, vatEnum,
+  buildInvoiceLines, buildEcheanceInvoiceLines, normalizeName, vatEnum,
   // réseau
-  findCustomerByName, createCustomer, createDraftQuote, fetchQuotePdf, listAllCustomers,
+  findCustomerByName, createCustomer, createDraftQuote, createDraftInvoice,
+  fetchQuotePdf, fetchInvoicePdf, listAllCustomers,
   BASE,
 };

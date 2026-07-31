@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { buildInvoiceLines, normalizeName, vatEnum } = require('./pennylane');
+const { buildInvoiceLines, buildEcheanceInvoiceLines, normalizeName, vatEnum } = require('./pennylane');
 
 test('vatEnum — pourcentages courants + fractions + défaut', () => {
   assert.strictEqual(vatEnum(20), 'FR_200');
@@ -74,4 +74,53 @@ test('buildInvoiceLines — devis vide → aucune ligne + warning', () => {
   const { lines, warnings } = buildInvoiceLines({});
   assert.strictEqual(lines.length, 0);
   assert.ok(warnings.some(w => /rien à pousser/.test(w)));
+});
+
+// ── Factures d'échéance (acompte / livraison / solde) ──────────────────────
+const DEVIS_2TAUX = {
+  'TVA taux 1 base': 26634.97, 'TVA taux 1 pourcentage': 20,
+  'TVA taux 2 base': 3026.48, 'TVA taux 2 pourcentage': 10,
+  'Total TTC': 35291.08,
+};
+
+test('buildEcheanceInvoiceLines — acompte 30 % : prorata 2 taux + réconcilie', () => {
+  const montant = 10587.32; // ≈ 30 % du TTC
+  const { lines, reconciliation, warnings } = buildEcheanceInvoiceLines(DEVIS_2TAUX, montant, 'À la commande');
+  assert.strictEqual(lines.length, 2);
+  assert.match(lines[0].label, /^À la commande — /);
+  assert.strictEqual(lines[0].vat_rate, 'FR_200');
+  assert.strictEqual(lines[1].vat_rate, 'FR_100');
+  assert.strictEqual(reconciliation.ok, true);
+  assert.ok(Math.abs(reconciliation.diff) <= 1);
+  assert.strictEqual(warnings.length, 0);
+});
+
+test('buildEcheanceInvoiceLines — somme des 3 échéances = Total TTC du devis', () => {
+  const ttc = DEVIS_2TAUX['Total TTC'];
+  const echs = [ttc * 0.30, ttc * 0.65, ttc - ttc * 0.30 - ttc * 0.65]; // commande/livraison/solde
+  let sum = 0;
+  for (const m of echs) sum += buildEcheanceInvoiceLines(DEVIS_2TAUX, Math.round(m * 100) / 100, 'x').reconciliation.computedTtc;
+  assert.ok(Math.abs(Math.round(sum * 100) / 100 - ttc) <= 0.1);
+});
+
+test('buildEcheanceInvoiceLines — devis 1 taux → 1 ligne', () => {
+  const d = { 'TVA taux 1 base': 48017.16, 'TVA taux 1 pourcentage': 20, 'Total TTC': 57620.59 };
+  const { lines, reconciliation } = buildEcheanceInvoiceLines(d, 17286.18, 'À la commande');
+  assert.strictEqual(lines.length, 1);
+  assert.strictEqual(reconciliation.ok, true);
+});
+
+test('buildEcheanceInvoiceLines — montant 0 → aucune ligne + warning', () => {
+  const { lines, warnings } = buildEcheanceInvoiceLines(DEVIS_2TAUX, 0, 'À la commande');
+  assert.strictEqual(lines.length, 0);
+  assert.ok(warnings.some(w => /sans montant/.test(w)));
+});
+
+test('buildEcheanceInvoiceLines — repli si bases TVA absentes (HT depuis TTC)', () => {
+  const d = { 'Total TTC': 12000, 'TVA taux 1 pourcentage': 20 };
+  const { lines, reconciliation, warnings } = buildEcheanceInvoiceLines(d, 3600, 'Acompte');
+  assert.strictEqual(lines.length, 1);
+  assert.strictEqual(lines[0].raw_currency_unit_price, '3000.00'); // 3600 / 1.2
+  assert.strictEqual(reconciliation.ok, true);
+  assert.ok(warnings.some(w => /repli|absentes/i.test(w)));
 });
