@@ -40,8 +40,9 @@ if (!BASE_ID || !AT_KEY) { console.error('AIRTABLE_BASE_ID + AIRTABLE_KEY requis
 const APPLY = process.argv.includes('--apply');
 
 // Doit rester synchronisé avec TABLES.* dans server.js.
-const CLIENTS_TABLE_ID = 'tbl2zmxpWWzbY1wT0';
-const DEVIS_TABLE_ID   = 'tblWklGEKMiBStXCs';
+const CLIENTS_TABLE_ID   = 'tbl2zmxpWWzbY1wT0';
+const DEVIS_TABLE_ID     = 'tblWklGEKMiBStXCs';
+const ECHEANCES_TABLE_ID = 'tblML7D7MXeWnMcxy';
 
 const FIELDS = [
   { table: CLIENTS_TABLE_ID, tableName: 'Clients', name: 'Pennylane customer ID',
@@ -50,6 +51,8 @@ const FIELDS = [
     description: 'Technique — id du devis brouillon Pennylane (idempotence). Alimenté auto, ne pas éditer.' },
   { table: DEVIS_TABLE_ID, tableName: 'Devis', name: 'Pennylane numéro',
     description: 'Technique — numéro du devis Pennylane. Alimenté auto, ne pas éditer.' },
+  { table: ECHEANCES_TABLE_ID, tableName: 'Échéances devis', name: 'Pennylane invoice ID',
+    description: 'Technique — id de la facture brouillon Pennylane de cette échéance (idempotence). Alimenté auto, ne pas éditer.' },
 ];
 
 async function fetchSchema() {

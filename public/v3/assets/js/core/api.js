@@ -327,6 +327,16 @@ export function pennylanePdfUrl(devisId) {
   return `/api/devis/${devisId}/pennylane/pdf`;
 }
 
+// Génère les factures BROUILLON d'échéance (acompte/livraison/solde) dans Pennylane.
+// Même gestion de confirmation client que pushDevisToPennylane.
+export async function pushEcheancesFactures(devisId, opts = {}) {
+  return api(`/api/devis/${devisId}/echeances-factures`, { method: 'POST', body: JSON.stringify(opts) });
+}
+// URL de téléchargement du PDF d'une facture d'échéance.
+export function echeancePdfUrl(echeanceId) {
+  return `/api/echeances/${echeanceId}/pennylane/pdf`;
+}
+
 // PATCH champs header devis (Numéro, Type, Statut, Date, Notes…).
 export async function patchDevis(devisId, fields) {
   return api(`/api/data/devis/${devisId}`, {
