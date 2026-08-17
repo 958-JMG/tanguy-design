@@ -29,7 +29,7 @@
  * (P-H3/P-H4), pas ici : ce service ne fait que LIRE.
  */
 
-const Anthropic = require('@anthropic-ai/sdk').default;
+const { completer } = require('./ai');
 
 // Modèle aligné sur les autres parsers du cockpit (devis-parser, facture-fournisseur-parser).
 const MODEL = 'claude-sonnet-4-5';
@@ -89,15 +89,12 @@ RÈGLES :
  * @returns {Promise<object>}
  */
 async function parseDevisFournisseurPdf(pdfBuffer) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY non configurée');
 
-  const client = new Anthropic({ apiKey });
   const base64Pdf = pdfBuffer.toString('base64');
 
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 8000,
+  const { texte: text } = await completer({
+    niveau: 'standard',
+    maxTokens: 8000,
     messages: [{
       role: 'user',
       content: [
@@ -106,8 +103,6 @@ async function parseDevisFournisseurPdf(pdfBuffer) {
       ]
     }]
   });
-
-  const text = response.content.filter(c => c.type === 'text').map(c => c.text).join('');
   return extractJson(text);
 }
 

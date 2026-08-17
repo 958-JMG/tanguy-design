@@ -6,7 +6,7 @@
  * prêt à être inséré dans les tables Devis / Zones / Lignes / Échéances.
  */
 
-const Anthropic = require('@anthropic-ai/sdk').default;
+const { completer } = require('./ai');
 
 const MODEL = 'claude-sonnet-4-5';
 
@@ -136,15 +136,12 @@ RÈGLES STRICTES :
  * @returns {Promise<object>}
  */
 async function parseDevisPdf(pdfBuffer) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY non configurée');
 
-  const client = new Anthropic({ apiKey });
   const base64Pdf = pdfBuffer.toString('base64');
 
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 64000,
+  const { texte: text } = await completer({
+    niveau: 'standard',
+    maxTokens: 64000,
     messages: [
       {
         role: 'user',
@@ -158,11 +155,6 @@ async function parseDevisPdf(pdfBuffer) {
       }
     ]
   });
-
-  const text = response.content
-    .filter(c => c.type === 'text')
-    .map(c => c.text)
-    .join('');
 
   // Extraction robuste du JSON (au cas où Claude ajoute un préambule malgré les consignes)
   let jsonStr = text.trim();
@@ -186,10 +178,7 @@ async function parseDevisPdf(pdfBuffer) {
  * @returns {Promise<object>}
  */
 async function parsePlaudTranscript(transcript) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY non configurée');
 
-  const client = new Anthropic({ apiKey });
 
   const prompt = `Tu analyses une transcription de réunion (enregistrement Plaud) pour Tanguy Design, agence cuisine à Vannes.
 
@@ -231,13 +220,11 @@ ${transcript}
 
 Retourne UNIQUEMENT le JSON, sans aucun texte avant ou après.`;
 
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 8000,
+  const { texte: text } = await completer({
+    niveau: 'standard',
+    maxTokens: 8000,
     messages: [{ role: 'user', content: prompt }]
   });
-
-  const text = response.content.filter(c => c.type === 'text').map(c => c.text).join('');
   const firstBrace = text.indexOf('{');
   const lastBrace = text.lastIndexOf('}');
   if (firstBrace === -1) throw new Error('Pas de JSON dans la réponse');

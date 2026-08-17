@@ -6,7 +6,7 @@
  * "Factures fournisseurs" + rapprochement automatique avec la commande liée.
  */
 
-const Anthropic = require('@anthropic-ai/sdk').default;
+const { completer } = require('./ai');
 const MODEL = 'claude-sonnet-4-5';
 
 const SCHEMA_PROMPT = `Tu es l'assistante administrative de Tanguy Design (agence cuisine sur-mesure à Vannes). Tu saisis les factures reçues des fournisseurs (fabricants de meubles type Modulnova, électroménager, plans de travail, quincaillerie, transporteurs…).
@@ -44,15 +44,12 @@ RÈGLES :
 - Retourne UNIQUEMENT le JSON.`;
 
 async function parseFactureFournisseurPdf(pdfBuffer) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY non configurée');
 
-  const client = new Anthropic({ apiKey });
   const base64Pdf = pdfBuffer.toString('base64');
 
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 4000,
+  const { texte: text } = await completer({
+    niveau: 'standard',
+    maxTokens: 4000,
     messages: [{
       role: 'user',
       content: [
@@ -61,8 +58,6 @@ async function parseFactureFournisseurPdf(pdfBuffer) {
       ]
     }]
   });
-
-  const text = response.content.filter(c => c.type === 'text').map(c => c.text).join('');
   const firstBrace = text.indexOf('{');
   const lastBrace = text.lastIndexOf('}');
   if (firstBrace === -1 || lastBrace === -1) {

@@ -707,8 +707,7 @@ app.get('/api/admin/ai-suggestions', requireAuth, requireAdmin, async (req, res)
     };
 
     // 2. Claude analyse
-    const Anthropic = require('@anthropic-ai/sdk').default;
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const { completer } = require('./services/ai');
     const prompt = `Tu es un consultant senior qui analyse le cockpit de gestion de Tanguy Design (agence cuisine 4 collaborateurs à Vannes).
 Voici un snapshot JSON de l'état du cockpit aujourd'hui :
 
@@ -723,12 +722,11 @@ Réponds en JSON strict avec :
 }
 
 Sois concret, factuel, pas creux. Cible Tanguy ou Virginie qui lisent ça en 30 secondes le matin.`;
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 2000,
+    const { texte: text } = await completer({
+      niveau: 'standard',
+      maxTokens: 2000,
       messages: [{ role: 'user', content: prompt }],
     });
-    const text = response.content.filter(c => c.type === 'text').map(c => c.text).join('');
     const first = text.indexOf('{'), last = text.lastIndexOf('}');
     if (first === -1) throw new Error('Réponse Claude sans JSON');
     const analysis = JSON.parse(text.slice(first, last + 1));
