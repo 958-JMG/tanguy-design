@@ -524,7 +524,10 @@ function renderFiche(app, data) {
         <section class="projet-section" aria-label="Coûts additionnels" data-section="couts">
           <div class="projet-section-header">
             <h2>Coûts additionnels <span class="count">(${coutsList.length})</span></h2>
-            <button class="btn btn-primary btn-sm" id="btn-add-cout">${icon('plus', 14)} Ajouter un coût</button>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-ghost btn-sm" id="btn-cout-livraison" title="Livraison standard transporteur (350 € par défaut, montant et imputation modifiables)">${icon('plus', 14)} Livraison standard</button>
+              <button class="btn btn-primary btn-sm" id="btn-add-cout">${icon('plus', 14)} Ajouter un coût</button>
+            </div>
           </div>
           ${coutsList.length === 0
             ? `<div class="compact-empty"><span>Frais hors devis : SAV / reprise, transport, complément de commande, divers.</span></div>`
@@ -703,6 +706,9 @@ function renderFiche(app, data) {
   // Coûts additionnels — ajout / édition / suppression, puis reload de la fiche.
   const reloadFiche = () => renderProjet(app, projet.id);
   document.getElementById('btn-add-cout')?.addEventListener('click', () => openModalCout(null, projet, reloadFiche));
+  // Paquet 3B — préréglage « Livraison standard » : ouvre le coût pré-rempli
+  // (transporteur, 350 € par défaut) que JMG valide / ajuste en un coup d'œil.
+  document.getElementById('btn-cout-livraison')?.addEventListener('click', () => openModalCout(null, projet, reloadFiche, LIVRAISON_STANDARD));
   document.querySelectorAll('[data-action="edit-cout"]').forEach(b => b.addEventListener('click', () => {
     const c = coutsList.find(x => x.id === b.dataset.id);
     if (c) openModalCout(c, projet, reloadFiche);
@@ -1309,6 +1315,9 @@ const COUT_IMPUTATIONS = ['Tanguy (sur marge)', 'Refacturé client'];
 const COUT_STATUTS = ['Prévu', 'Engagé', 'Payé'];
 const RETENUE_TYPES = ['Retenue de garantie (loi 1971)', 'Retenue SAV / réserves', 'Autre'];
 const RETENUE_STATUTS = ['En cours', 'Levée / encaissée', 'Abandonnée'];
+// Préréglage « Livraison standard » (paquet 3B) : coût transporteur récurrent.
+// Montant par défaut 350 € (modifiable dans la modale avant validation).
+const LIVRAISON_STANDARD = { 'Libellé': 'Livraison standard', 'Type': 'Transport / livraison', 'Montant HT': 350, 'Tiers': 'Transporteur', 'Payé par': 'Tanguy (sur marge)' };
 
 // Ajout d'un an à une date YYYY-MM-DD (défaut de levée d'une retenue de garantie loi 1971).
 function plusUnAn(iso) {
@@ -1319,9 +1328,10 @@ function plusUnAn(iso) {
   return d.toISOString().slice(0, 10);
 }
 
-function openModalCout(cout, projet, onSaved) {
+// prefill : valeurs initiales pour un nouveau coût (ex. préréglage « Livraison standard »).
+function openModalCout(cout, projet, onSaved, prefill = {}) {
   const isNew = !cout;
-  const c = cout || {};
+  const c = cout || prefill;
   const today = new Date().toISOString().slice(0, 10);
   const sel = (val, list) => list.map(v => `<option ${val === v ? 'selected' : ''}>${esc(v)}</option>`).join('');
   const { modal, close } = modalShell(isNew ? 'Ajouter un coût de chantier' : 'Éditer le coût', `
