@@ -85,7 +85,7 @@ const TABLES = {
   // par scripts/setup-couts-chantier.js --apply → à coller ici (ou via env
   // COUTS_CHANTIER_TBL). Tant que non migré, l'endpoint projet renvoie couts:[]
   // (défensif) et la fiche projet fonctionne normalement.
-  'couts-chantier':        { id: process.env.COUTS_CHANTIER_TBL || 'tblCOUTSCHANTIER_TODO', name: 'Coûts chantier' }
+  'couts-chantier':        { id: process.env.COUTS_CHANTIER_TBL || 'tbl7ktn7n4nrVMMtV', name: 'Coûts chantier' }
 };
 const COUTS_TBL_READY = TABLES['couts-chantier'].id.startsWith('tbl') && TABLES['couts-chantier'].id !== 'tblCOUTSCHANTIER_TODO';
 
