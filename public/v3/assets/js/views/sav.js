@@ -42,6 +42,63 @@ function typeLabel(t) {
   return t['Type SAV'] || t['Type'] || '';
 }
 
+function eurosFmt(n) {
+  if (n == null || isNaN(n)) return '—';
+  return Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
+}
+
+// Paquet 2 (2026-08) — chantiers passés en « Statut chantier : SAV » sur leur fiche
+// projet. Jusqu'ici, ce statut ne remontait NULLE PART dans l'onglet SAV (qui ne
+// lit que la table de tickets). On les surface ici, avec leur retenue client
+// (reste à encaisser). Lu depuis state.projets (chargé au boot). Les champs
+// « Retenue* » n'existent qu'après la migration du paquet 1 → défensif : absents,
+// la colonne retenue affiche « — » sans casser.
+function chantiersEnSav() {
+  return (state.projets || []).filter(p => (p['Statut chantier'] || '') === 'SAV');
+}
+
+function renderChantiersSavSection() {
+  const list = chantiersEnSav();
+  if (!list.length) {
+    return `<div class="card" style="margin-top:12px"><p class="muted">Aucun chantier en statut SAV. Passe un projet en « Statut chantier : SAV » depuis sa fiche pour le suivre ici.</p></div>`;
+  }
+  const totalReste = list.reduce((s, p) => s + (p['Retenue statut'] === 'En cours' ? (Number(p['Retenue montant']) || 0) : 0), 0);
+  const rows = list.map(p => {
+    const ci = clientInfo(p['Client']);
+    const ref = p['Référence'] || '(sans référence)';
+    const rMontant = Number(p['Retenue montant']) || 0;
+    const rStatut = p['Retenue statut'] || '';
+    const reste = rStatut === 'En cours' ? rMontant : 0;
+    const retenueCell = reste > 0
+      ? `<span class="badge" style="background:var(--red-lo,#fde8e8);color:var(--red,#c0392b)">${eurosFmt(reste)} à encaisser</span>`
+      : (rMontant > 0 ? `<span class="muted">${eurosFmt(rMontant)} · ${esc(rStatut || '—')}</span>` : '<span class="muted">—</span>');
+    return `
+      <tr>
+        <td><strong>${esc(ci.nom)}</strong></td>
+        <td>${esc(ref)}</td>
+        <td>${esc(ci.ville)}</td>
+        <td>${retenueCell}</td>
+        <td style="display:flex;gap:4px;justify-content:flex-end">
+          <a class="btn btn-ghost btn-sm" href="#projet/${encodeURIComponent(p.id)}" title="Ouvrir la fiche projet">${icon('folder', 14)} Fiche</a>
+          <button class="btn btn-ghost btn-sm" data-action="ticket-from-chantier" data-client="${esc((p['Client'] || [])[0] || '')}" title="Créer un ticket SAV pour ce client">${icon('plus', 14)} Ticket</button>
+        </td>
+      </tr>`;
+  }).join('');
+  return `
+    <section aria-label="Chantiers en SAV" style="margin-top:12px">
+      <div class="section-header" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <h2 class="section-title" style="margin:0">Chantiers en SAV <span class="count">(${list.length})</span></h2>
+        ${totalReste > 0 ? `<span class="muted">Reste à encaisser (retenues) : <strong>${eurosFmt(totalReste)}</strong></span>` : ''}
+      </div>
+      <div class="table-scroll">
+        <table class="pipeline-table">
+          <thead><tr><th>Client</th><th>Chantier</th><th>Ville</th><th>Retenue</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
 function modalShell(title, content) {
   const modal = document.createElement('div');
   modal.className = 'modal-bg';
@@ -59,6 +116,8 @@ export async function renderSav(app) {
       <h1 class="page-title">SAV</h1>
       <button class="btn btn-primary" id="btn-new-sav">${icon('plus', 16)} Nouveau ticket</button>
     </div>
+    ${renderChantiersSavSection()}
+    <div class="section-header" style="margin-top:20px"><h2 class="section-title" style="margin:0">Tickets SAV</h2></div>
     <div class="filters-bar">
       <div class="filter-chips" id="sav-filters">
         <button class="chip is-active" data-filter="all">Tous</button>
@@ -141,6 +200,10 @@ export async function renderSav(app) {
   }
 
   app.querySelector('#btn-new-sav').addEventListener('click', () => openModalSav(null, reload));
+  // Paquet 2 — « Ticket » depuis un chantier en SAV : ouvre la modale préremplie client.
+  app.querySelectorAll('[data-action="ticket-from-chantier"]').forEach(b => b.addEventListener('click', () => {
+    openModalSav(null, reload, { clientId: b.dataset.client || '' });
+  }));
   app.querySelectorAll('#sav-filters .chip').forEach(c => c.addEventListener('click', () => {
     currentFilter = c.dataset.filter;
     app.querySelectorAll('#sav-filters .chip').forEach(x => x.classList.toggle('is-active', x === c));
@@ -151,10 +214,10 @@ export async function renderSav(app) {
 }
 
 // Modale create / edit d'un ticket SAV.
-function openModalSav(ticket, onSaved) {
+function openModalSav(ticket, onSaved, prefill = {}) {
   const isNew = !ticket;
   const t = ticket || {};
-  const selectedClient = Array.isArray(t['Client']) ? t['Client'][0] : '';
+  const selectedClient = (Array.isArray(t['Client']) ? t['Client'][0] : '') || prefill.clientId || '';
   const clients = (state.clients || []).slice().sort((a, b) => String(a.Nom || '').localeCompare(String(b.Nom || '')));
   const initialClientName = clients.find(c => c.id === selectedClient)?.Nom || '';
   const today = new Date().toISOString().slice(0, 10);
