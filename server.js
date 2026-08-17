@@ -80,8 +80,14 @@ const TABLES = {
   'eco-participation':     { id: 'tblJavUnoshZvdKIg', name: 'Éco-participation' },
   // Chantier Devis express (P-H3, 2026-06) — grille des coefficients de marge par fournisseur.
   // Table créée le 2026-06-25 (3 fournisseurs semés : GE/Novamobili/Metron, coefficient à renseigner par JMG).
-  'marges-fournisseurs':   { id: 'tblnmUPDSSgyqqCJM', name: 'Marges fournisseurs' }
+  'marges-fournisseurs':   { id: 'tblnmUPDSSgyqqCJM', name: 'Marges fournisseurs' },
+  // Chantier Coûts chantier & retenue (paquet 1, 2026-08). L'id RÉEL est imprimé
+  // par scripts/setup-couts-chantier.js --apply → à coller ici (ou via env
+  // COUTS_CHANTIER_TBL). Tant que non migré, l'endpoint projet renvoie couts:[]
+  // (défensif) et la fiche projet fonctionne normalement.
+  'couts-chantier':        { id: process.env.COUTS_CHANTIER_TBL || 'tblCOUTSCHANTIER_TODO', name: 'Coûts chantier' }
 };
+const COUTS_TBL_READY = TABLES['couts-chantier'].id.startsWith('tbl') && TABLES['couts-chantier'].id !== 'tblCOUTSCHANTIER_TODO';
 
 // Field IDs attachments des tables v5 (upload direct, cf. DA_FIELDS)
 const FF_FIELDS = { pdf: 'fldcYOyaxcOsG80lp' }; // Factures fournisseurs → PDF
@@ -1241,6 +1247,16 @@ app.get('/api/projets/:id', requireAuth, async (req, res) => {
       ? await atFetchByIds(TABLES['echeances-devis'].id, echeanceIds)
       : [];
 
+    // Paquet Coûts chantier — coûts additionnels liés (lien inverse « Coûts chantier »
+    // sur Projets). Défensif : tant que la migration n'est pas passée (COUTS_TBL_READY
+    // faux) ou en cas d'erreur, on renvoie [] pour ne pas casser la fiche projet.
+    const coutIds = projet.fields?.['Coûts chantier'] || [];
+    let couts = [];
+    if (COUTS_TBL_READY && coutIds.length) {
+      try { couts = await atFetchByIds(TABLES['couts-chantier'].id, coutIds); }
+      catch (e) { logger.warn({ err: e.message, projetId }, '[projets/:id] couts fetch KO'); }
+    }
+
     // Lookup client (1er linked)
     const clientId = (projet.fields?.Client || [])[0];
     let client = null;
@@ -1253,7 +1269,7 @@ app.get('/api/projets/:id', requireAuth, async (req, res) => {
       } catch (e) { /* fallback silencieux */ }
     }
 
-    res.json({ ok: true, projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans, echeances });
+    res.json({ ok: true, projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans, echeances, couts });
   } catch (e) {
     logger.error({ err: e.message, projetId }, '[projets/:id] error');
     res.status(500).json({ error: e.message });

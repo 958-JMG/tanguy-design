@@ -49,12 +49,16 @@ const TABLE_ACL = {
   // Devis express (P-H3) — grille des coefficients de marge par fournisseur : lisible par tous
   // (appliquée au devis express par toute l'équipe), maintenue par admin.
   'marges-fournisseurs':   { GET: '*',     POST: 'admin', PATCH: 'admin', DELETE: 'admin' },
+
+  // Coûts chantier & retenue (paquet 1) — coûts additionnels de chantier. Toute
+  // l'équipe peut ajouter/éditer un coût (comme le SAV) ; suppression admin only.
+  'couts-chantier':        { GET: '*',     POST: '*',     PATCH: '*',     DELETE: 'admin' },
 };
 
 const FIELD_WHITELIST = {
   clients:             ['Nom', 'Type', 'Source', 'Email', 'Téléphone', 'Adresse', 'Ville', 'CP', 'Contact', 'Notes', 'Date contact', 'Date création', 'Architecte référent', 'Apporteur'],
   // Note : POST artisans ouvert à tous (création depuis la modale d'affectation, Lot B #3).
-  projets:             ['Référence', 'Client', 'Statut', 'Phase commerciale', 'Statut chantier', 'Budget HT', 'Marge prévisionnelle', 'Date découverte', 'Date pose prévue', 'Date pose fin', 'Description', 'Journal chantier', 'Artisans', 'Type de projet', 'Architecte', 'Motif refus', 'Note refus', 'Date refus'],
+  projets:             ['Référence', 'Client', 'Statut', 'Phase commerciale', 'Statut chantier', 'Budget HT', 'Marge prévisionnelle', 'Date découverte', 'Date pose prévue', 'Date pose fin', 'Description', 'Journal chantier', 'Artisans', 'Type de projet', 'Architecte', 'Motif refus', 'Note refus', 'Date refus', 'Retenue montant', 'Retenue type', 'Retenue motif', 'Retenue statut', 'Retenue date', 'Retenue levée prévue'],
   taches:              ['Titre', 'Statut', 'Assignée à', 'Assignées à', 'Priorité', 'Échéance', 'Description', 'Projet', 'Type'],
   'reunions-plaud':    ['Titre', 'Date heure', 'Lieu', 'Client nom', 'Type réunion', 'Niveau', 'Synthèse', 'Contexte', 'Points de douleur', 'Attentes', 'Autres informations', 'Tâches identifiées', 'Transcription', 'Projet'],
   // SAV (onglet SAV local) — champs RÉELS de la table SAV. Le champ "Type" existe
@@ -85,6 +89,8 @@ const FIELD_WHITELIST = {
   aide:                    ['Titre', 'Page', 'Type', 'Contenu', 'Ordre', 'Visible'],
   'eco-participation':     ['Catégorie', 'Montant HT', 'Actif', 'Notes'],
   'marges-fournisseurs':   ['Fournisseur', 'Coefficient', 'Actif', 'Notes'],
+  // Coûts chantier — « Projets » est le lien inverse (rattache le coût à un projet).
+  'couts-chantier':        ['Libellé', 'Type', 'Montant HT', 'Payé par', 'Statut', 'Date', 'Tiers', 'Note', 'Projets'],
 };
 
 /**
