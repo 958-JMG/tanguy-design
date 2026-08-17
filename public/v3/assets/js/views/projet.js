@@ -304,6 +304,21 @@ function renderFiche(app, data) {
   const margePct = caHT > 0 ? (margeAbs / caHT) * 100 : null;
   const coutReel = coutFourn + coutsSurMarge; // ce que Tanguy supporte réellement
 
+  // Détection de doublons de commandes (dossier MORALES). Deux BC au MÊME Numéro =
+  // doublon quasi certain (BC recréé, ex. devis importé/signé en double). Deux BC du
+  // même Type = à vérifier (peut être un additif légitime). On SIGNALE, on ne
+  // supprime jamais tout seul : Virginie ouvre le BC en trop et le supprime.
+  const cmdNumCounts = {};
+  const cmdTypeCounts = {};
+  commandes.forEach(c => {
+    const n = String(c.fields?.['Numéro'] || '').trim();
+    if (n) cmdNumCounts[n] = (cmdNumCounts[n] || 0) + 1;
+    const ty = String(c.fields?.Type || '').trim();
+    if (ty) cmdTypeCounts[ty] = (cmdTypeCounts[ty] || 0) + 1;
+  });
+  const cmdDoublonsExact = Object.values(cmdNumCounts).some(v => v > 1);
+  const cmdDoublonsType = Object.entries(cmdTypeCounts).filter(([, v]) => v > 1).map(([k]) => k);
+
   // Calcul des actions prioritaires selon la phase (Sprint v3.3)
   const nextActions = computeNextActions({ projet, taches, devis, commandes, artisans, reunionsPlaud });
   const hasUrgent = nextActions.some(a => a.severity === 'urgent');
@@ -500,12 +515,19 @@ function renderFiche(app, data) {
           <div class="projet-section-header">
             <h2>Commandes fournisseurs <span class="count">(${commandes.length})</span></h2>
           </div>
+          ${(cmdDoublonsExact || cmdDoublonsType.length) ? `<div class="card" style="border-left:3px solid var(--red,#c0392b);margin-bottom:8px;padding:8px 12px">
+            <p class="muted" style="margin:0;font-size:13px">${icon('alert', 13)} ${cmdDoublonsExact ? 'Doublon détecté (même numéro de BC). ' : ''}${cmdDoublonsType.length ? `Plusieurs BC du même type : ${cmdDoublonsType.map(esc).join(', ')}. ` : ''}Vérifie, puis ouvre le BC en trop et clique « Supprimer » (le devis lié n'est pas affecté).</p>
+          </div>` : ''}
           ${commandes.length === 0
             ? `<div class="compact-empty"><span>Les BC sont générés à la signature du devis</span></div>`
             : `<div class="commandes-list">${commandes.map(c => {
               const fIds = c.fields?.Fournisseur || [];
               const fNoms = fIds.map(id => fournisseurs.find(f => f.id === id)?.fields?.Nom || id).join(', ');
               const refCourte = c.fields?.['Référence courte'] || c.fields?.Type || '?';
+              const cNum = String(c.fields?.['Numéro'] || '').trim();
+              const cType = String(c.fields?.Type || '').trim();
+              const dupExact = cNum && cmdNumCounts[cNum] > 1;
+              const dupType = !dupExact && cType && cmdTypeCounts[cType] > 1;
               return `
               <a class="card commande-card commande-link" href="#commande/${encodeURIComponent(c.id)}">
                 <div class="commande-head">
@@ -513,7 +535,10 @@ function renderFiche(app, data) {
                     <span class="muted" style="margin-left:6px">${esc(refCourte)}</span>
                     ${fNoms ? ` · ${esc(fNoms)}` : ' · <em class="muted">fournisseur non rattaché</em>'}
                   </div>
-                  <span class="badge">${esc(c.fields?.Statut || '—')}</span>
+                  <div style="display:flex;align-items:center;gap:6px">
+                    ${dupExact ? '<span class="badge" style="background:var(--red-lo,#fde8e8);color:var(--red,#c0392b)" title="Même numéro qu\'un autre BC — doublon probable">doublon</span>' : (dupType ? '<span class="badge" style="background:#fff4e5;color:#b26a00" title="Plusieurs BC de ce type — à vérifier (additif légitime ?)">à vérifier</span>' : '')}
+                    <span class="badge">${esc(c.fields?.Statut || '—')}</span>
+                  </div>
                 </div>
                 ${c.fields?.['Modèle choisi'] ? `<div class="muted" style="margin-top:6px;font-size:12px">${esc(c.fields['Modèle choisi'].split('\n')[0])}</div>` : ''}
               </a>`;
