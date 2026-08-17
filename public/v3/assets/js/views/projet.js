@@ -11,7 +11,7 @@ import {
   importDevisClient, signDevisTanguy,
   importDevisArtisan, parsePlaud, patchDevisArtisan, deleteDevisArtisan,
   genererTacheFacturation, marquerEncaisse, createClient, createArtisan, fetchRendezVous,
-  patchEcheance,
+  patchEcheance, createCout, patchCout, deleteCout,
 } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 import { openModalRdv, renderRdvList, bindRdvList } from '../core/rdv.js';
@@ -229,7 +229,7 @@ export async function renderProjet(app, projetId) {
 }
 
 function renderFiche(app, data) {
-  const { projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans: allArtisans, echeances = [] } = data;
+  const { projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans: allArtisans, echeances = [], couts = [] } = data;
   const pf = projet.fields || {};
   const phase = pf['Phase commerciale'] || pf.Statut || '—';
   const chantier = pf['Statut chantier'] || '';
@@ -279,8 +279,30 @@ function renderFiche(app, data) {
   const retro = devisArtisansUniq.reduce((s, d) => s + (d.fields?.['Rétro-commission HT'] || (d.fields?.['Montant HT'] || 0) * 0.05), 0);
   // Modèle Tanguy : les devis artisans ne sont PAS un coût pour Tanguy (le client les
   // paie) — seule la rétro-commission 5% des artisans contractuels est un revenu.
-  const margeAbs = caHT - coutFourn + retro;
+
+  // Paquet Coûts chantier & retenue — cf. services/couts-helper.js (même règle).
+  // Coûts additionnels : « Refacturé client » = neutre sur la marge ; sinon (défaut
+  // prudent) imputé « Tanguy (sur marge) » → ampute la marge.
+  const coutsList = (couts || []).map(c => ({ id: c.id, ...(c.fields || c) }));
+  const coutsSurMarge = coutsList.reduce((s, c) => s + ((c['Payé par'] === 'Refacturé client') ? 0 : (Number(c['Montant HT']) || 0)), 0);
+  const coutsRefactures = coutsList.reduce((s, c) => s + ((c['Payé par'] === 'Refacturé client') ? (Number(c['Montant HT']) || 0) : 0), 0);
+  const coutsTotal = coutsSurMarge + coutsRefactures;
+  // Retenue client : « En cours » = reste à encaisser (hors marge) ; « Abandonnée »
+  // = perte sèche (ampute la marge) ; « Levée / encaissée » = neutre.
+  const retenue = {
+    montant: Number(pf['Retenue montant']) || 0,
+    type: pf['Retenue type'] || '',
+    motif: pf['Retenue motif'] || '',
+    statut: pf['Retenue statut'] || '',
+    date: pf['Retenue date'] || '',
+    levee: pf['Retenue levée prévue'] || '',
+  };
+  const retenuePerte = retenue.statut === 'Abandonnée' ? retenue.montant : 0;
+  const resteAEncaisser = retenue.statut === 'En cours' ? retenue.montant : 0;
+
+  const margeAbs = caHT - coutFourn + retro - coutsSurMarge - retenuePerte;
   const margePct = caHT > 0 ? (margeAbs / caHT) * 100 : null;
+  const coutReel = coutFourn + coutsSurMarge; // ce que Tanguy supporte réellement
 
   // Calcul des actions prioritaires selon la phase (Sprint v3.3)
   const nextActions = computeNextActions({ projet, taches, devis, commandes, artisans, reunionsPlaud });
@@ -331,8 +353,12 @@ function renderFiche(app, data) {
         <div class="kpi-card"><div class="kpi-value">${euros(retro)}</div><div class="kpi-label">Rétro artisans 5%</div></div>
         <div class="kpi-card ${margeNegative ? 'is-negative' : ''}" ${margeNegative ? 'aria-label="Marge négative — attention"' : ''}>
           <div class="kpi-value">${euros(margeAbs)}</div>
-          <div class="kpi-label">Marge ${margePct != null ? '(' + margePct.toFixed(1) + ' %)' : ''}</div>
+          <div class="kpi-label">Marge ${margePct != null ? '(' + margePct.toFixed(1) + ' %)' : ''}${(coutsSurMarge > 0 || retenuePerte > 0) ? ` <span class="muted" style="font-weight:400" title="Marge amputée par les coûts additionnels sur marge${retenuePerte > 0 ? ' + retenue abandonnée' : ''}">· −${euros(coutsSurMarge + retenuePerte)} coûts</span>` : ''}</div>
         </div>
+        ${resteAEncaisser > 0 ? `<div class="kpi-card" title="Retenue client en cours — argent dû, à récupérer">
+          <div class="kpi-value">${euros(resteAEncaisser)}</div>
+          <div class="kpi-label">Reste à encaisser</div>
+        </div>` : ''}
       </div>
     </header>
 
@@ -494,6 +520,73 @@ function renderFiche(app, data) {
             }).join('')}</div>`}
         </section>
 
+        <!-- Coûts additionnels (SAV, transport, compléments, frais divers) -->
+        <section class="projet-section" aria-label="Coûts additionnels" data-section="couts">
+          <div class="projet-section-header">
+            <h2>Coûts additionnels <span class="count">(${coutsList.length})</span></h2>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-ghost btn-sm" id="btn-cout-livraison" title="Livraison standard transporteur (350 € par défaut, montant et imputation modifiables)">${icon('plus', 14)} Livraison standard</button>
+              <button class="btn btn-primary btn-sm" id="btn-add-cout">${icon('plus', 14)} Ajouter un coût</button>
+            </div>
+          </div>
+          ${coutsList.length === 0
+            ? `<div class="compact-empty"><span>Frais hors devis : SAV / reprise, transport, complément de commande, divers.</span></div>`
+            : `<div class="commandes-list">${coutsList.map(c => {
+                const refac = c['Payé par'] === 'Refacturé client';
+                return `
+                <div class="card commande-card">
+                  <div class="commande-head">
+                    <div><strong>${esc(c['Libellé'] || '(sans libellé)')}</strong>
+                      ${c['Type'] ? `<span class="badge" style="margin-left:6px">${esc(c['Type'])}</span>` : ''}
+                      ${c['Tiers'] ? `<span class="muted" style="margin-left:6px">${esc(c['Tiers'])}</span>` : ''}
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <strong>${euros(Number(c['Montant HT']) || 0)}</strong>
+                      <button class="btn btn-ghost btn-sm" data-action="edit-cout" data-id="${esc(c.id)}" title="Éditer">${icon('edit', 14)}</button>
+                      <button class="btn btn-ghost btn-sm" data-action="del-cout" data-id="${esc(c.id)}" data-label="${esc(c['Libellé'] || '')}" style="color:var(--accent)" title="Supprimer">${icon('trash', 14)}</button>
+                    </div>
+                  </div>
+                  <div class="muted" style="margin-top:4px;font-size:12px;display:flex;gap:10px;flex-wrap:wrap">
+                    <span style="color:${refac ? 'var(--green,#2e7d32)' : 'var(--accent)'}">${refac ? 'Refacturé client (neutre marge)' : 'Sur la marge Tanguy'}</span>
+                    ${c['Statut'] ? `<span>${esc(c['Statut'])}</span>` : ''}
+                    ${c['Date'] ? `<span>${esc(fmtDateFr(c['Date']) || c['Date'])}</span>` : ''}
+                  </div>
+                  ${c['Note'] ? `<div class="muted" style="margin-top:4px;font-size:12px">${esc(c['Note'])}</div>` : ''}
+                </div>`;
+              }).join('')}
+              <div class="muted" style="margin-top:8px;font-size:12px;display:flex;gap:16px;flex-wrap:wrap">
+                <span>Total : <strong>${euros(coutsTotal)}</strong></span>
+                <span>Sur marge Tanguy : <strong>${euros(coutsSurMarge)}</strong></span>
+                <span>Refacturé client : <strong>${euros(coutsRefactures)}</strong></span>
+                <span title="Fournisseurs confirmés (AR) + coûts additionnels sur marge">Coût réel chantier : <strong>${euros(coutReel)}</strong></span>
+              </div>`}
+        </section>
+
+        <!-- Retenue client (retenue de garantie loi 1971 / retenue SAV-réserves) -->
+        <section class="projet-section" aria-label="Retenue client" data-section="retenue">
+          <div class="projet-section-header">
+            <h2>Retenue client</h2>
+            <button class="btn btn-ghost btn-sm" id="btn-edit-retenue">${icon('edit', 14)} ${retenue.montant > 0 ? 'Modifier' : 'Ajouter'}</button>
+          </div>
+          ${retenue.montant > 0
+            ? `<div class="card">
+                <div class="commande-head">
+                  <div><strong>${euros(retenue.montant)}</strong>
+                    ${retenue.type ? `<span class="badge" style="margin-left:6px">${esc(retenue.type)}</span>` : ''}
+                    ${retenue.statut ? `<span class="badge phase-haute" style="margin-left:6px">${esc(retenue.statut)}</span>` : ''}
+                  </div>
+                </div>
+                <div class="muted" style="margin-top:4px;font-size:12px;display:flex;gap:10px;flex-wrap:wrap">
+                  ${retenue.motif ? `<span>${esc(retenue.motif)}</span>` : ''}
+                  ${retenue.date ? `<span>Retenue le ${esc(fmtDateFr(retenue.date) || retenue.date)}</span>` : ''}
+                  ${retenue.levee ? `<span>Levée prévue : ${esc(fmtDateFr(retenue.levee) || retenue.levee)}</span>` : ''}
+                </div>
+                ${retenue.statut === 'En cours' ? `<div class="muted" style="margin-top:4px;font-size:12px;color:var(--accent)">Reste à encaisser auprès du client.</div>` : ''}
+                ${retenue.statut === 'Abandonnée' ? `<div class="muted" style="margin-top:4px;font-size:12px;color:var(--accent)">Abandonnée : comptée en perte sèche (ampute la marge).</div>` : ''}
+              </div>`
+            : `<div class="compact-empty"><span>Somme retenue par le client (ex. SAV, réserves, retenue de garantie).</span></div>`}
+        </section>
+
         <!-- Artisans affectés -->
         <section class="projet-section" aria-label="Artisans affectés" data-section="artisans">
           <div class="projet-section-header">
@@ -609,6 +702,24 @@ function renderFiche(app, data) {
   // Sprint v3.2 — actions nouvelles
   document.getElementById('btn-import-devis')?.addEventListener('click', () => openModalImportDevis(projet, devis));
   document.getElementById('btn-add-artisan')?.addEventListener('click', () => openModalAddArtisan(projet, artisans));
+
+  // Coûts additionnels — ajout / édition / suppression, puis reload de la fiche.
+  const reloadFiche = () => renderProjet(app, projet.id);
+  document.getElementById('btn-add-cout')?.addEventListener('click', () => openModalCout(null, projet, reloadFiche));
+  // Paquet 3B — préréglage « Livraison standard » : ouvre le coût pré-rempli
+  // (transporteur, 350 € par défaut) que JMG valide / ajuste en un coup d'œil.
+  document.getElementById('btn-cout-livraison')?.addEventListener('click', () => openModalCout(null, projet, reloadFiche, LIVRAISON_STANDARD));
+  document.querySelectorAll('[data-action="edit-cout"]').forEach(b => b.addEventListener('click', () => {
+    const c = coutsList.find(x => x.id === b.dataset.id);
+    if (c) openModalCout(c, projet, reloadFiche);
+  }));
+  document.querySelectorAll('[data-action="del-cout"]').forEach(b => b.addEventListener('click', async () => {
+    const ok = await confirmModal(`Supprimer le coût « ${b.dataset.label || '(sans libellé)'} » ? Action irréversible.`, { okLabel: 'Supprimer', danger: true });
+    if (!ok) return;
+    try { await deleteCout(b.dataset.id); toast('Coût supprimé', 'success'); reloadFiche(); }
+    catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
+  }));
+  document.getElementById('btn-edit-retenue')?.addEventListener('click', () => openModalRetenue(projet, reloadFiche));
   document.getElementById('btn-planning-artisans')?.addEventListener('click', () => openModalPlanningArtisans(projet, client, artisans));
   document.getElementById('btn-import-devis-artisan')?.addEventListener('click', () => openModalImportDevisArtisan(projet, artisans));
   document.getElementById('btn-new-plaud')?.addEventListener('click', () => openModalPlaud(projet, client));
@@ -1193,6 +1304,134 @@ function openModalJournal(projet) {
       close();
       toast('Entrée journal ajoutée', 'success');
       router();
+    } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
+  });
+}
+
+// Paquet Coûts chantier & retenue — modales (2026-08).
+// Valeurs de référence dupliquées de services/couts-helper.js (CJS non importable en ESM).
+const COUT_TYPES = ['SAV / reprise', 'Transport / livraison', 'Complément commande', 'Frais divers'];
+const COUT_IMPUTATIONS = ['Tanguy (sur marge)', 'Refacturé client'];
+const COUT_STATUTS = ['Prévu', 'Engagé', 'Payé'];
+const RETENUE_TYPES = ['Retenue de garantie (loi 1971)', 'Retenue SAV / réserves', 'Autre'];
+const RETENUE_STATUTS = ['En cours', 'Levée / encaissée', 'Abandonnée'];
+// Préréglage « Livraison standard » (paquet 3B) : coût transporteur récurrent.
+// Montant par défaut 350 € (modifiable dans la modale avant validation).
+const LIVRAISON_STANDARD = { 'Libellé': 'Livraison standard', 'Type': 'Transport / livraison', 'Montant HT': 350, 'Tiers': 'Transporteur', 'Payé par': 'Tanguy (sur marge)' };
+
+// Ajout d'un an à une date YYYY-MM-DD (défaut de levée d'une retenue de garantie loi 1971).
+function plusUnAn(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return '';
+  d.setUTCFullYear(d.getUTCFullYear() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+// prefill : valeurs initiales pour un nouveau coût (ex. préréglage « Livraison standard »).
+function openModalCout(cout, projet, onSaved, prefill = {}) {
+  const isNew = !cout;
+  const c = cout || prefill;
+  const today = new Date().toISOString().slice(0, 10);
+  const sel = (val, list) => list.map(v => `<option ${val === v ? 'selected' : ''}>${esc(v)}</option>`).join('');
+  const { modal, close } = modalShell(isNew ? 'Ajouter un coût de chantier' : 'Éditer le coût', `
+    <form id="form-cout">
+      <label>Libellé <input name="Libellé" required value="${esc(c['Libellé'] || '')}" placeholder="Ex : Reprise peinture après pose"></label>
+      <label>Type
+        <select name="Type"><option value="">—</option>${sel(c['Type'] || '', COUT_TYPES)}</select>
+      </label>
+      <label>Montant HT (€) <input name="Montant HT" type="number" step="0.01" min="0" required value="${c['Montant HT'] != null ? c['Montant HT'] : ''}" placeholder="Ex : 250"></label>
+      <label>Payé par
+        <select name="Payé par">${sel(c['Payé par'] || 'Tanguy (sur marge)', COUT_IMPUTATIONS)}</select>
+      </label>
+      <div class="muted" style="font-size:12px;margin:-4px 0 8px">« Tanguy (sur marge) » = erreur/aléa interne, ampute la marge. « Refacturé client » = répercuté, neutre sur la marge.</div>
+      <label>Statut
+        <select name="Statut">${sel(c['Statut'] || 'Prévu', COUT_STATUTS)}</select>
+      </label>
+      <label>Date <input name="Date" type="date" value="${esc(c['Date'] || today)}"></label>
+      <label>Tiers (fournisseur / artisan concerné) <input name="Tiers" value="${esc(c['Tiers'] || '')}" placeholder="Ex : Peintre Dupont"></label>
+      <label>Note <textarea name="Note" rows="2" placeholder="Détail / contexte…">${esc(c['Note'] || '')}</textarea></label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancel-cout">Annuler</button>
+        <button type="submit" class="btn btn-primary">${isNew ? 'Ajouter' : 'Enregistrer'}</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('cancel-cout').onclick = close;
+  document.getElementById('form-cout').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const fields = {
+      'Libellé': String(fd.get('Libellé') || '').trim(),
+      'Montant HT': fd.get('Montant HT') === '' ? null : Number(fd.get('Montant HT')),
+      'Payé par': fd.get('Payé par') || 'Tanguy (sur marge)',
+      'Statut': fd.get('Statut') || 'Prévu',
+      'Date': fd.get('Date') || null,
+      'Tiers': String(fd.get('Tiers') || '').trim(),
+      'Note': String(fd.get('Note') || '').trim(),
+    };
+    const type = fd.get('Type');
+    if (type) fields['Type'] = type;
+    try {
+      if (isNew) { fields['Projets'] = [projet.id]; await createCout(fields); }
+      else await patchCout(cout.id, fields);
+      close();
+      toast(isNew ? 'Coût ajouté' : 'Coût enregistré', 'success');
+      onSaved && onSaved();
+    } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
+  });
+}
+
+function openModalRetenue(projet, onSaved) {
+  const pf = projet.fields || {};
+  const today = new Date().toISOString().slice(0, 10);
+  const sel = (val, list) => list.map(v => `<option ${val === v ? 'selected' : ''}>${esc(v)}</option>`).join('');
+  const { modal, close } = modalShell('Retenue client', `
+    <form id="form-retenue">
+      <label>Montant retenu (€) <input name="Retenue montant" type="number" step="0.01" min="0" value="${pf['Retenue montant'] != null ? pf['Retenue montant'] : ''}" placeholder="Ex : 500"></label>
+      <label>Type
+        <select name="Retenue type" id="ret-type"><option value="">—</option>${sel(pf['Retenue type'] || '', RETENUE_TYPES)}</select>
+      </label>
+      <div class="muted" style="font-size:12px;margin:-4px 0 8px">Retenue de garantie : loi n° 71-584 (plafond 5 %, levée à 1 an sauf réserves). Retenue SAV / réserves : le client retient tant que le défaut n'est pas repris.</div>
+      <label>Motif <input name="Retenue motif" value="${esc(pf['Retenue motif'] || '')}" placeholder="Ex : SAV peinture non soldé"></label>
+      <label>Statut
+        <select name="Retenue statut">${sel(pf['Retenue statut'] || 'En cours', RETENUE_STATUTS)}</select>
+      </label>
+      <label>Date de la retenue <input name="Retenue date" id="ret-date" type="date" value="${esc(pf['Retenue date'] || today)}"></label>
+      <label>Levée prévue <input name="Retenue levée prévue" id="ret-levee" type="date" value="${esc(pf['Retenue levée prévue'] || '')}"></label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancel-ret">Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('cancel-ret').onclick = close;
+  // Aide : si retenue de garantie loi 1971 et levée vide, pré-remplir date + 1 an.
+  const suggestLevee = () => {
+    const type = document.getElementById('ret-type').value;
+    const date = document.getElementById('ret-date').value;
+    const levee = document.getElementById('ret-levee');
+    if (type === 'Retenue de garantie (loi 1971)' && date && !levee.value) levee.value = plusUnAn(date);
+  };
+  document.getElementById('ret-type').addEventListener('change', suggestLevee);
+  document.getElementById('ret-date').addEventListener('change', suggestLevee);
+  document.getElementById('form-retenue').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const montant = fd.get('Retenue montant');
+    const fields = {
+      'Retenue montant': montant === '' ? null : Number(montant),
+      'Retenue type': fd.get('Retenue type') || null,
+      'Retenue motif': String(fd.get('Retenue motif') || '').trim(),
+      'Retenue statut': fd.get('Retenue statut') || null,
+      'Retenue date': fd.get('Retenue date') || null,
+      'Retenue levée prévue': fd.get('Retenue levée prévue') || null,
+    };
+    try {
+      await patchProjet(projet.id, fields);
+      close();
+      toast('Retenue enregistrée', 'success');
+      onSaved && onSaved();
     } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
   });
 }

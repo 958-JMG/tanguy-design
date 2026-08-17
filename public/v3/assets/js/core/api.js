@@ -133,6 +133,18 @@ export async function deleteSav(id) {
   return api(`/api/data/sav/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
+// Coûts chantier (paquet 1) — coûts additionnels rattachés à un projet.
+// Le rattachement se fait via le lien inverse « Projets » (array d'un id).
+export async function createCout(fields) {
+  return api('/api/data/couts-chantier', { method: 'POST', body: JSON.stringify({ fields }) });
+}
+export async function patchCout(id, fields) {
+  return api(`/api/data/couts-chantier/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ fields }) });
+}
+export async function deleteCout(id) {
+  return api(`/api/data/couts-chantier/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 export async function appendJournalEntry(projetId, text) {
   // Server attend `text`, l'auteur est dérivé de req.session.user côté back.
   return api(`/api/projets/${projetId}/journal`, {
