@@ -249,6 +249,49 @@ function doMailSend(commande, fournisseur) {
   window.location.href = mailto;
 }
 
+// Paquet 3A — petite modale de création de fournisseur (superposée à la modale méta).
+function openNewFournisseurModal(onCreated) {
+  const modal = document.createElement('div');
+  modal.className = 'modal-bg';
+  modal.style.zIndex = '1000'; // au-dessus de la modale méta
+  modal.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="nf-title">
+      <h2 id="nf-title">Nouveau fournisseur</h2>
+      <form id="form-new-fourn">
+        <label>Nom <input name="Nom" required placeholder="Ex : Transports Le Goff"></label>
+        <label>Famille <input name="Famille" placeholder="Ex : Transport, Électroménager, Plan de travail…"></label>
+        <label>Email <input name="Email" type="email" placeholder="contact@…"></label>
+        <label>Téléphone <input name="Téléphone" placeholder="02 …"></label>
+        <label>Adresse <input name="Adresse"></label>
+        <label>Notes <textarea name="Notes" rows="2"></textarea></label>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="nf-cancel">Annuler</button>
+          <button type="submit" class="btn btn-primary">Créer</button>
+        </div>
+      </form>
+    </div>`;
+  document.body.appendChild(modal);
+  const close = () => modal.remove();
+  modal.querySelector('#nf-cancel').onclick = close;
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  modal.querySelector('#form-new-fourn').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const fields = {};
+    for (const [k, v] of fd.entries()) { const val = String(v || '').trim(); if (val) fields[k] = val; }
+    if (!fields['Nom']) { toast('Le nom est obligatoire', 'error'); return; }
+    try {
+      const r = await api('/api/data/fournisseurs', { method: 'POST', body: JSON.stringify({ fields }) });
+      const rec = r.record || r;
+      close();
+      toast('Fournisseur créé', 'success');
+      onCreated && onCreated({ id: rec.id, nom: (rec.fields && rec.fields.Nom) || fields['Nom'] });
+    } catch (err) {
+      toast('Erreur : ' + (err.message || err), 'error', 5000);
+    }
+  });
+}
+
 async function openMetaEditor(commande, fournisseur, refresh) {
   const cf = commande.fields || {};
   const currentFournId = (cf.Fournisseur || [])[0] || '';
@@ -266,6 +309,7 @@ async function openMetaEditor(commande, fournisseur, refresh) {
             <option disabled>Chargement de la liste…</option>
           </select>
         </label>
+        <div style="margin:-4px 0 10px"><button type="button" class="btn btn-ghost btn-sm" id="btn-new-fourn">${icon('plus', 14)} Nouveau fournisseur</button></div>
         <label>Référence courte (code fournisseur sur BC)
           <input name="Référence courte" value="${esc(cf['Référence courte'] || '')}" placeholder="ex : NOVA_CUC, BORA">
         </label>
@@ -333,6 +377,17 @@ async function openMetaEditor(commande, fournisseur, refresh) {
       `;
     }
   } catch (e) { /* fallback : le select reste vide, le user peut quand même sauver les autres champs */ }
+
+  // Paquet 3A — création d'un fournisseur à la volée (ex. transporteur), puis
+  // sélection immédiate dans le BC. La création elle-même est réservée admin (ACL
+  // serveur) : un non-admin verra une erreur claire.
+  document.getElementById('btn-new-fourn')?.addEventListener('click', () => openNewFournisseurModal(newF => {
+    const sel = document.getElementById('meta-fournisseur');
+    if (!sel) return;
+    const opt = document.createElement('option');
+    opt.value = newF.id; opt.textContent = newF.nom; opt.selected = true;
+    sel.appendChild(opt);
+  }));
 
   document.getElementById('form-meta').addEventListener('submit', async e => {
     e.preventDefault();
