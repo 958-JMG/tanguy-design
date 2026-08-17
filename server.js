@@ -89,6 +89,29 @@ const TABLES = {
 };
 const COUTS_TBL_READY = TABLES['couts-chantier'].id.startsWith('tbl') && TABLES['couts-chantier'].id !== 'tblCOUTSCHANTIER_TODO';
 
+// ── Harnais e2e (base de TEST isolée) ───────────────────────────────────────
+// Les ids de tables sont EN DUR (ceux de la base de PROD). Une base dupliquée a
+// de NOUVEAUX ids mais les MÊMES noms. Sous le flag E2E_RESOLVE_TABLES_BY_NAME=1,
+// on remappe chaque TABLES[*].id par NOM depuis le schéma de la base courante,
+// AVANT app.listen(). Aucun effet en prod (flag jamais posé côté container).
+async function resolveTablesByNameIfE2E() {
+  if (process.env.E2E_RESOLVE_TABLES_BY_NAME !== '1') return;
+  if (!BASE_ID || !AT_KEY) { logger.warn('[e2e] resolve tables: BASE_ID/AT_KEY manquants'); return; }
+  const r = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE_ID}/tables`, {
+    headers: { Authorization: `Bearer ${AT_KEY}` },
+  });
+  if (!r.ok) { logger.warn(`[e2e] resolve tables: schéma ${r.status}`); return; }
+  const schema = await r.json();
+  const byName = new Map((schema.tables || []).map(t => [t.name, t.id]));
+  let remapped = 0, missing = [];
+  for (const key of Object.keys(TABLES)) {
+    const id = byName.get(TABLES[key].name);
+    if (id) { if (id !== TABLES[key].id) remapped++; TABLES[key].id = id; }
+    else missing.push(TABLES[key].name);
+  }
+  logger.info(`[e2e] tables résolues par nom sur ${BASE_ID} : ${remapped} remappée(s)${missing.length ? ', absentes: ' + missing.join(', ') : ''}`);
+}
+
 // Field IDs attachments des tables v5 (upload direct, cf. DA_FIELDS)
 const FF_FIELDS = { pdf: 'fldcYOyaxcOsG80lp' }; // Factures fournisseurs → PDF
 
@@ -4075,7 +4098,12 @@ app.use('/v3',  requireAuth, express.static(path.join(__dirname, 'public', 'v3')
   },
 }));
 
-app.listen(PORT, () => {
-  logger.info(`✅ Tanguy Design — Cockpit v0.3.0 on port ${PORT}`);
-  logger.info(`   Users: ${Object.keys(USERS).length} | Airtable: ${BASE_ID ? 'OK' : 'MISSING'} | Claude: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'MISSING'}`);
-});
+// Démarrage : sous flag e2e, on remappe d'abord les tables par nom (base de test),
+// puis on écoute. En prod (flag absent), resolveTablesByNameIfE2E() est un no-op.
+(async () => {
+  try { await resolveTablesByNameIfE2E(); } catch (e) { logger.warn('[e2e] resolve tables KO: ' + e.message); }
+  app.listen(PORT, () => {
+    logger.info(`✅ Tanguy Design — Cockpit v0.3.0 on port ${PORT}`);
+    logger.info(`   Users: ${Object.keys(USERS).length} | Airtable: ${BASE_ID ? 'OK' : 'MISSING'} | Claude: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'MISSING'}`);
+  });
+})();
