@@ -2,6 +2,7 @@
 // Utilisé par les vues projet, client et calendrier. CRUD via /api/data/rendez-vous.
 
 import { icon, hydrateIcons } from './lucide.js';
+import { resoudreClient } from './client-match.js';
 import { toast, confirmModal } from './ui.js';
 import { state } from './state.js';
 import { createRendezVous, patchRendezVous, deleteRendezVous, fetchClients } from './api.js';
@@ -190,7 +191,8 @@ export function openModalRdv({ rdv = null, projetId = null, clientId = null, con
     // Résolution du client saisi → id (match exact sur le Nom, insensible à la casse).
     let resolvedClientId = null;
     if (clientName) {
-      const c = (state.clients || []).find(x => (x.Nom || '').toLowerCase() === clientName.toLowerCase());
+      // Même résolution tolérante que le SAV (espaces parasites, accents, casse).
+      const c = resoudreClient(clientName, state.clients || []).client;
       if (c) resolvedClientId = c.id;
     }
     if (resolvedClientId) fields.Client = [resolvedClientId];
