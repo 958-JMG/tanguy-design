@@ -38,7 +38,7 @@ export function renderAdmin(app) {
     </div>
     <div id="marges-output">
       <div class="card">
-        <p class="muted">Calcul : CA HT − fournisseurs − artisans + 5 % rétro (artisans contractuels). Cliquez « Charger » pour générer le tableau (1-2 s).</p>
+        <p class="muted">Calcul : CA HT − fournisseurs − artisans + 5 % rétro (tous les devis artisans). Cliquez « Charger » pour générer le tableau (1-2 s).</p>
       </div>
     </div>
 
