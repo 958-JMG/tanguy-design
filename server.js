@@ -25,6 +25,9 @@ const { DEVIS_IMPORT_HASH_FIELD, computeImportHash, buildHashFilterFormula } = r
 const { resumeGeneres, commandesGenereesPar, tachesGenereesPar, filtrerIdsAutorises } = require('./services/devis-generes-helper');
 // Barème éco-contribution des tablettes et panneaux (à la dimension, pas au poids).
 const ecoBareme = require('./services/eco-contribution-bareme');
+// Descriptif commercial d'un devis (zones : marque, modèle, coloris, finitions) —
+// partagé entre le bon de commande et les factures Pennylane.
+const { descriptionDevis } = require('./services/description-devis-helper');
 const { buildRetroApporteurs, TAUX_RETRO } = require('./services/retro-apporteurs-helper');
 const { canAccess, pickAllowedFields } = require('./services/acl');
 const logger = require('./services/logger');
@@ -1368,7 +1371,9 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
     }
 
     // 3) Lignes Pennylane (mapping par nature + réconciliation TTC)
-    const { lines, reconciliation, warnings } = pennylane.buildInvoiceLines(f);
+    //    Le descriptif du devis alimente la description des lignes.
+    const descDevis = await descriptionDevisPourPennylane(f);
+    const { lines, reconciliation, warnings } = pennylane.buildInvoiceLines(f, { description: descDevis });
     if (!lines.length) return res.status(422).json({ error: 'Devis sans montant exploitable — rien à pousser', warnings });
 
     // 4) Résolution client (anti-doublon)
@@ -1393,6 +1398,7 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
         const created = await pennylane.createCustomer({
           name: nom,
           isCompany: !!(cf['Type'] && cf['Type'] !== 'Particulier'),
+          contact: cf['Contact'] || '',
           email: cf['Email'] || undefined,
           address: (adresse[0] || '').trim() || undefined,
           postal_code: cpVille ? cpVille[1] : undefined,
@@ -1454,6 +1460,22 @@ app.get('/api/devis/:id/pennylane/pdf', requireAuth, async (req, res) => {
 // Résout le client Pennylane pour une fiche Client Airtable (id stocké > match exact
 // > création). Retourne { customerId, customerCreated } ou { needsCustomerConfirmation }.
 const PL_ECH_FIELD = 'Pennylane invoice ID';
+// Descriptif du devis pour les lignes de facture Pennylane (demande JMG 27/08) :
+// le libellé produit reste constant, c'est la DESCRIPTION qui doit reprendre
+// celle du devis. Best effort — une facture ne doit jamais échouer sur un
+// descriptif manquant, mais buildInvoiceLines remonte alors un avertissement.
+async function descriptionDevisPourPennylane(devisFields) {
+  try {
+    const zoneIds = Array.isArray(devisFields['Zones devis']) ? devisFields['Zones devis'] : [];
+    if (!zoneIds.length) return '';
+    const zones = await atFetchByIds(TABLES['zones-devis'].id, zoneIds);
+    return descriptionDevis(zones).texte;
+  } catch (e) {
+    logger.warn({ err: e.message }, '[pennylane] descriptif du devis non lu');
+    return '';
+  }
+}
+
 async function resolvePennylaneCustomer(clientId, body = {}) {
   const [client] = await atFetchByIds(TABLES.clients.id, [clientId]);
   const cf = (client && client.fields) || {};
@@ -1468,7 +1490,7 @@ async function resolvePennylaneCustomer(clientId, body = {}) {
       const adresse = String(cf['Adresse'] || '').split('\n');
       const cpVille = (adresse[1] || '').trim().match(/^(\d{5})\s+(.*)$/);
       const created = await pennylane.createCustomer({
-        name: nom, isCompany: !!(cf['Type'] && cf['Type'] !== 'Particulier'), email: cf['Email'] || undefined,
+        name: nom, isCompany: !!(cf['Type'] && cf['Type'] !== 'Particulier'), contact: cf['Contact'] || '', email: cf['Email'] || undefined,
         address: (adresse[0] || '').trim() || undefined, postal_code: cpVille ? cpVille[1] : undefined, city: cpVille ? cpVille[2] : undefined,
       });
       customerId = created.id; customerCreated = true;
@@ -1497,13 +1519,15 @@ async function createEcheanceDraftInvoicesForDevis(devis, customerId) {
   echeances.sort((a, b) => ((a.fields?.Ordre || 0) - (b.fields?.Ordre || 0)));
   const iso = d => d.toISOString().slice(0, 10);
   const today = iso(new Date());
+  // Lu UNE fois : le descriptif est celui du devis, identique pour toutes ses échéances.
+  const descDevis = await descriptionDevisPourPennylane(f);
   const results = [];
   for (const e of echeances) {
     const ef = e.fields || {};
     const libelle = ef['Libellé'] || 'Échéance';
     if (ef[PL_ECH_FIELD]) { results.push({ echId: e.id, libelle, already: true, invoiceId: ef[PL_ECH_FIELD] }); continue; }
     if ((ef['Statut'] || '') === 'Encaissé') { results.push({ echId: e.id, libelle, skipped: 'déjà encaissée' }); continue; }
-    const { lines, reconciliation, warnings } = pennylane.buildEcheanceInvoiceLines(f, ef['Montant prévu'], libelle);
+    const { lines, reconciliation, warnings } = pennylane.buildEcheanceInvoiceLines(f, ef['Montant prévu'], libelle, { description: descDevis });
     if (!lines.length) { results.push({ echId: e.id, libelle, error: 'échéance sans montant exploitable', warnings }); continue; }
     // Échéance de règlement : la date prévue, mais jamais dans le passé (Pennylane refuse) → plancher = aujourd'hui.
     const dueRaw = ef['Date prévue'] || today;

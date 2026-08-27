@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { buildInvoiceLines, buildEcheanceInvoiceLines, normalizeName, vatEnum } = require('./pennylane');
+const { buildInvoiceLines, buildEcheanceInvoiceLines, normalizeName, vatEnum, detailErreur } = require('./pennylane');
 
 test('vatEnum — pourcentages courants + fractions + défaut', () => {
   assert.strictEqual(vatEnum(20), 'FR_200');
@@ -32,7 +32,8 @@ test('buildInvoiceLines — 2 taux de TVA (données réelles 410/1/2) → récon
   assert.strictEqual(lines[0].vat_rate, 'FR_200');
   assert.strictEqual(lines[1].vat_rate, 'FR_100');
   assert.strictEqual(reconciliation.ok, true);   // diff ≈ 0.01 € (arrondi)
-  assert.strictEqual(warnings.length, 0);
+  // Appel sans descriptif → un seul avertissement, celui qui le signale.
+  assert.deepStrictEqual(warnings, ['Aucun descriptif de devis : les lignes partent sans description']);
 });
 
 test('buildInvoiceLines — 1 seul taux (données réelles 459/1/14) → 1 ligne', () => {
@@ -50,7 +51,10 @@ test('buildInvoiceLines — gros du montant à 10 % (données réelles 563/1/12)
   };
   const { lines, reconciliation } = buildInvoiceLines(f);
   assert.strictEqual(lines.length, 2);
-  assert.match(lines[1].label, /10 %/);
+  // Le taux n'est plus écrit dans le libellé (il est porté par vat_rate, que
+  // Pennylane affiche) : on vérifie la donnée, pas sa mise en mots.
+  assert.strictEqual(lines[1].vat_rate, 'FR_100');
+  assert.strictEqual(lines[1].raw_currency_unit_price, '26220.83');
   assert.strictEqual(reconciliation.ok, true);
 });
 
@@ -92,7 +96,7 @@ test('buildEcheanceInvoiceLines — acompte 30 % : prorata 2 taux + réconcilie'
   assert.strictEqual(lines[1].vat_rate, 'FR_100');
   assert.strictEqual(reconciliation.ok, true);
   assert.ok(Math.abs(reconciliation.diff) <= 1);
-  assert.strictEqual(warnings.length, 0);
+  assert.deepStrictEqual(warnings, ['Aucun descriptif de devis : les lignes partent sans description']);
 });
 
 test('buildEcheanceInvoiceLines — somme des 3 échéances = Total TTC du devis', () => {
@@ -123,4 +127,84 @@ test('buildEcheanceInvoiceLines — repli si bases TVA absentes (HT depuis TTC)'
   assert.strictEqual(lines[0].raw_currency_unit_price, '3000.00'); // 3600 / 1.2
   assert.strictEqual(reconciliation.ok, true);
   assert.ok(warnings.some(w => /repli|absentes/i.test(w)));
+});
+
+// ── Libellé produit constant + description du devis (demande JMG 27/08/2026) ──
+
+test('buildInvoiceLines — le libellé produit est constant, pas un intitulé de TVA', () => {
+  const f = {
+    'TVA taux 1 base': 10000, 'TVA taux 1 pourcentage': 20,
+    'TVA taux 2 base': 2000, 'TVA taux 2 pourcentage': 10,
+    'Total TTC': 14200,
+  };
+  const { lines } = buildInvoiceLines(f, { description: 'Novamobili — Night' });
+  assert.strictEqual(lines[0].label, 'Produit cuisine');
+  assert.strictEqual(lines[1].label, 'Produit cuisine — pose et prestations');
+  // L'ancien libellé ne doit plus apparaître nulle part.
+  for (const l of lines) assert.doesNotMatch(l.label, /Fourniture cuisine sur-mesure/);
+});
+
+test('buildInvoiceLines — la description du devis est reprise sur chaque ligne', () => {
+  const f = { 'TVA taux 1 base': 10000, 'TVA taux 1 pourcentage': 20, 'Total TTC': 12000 };
+  const desc = 'Novamobili — Night\nColoris façade : Foglia mat';
+  const { lines, warnings } = buildInvoiceLines(f, { description: desc });
+  assert.strictEqual(lines[0].description, desc);
+  assert.strictEqual(warnings.length, 0, 'aucun avertissement quand la description est fournie');
+});
+
+test('buildInvoiceLines — sans description : aucun champ vide envoyé, mais un avertissement', () => {
+  const f = { 'TVA taux 1 base': 10000, 'TVA taux 1 pourcentage': 20, 'Total TTC': 12000 };
+  const { lines, warnings } = buildInvoiceLines(f);
+  assert.strictEqual('description' in lines[0], false, 'pas de description vide envoyée à Pennylane');
+  assert.match(warnings.join(' '), /sans description/);
+});
+
+test('buildInvoiceLines — une description très longue est tronquée, pas rejetée', () => {
+  const f = { 'TVA taux 1 base': 100, 'TVA taux 1 pourcentage': 20, 'Total TTC': 120 };
+  const { lines } = buildInvoiceLines(f, { description: 'x'.repeat(5000) });
+  assert.ok(lines[0].description.length <= 1000);
+});
+
+test('buildEcheanceInvoiceLines — le préfixe d\'échéance reste dans le libellé', () => {
+  const { lines } = buildEcheanceInvoiceLines(DEVIS_2TAUX, 10000, 'Acompte 30 %', { description: 'Novamobili — Night' });
+  // Même si la description ne s'affichait pas, une facture d'acompte doit se
+  // reconnaître à son libellé.
+  assert.match(lines[0].label, /^Acompte 30 % — Produit cuisine/);
+  assert.strictEqual(lines[0].description, 'Novamobili — Night');
+});
+
+test('PENNYLANE_LIBELLE_PRODUIT surcharge le libellé sans redéploiement', () => {
+  const avant = process.env.PENNYLANE_LIBELLE_PRODUIT;
+  process.env.PENNYLANE_LIBELLE_PRODUIT = 'Cuisine équipée';
+  try {
+    const f = { 'TVA taux 1 base': 100, 'TVA taux 1 pourcentage': 20, 'Total TTC': 120 };
+    assert.strictEqual(buildInvoiceLines(f).lines[0].label, 'Cuisine équipée');
+  } finally {
+    if (avant === undefined) delete process.env.PENNYLANE_LIBELLE_PRODUIT;
+    else process.env.PENNYLANE_LIBELLE_PRODUIT = avant;
+  }
+});
+
+// ── Détail des erreurs Pennylane (diagnostic + repli prénom vide) ────────────
+// Les validations arrivent sous trois formes selon l'endpoint : un message, un
+// tableau, ou un objet { champ: [raisons] }. Ce dernier se réduisait à « HTTP 422 ».
+
+test('detailErreur — message simple', () => {
+  assert.strictEqual(detailErreur({ message: "first_name can't be blank" }), "first_name can't be blank");
+});
+
+test('detailErreur — tableau d\'erreurs', () => {
+  assert.strictEqual(detailErreur({ errors: ['a', 'b'] }), 'a; b');
+});
+
+test('detailErreur — objet { champ: [raisons] } : le champ fautif est nommé', () => {
+  const d = detailErreur({ errors: { first_name: ["can't be blank"], last_name: ['too short'] } });
+  assert.match(d, /first_name: can't be blank/);
+  assert.match(d, /last_name: too short/);
+});
+
+test('detailErreur — rien d\'exploitable → chaîne vide (l\'appelant met son propre message)', () => {
+  assert.strictEqual(detailErreur({}), '');
+  assert.strictEqual(detailErreur(null), '');
+  assert.strictEqual(detailErreur({ errors: {} }), '');
 });
