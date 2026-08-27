@@ -28,6 +28,9 @@ const ecoBareme = require('./services/eco-contribution-bareme');
 // Descriptif commercial d'un devis (zones : marque, modèle, coloris, finitions) —
 // partagé entre le bon de commande et les factures Pennylane.
 const { descriptionDevis } = require('./services/description-devis-helper');
+// Rétro-commission 5 % sur les devis artisans — règle UNIQUE (cf. le helper :
+// s'applique à tous les devis, pas aux seuls artisans contractuels).
+const { retroTotale } = require('./services/retro-artisans-helper');
 const { buildRetroApporteurs, TAUX_RETRO } = require('./services/retro-apporteurs-helper');
 const { canAccess, pickAllowedFields } = require('./services/acl');
 const logger = require('./services/logger');
@@ -590,19 +593,20 @@ app.get('/api/health', (req, res) => {
 
 // --- Admin : tableau marges par projet (Sprint 5) ---
 // Pour chaque projet : CA HT, coût fournisseurs (commandes), coût artisans (devis-artisans),
-// rétro-commission 5% sur artisans contractuels, marge € + %.
+// rétro-commission 5 % sur tous les devis artisans, marge € + %.
 app.get('/api/admin/marges', requireAuth, async (req, res) => {
   if (!ADMIN_LOGINS.has(req.session?.user)) return res.status(403).json({ error: 'admin requis' });
   try {
-    const [projets, commandes, devisArtisans, artisans, clients] = await Promise.all([
+    // La table Artisans n'est plus chargée : elle ne servait qu'au filtre
+    // « Contractuel », retiré du calcul de la rétro. Un appel Airtable de moins
+    // sur un écran qui balaie déjà toute la base.
+    const [projets, commandes, devisArtisans, clients] = await Promise.all([
       atFetchAll(TABLES.projets.id),
       atFetchAll(TABLES.commandes.id),
       atFetchAll(TABLES['devis-artisans'].id),
-      atFetchAll(TABLES.artisans.id),
       atFetchAll(TABLES.clients.id),
     ]);
     const clientById = new Map(clients.map(c => [c.id, c]));
-    const artisanById = new Map(artisans.map(a => [a.id, a]));
 
     const rows = projets.map(p => {
       const f = p.fields || {};
@@ -611,10 +615,11 @@ app.get('/api/admin/marges', requireAuth, async (req, res) => {
       const caHT = f['Budget HT'] || 0;
       const coutFourn = projetCmds.reduce((s, c) => s + (c.fields?.['Montant HT'] || 0), 0);
       const coutArtisans = projetDA.reduce((s, d) => s + (d.fields?.['Montant HT'] || 0), 0);
-      const retro = projetDA.filter(d => {
-        const aId = (d.fields?.Artisan || [])[0];
-        return aId && artisanById.get(aId)?.fields?.Contractuel;
-      }).reduce((s, d) => s + (d.fields?.['Montant HT'] || 0) * 0.05, 0);
+      // Règle unique (29/07/2026) : 5 % sur TOUS les devis artisans, doublons
+      // d'import écartés, et « Rétro-commission HT » stockée prioritaire. Cet
+      // écran filtrait encore sur « Contractuel » et affichait donc une marge
+      // différente de celle de la fiche projet, pour le même chantier.
+      const retro = retroTotale(projetDA).total;
       const margeAbs = caHT - coutFourn - coutArtisans + retro;
       const margePct = caHT > 0 ? (margeAbs / caHT) * 100 : null;
       const clientNom = clientById.get((f.Client || [])[0])?.fields?.Nom || '?';

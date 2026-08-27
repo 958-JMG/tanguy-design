@@ -278,7 +278,7 @@ function renderFiche(app, data) {
   // filtre « contractuel » — le 5% s'applique à tous les devis artisans.
   const retro = devisArtisansUniq.reduce((s, d) => s + (d.fields?.['Rétro-commission HT'] || (d.fields?.['Montant HT'] || 0) * 0.05), 0);
   // Modèle Tanguy : les devis artisans ne sont PAS un coût pour Tanguy (le client les
-  // paie) — seule la rétro-commission 5% des artisans contractuels est un revenu.
+  // paie) — seule la rétro-commission 5 % sur les devis artisans est un revenu.
 
   // Paquet Coûts chantier & retenue — cf. services/couts-helper.js (même règle).
   // Coûts additionnels : « Refacturé client » = neutre sur la marge ; sinon (défaut
@@ -630,7 +630,10 @@ function renderFiche(app, data) {
                 <div class="commande-head">
                   <div><strong>${esc(af.Nom || '?')}</strong>
                     ${af.Spécialité ? `<span class="muted"> · ${esc(af.Spécialité)}</span>` : ''}
-                    ${af.Contractuel ? '<span class="badge phase-signe" style="margin-left:8px">Contractuel (−5%)</span>' : '<span class="badge" style="margin-left:8px">Non contractuel</span>'}
+                    <!-- Le « −5% » a quitté ce badge le 27/08 : depuis la correction du
+                         29/07, la rétro s'applique à TOUS les devis artisans. Le champ
+                         Contractuel reste une information de contrat, pas une règle de calcul. -->
+                    ${af.Contractuel ? '<span class="badge phase-signe" style="margin-left:8px">Contractuel</span>' : '<span class="badge" style="margin-left:8px">Non contractuel</span>'}
                   </div>
                   <button class="btn-icon-danger" data-action="remove-artisan" data-id="${esc(a.id)}" aria-label="Retirer ${esc(af.Nom || 'artisan')} du projet">${icon('trash', 14)}</button>
                 </div>
@@ -646,7 +649,7 @@ function renderFiche(app, data) {
             <button class="btn btn-primary btn-sm" id="btn-import-devis-artisan">${icon('plus', 14)} Importer PDF</button>
           </div>
           ${devisArtisans.length === 0
-            ? `<div class="compact-empty"><span>Rétro 5% calculée auto sur contractuels</span></div>`
+            ? `<div class="compact-empty"><span>Rétro 5 % calculée automatiquement sur tous les devis artisans</span></div>`
             : `<div class="commandes-list">${devisArtisans.map(d => {
               const df = d.fields || {};
               const aId = (df.Artisan || [])[0];
@@ -1832,7 +1835,7 @@ function openModalEncaisser(echeanceId) {
 async function openModalAddArtisan(projet, artisansCourants) {
   const { modal, close } = modalShell('Affecter un artisan', `
     <form id="form-add-artisan">
-      <p class="muted" style="margin-top:0">Choisis l'artisan à rattacher au projet. Une fois rattaché, il pourra envoyer son devis (rétro 5% auto sur les contractuels).</p>
+      <p class="muted" style="margin-top:0">Choisis l'artisan à rattacher au projet. Une fois rattaché, il pourra envoyer son devis (rétro 5 % automatique sur tous les devis artisans).</p>
       <div id="artisans-list" style="max-height:300px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;padding:8px">
         <p class="muted">Chargement…</p>
       </div>
