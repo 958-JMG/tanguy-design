@@ -10,9 +10,15 @@ import { openSearch } from './core/search.js';
 import { hydrateIcons } from './core/lucide.js';
 import { openSupport } from './core/support.js';
 import { openHelp, closeHelp } from './core/help.js';
+import { installerGardeModales } from './core/modal-guard.js';
 
 // Hydrater les icônes de la coquille HTML (data-icon) dès chargement du module
 hydrateIcons(document);
+
+// Un clic à côté d'une fenêtre ne doit pas effacer une saisie en cours
+// (retour JMG 27/08 : « la fenêtre se referme d'un coup sans que les infos
+// soient enregistrées »). Garde global : couvre les 24 modales d'un coup.
+installerGardeModales();
 
 // Bouton flottant support
 document.getElementById('support-btn')?.addEventListener('click', openSupport);

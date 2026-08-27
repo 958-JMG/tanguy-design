@@ -295,7 +295,7 @@ function renderUsers(container, users) {
           <td><strong>${esc(u.login)}</strong></td>
           <td>${esc(u.displayName || '—')}</td>
           <td>${esc(u.email || '—')}</td>
-          <td>${u.admin ? `<span class="badge phase-signe">${icon('star', 11)} Admin</span>` : (u.poseur ? `<span class="badge">${icon('hammer', 11)} Poseur</span>` : '<span class="muted">Membre</span>')}</td>
+          <td>${u.admin ? `<span class="badge phase-signe">${icon('check-circle', 11)} Admin</span>` : (u.poseur ? `<span class="badge">${icon('hammer', 11)} Poseur</span>` : '<span class="muted">Membre</span>')}</td>
           <td>${u.actif ? '<span class="badge phase-signe">Actif</span>' : '<span class="badge" style="background:var(--accent-lo);color:var(--accent)">Désactivé</span>'}${u.source === 'airtable' ? (u.twoFAActif ? ' <span class="badge phase-signe" title="2FA activé (Google Authenticator)" style="opacity:.75">2FA</span>' : ' <span class="badge" title="2FA pas encore configuré" style="background:var(--accent-lo);color:var(--accent);opacity:.75">2FA à faire</span>') : ''}</td>
           <td class="muted" style="font-size:11px">${esc(u.source)}</td>
           <td>

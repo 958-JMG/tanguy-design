@@ -349,6 +349,12 @@ export function echeancePdfUrl(echeanceId) {
   return `/api/echeances/${echeanceId}/pennylane/pdf`;
 }
 
+// Devis express (P-H4) : crée le devis client à partir du chiffrage.
+// Rattachement à un projet existant, ou à un client dont le projet est créé.
+export async function creerDevisClientExpress(payload) {
+  return api('/api/devis-express/creer-devis', { method: 'POST', body: JSON.stringify(payload) });
+}
+
 // Artefacts générés par la signature d'un devis (BC + tâches de suivi).
 // Sert à nettoyer quand un devis SIGNÉ repasse à « Refusé » : le changement de
 // statut n'a aucun effet de bord côté Airtable, les BC restent (dossier MORALES).

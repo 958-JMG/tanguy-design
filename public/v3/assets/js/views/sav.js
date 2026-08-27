@@ -9,6 +9,7 @@
 // fonctionne, le tableau s'affiche, et l'enregistrement du reste ne casse pas.
 
 import { state } from '../core/state.js';
+import { resoudreClient, messageClientIntrouvable } from '../core/client-match.js';
 import { fetchSav, createSav, patchSav, deleteSav } from '../core/api.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
 import { toast, confirmModal } from '../core/ui.js';
@@ -266,8 +267,12 @@ function openModalSav(ticket, onSaved, prefill = {}) {
     // Résolution du nom saisi → id (match exact sur le Nom, insensible à la casse) — même
     // pattern que l'agenda (core/rdv.js). Garde la trace : le ticket reste LIÉ au record client.
     const clientName = String(fd.get('__clientName') || '').trim();
-    const clientMatch = clients.find(c => (c.Nom || '').toLowerCase() === clientName.toLowerCase());
-    if (!clientMatch) { toast('Client introuvable — choisis un nom dans la liste', 'error'); return; }
+    // Résolution tolérante (cf. core/client-match.js) : trois clients de la base
+    // portent un espace final dans leur nom, ce qui les rendait « inexistants »
+    // à la sélection. Les noms proches sont proposés en cas d'échec.
+    const resolution = resoudreClient(clientName, clients);
+    const clientMatch = resolution.client;
+    if (!clientMatch) { toast(messageClientIntrouvable(resolution, clientName), 'error', 7000); return; }
 
     const fields = {};
     fields['Client'] = [clientMatch.id];

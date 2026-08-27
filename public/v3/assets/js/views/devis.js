@@ -323,7 +323,7 @@ async function checkArtefactsGeneres(devis, statut) {
   slot.innerHTML = `
     <div class="card" style="margin-bottom:16px;border-left:3px solid var(--accent)">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <span>${icon('alert-triangle', 16)}</span>
+        <span>${icon('alert', 16)}</span>
         <span style="flex:1;min-width:0">
           Ce devis est en « ${esc(statut)} » mais sa signature a laissé
           <strong>${r.commandes.length} bon${r.commandes.length > 1 ? 's' : ''} de commande</strong>
@@ -345,7 +345,7 @@ function ligneArtefact(kind, a, libelle, meta) {
       <span style="flex:1;min-width:0">
         <strong style="display:block;word-break:break-word">${esc(libelle)}</strong>
         <span class="muted" style="font-size:12px">${esc(meta)}</span>
-        ${a.risque ? `<span style="display:block;font-size:12px;color:var(--accent);margin-top:2px">${icon('alert-triangle', 12)} ${esc(a.risque)} — décoché par précaution</span>` : ''}
+        ${a.risque ? `<span style="display:block;font-size:12px;color:var(--accent);margin-top:2px">${icon('alert', 12)} ${esc(a.risque)} — décoché par précaution</span>` : ''}
       </span>
     </label>`;
 }

@@ -12,7 +12,8 @@
 
 import { icon, hydrateIcons } from '../core/lucide.js';
 import { toast } from '../core/ui.js';
-import { parseDevisFournisseur } from '../core/api.js';
+import { parseDevisFournisseur, creerDevisClientExpress } from '../core/api.js';
+import { state } from '../core/state.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const eur = (n) => (n == null || Number.isNaN(Number(n)))
@@ -91,16 +92,20 @@ const MATERIAUX_UI = [
   'Bois et dérivés certifiés, matériaux biosourcés ≥ 50%',
 ];
 
+// Ligne vierge : sert à la saisie manuelle quand le devis ne porte pas ses
+// dimensions (nomenclatures) ou que la lecture automatique n'a rien trouvé.
+const LIGNE_ECO_VIDE = {
+  designation: '', quantite: 1, longueurMm: null, hauteurMm: null,
+  materiau: 'Panneaux de particules ≥ 75%', gestionDurable: 'certifiee', tarifUnitaireTtc: null,
+};
+
 function renderEcoSection(eco) {
-  if (!eco || !eco.lignes || !eco.lignes.length) {
-    return `
-      <div class="card" style="margin-top:16px">
-        <div class="section-header" style="margin-bottom:6px"><h2 class="section-title">Éco-contribution</h2></div>
-        <p class="muted" style="font-size:13px">
-          ${icon('info', 13)} Aucune tablette ni panneau détecté dans ce devis. Si le devis en contient,
-          les dimensions n'ont pas pu être lues — ajoute-les à la main dans l'éco-participation ci-dessus.
-        </p>
-      </div>`;
+  // La section est TOUJOURS affichée, même sans pièce détectée : le calcul ne
+  // doit pas dépendre entièrement de ce que la lecture automatique a trouvé.
+  // Sans pièce, une ligne vierge attend la saisie.
+  const detecte = !!(eco && eco.lignes && eco.lignes.length);
+  if (!detecte) {
+    eco = { lignes: [{ ...LIGNE_ECO_VIDE }], complet: false, piecesIncalculables: 1, avertissements: [] };
   }
 
   const alerte = !eco.complet
@@ -112,7 +117,13 @@ function renderEcoSection(eco) {
     ? `<p class="muted" style="font-size:12px">${eco.avertissements.map(a => `${icon('alert', 12)} ${esc(a)}`).join('<br>')}</p>`
     : '';
 
-  const rows = eco.lignes.map((l, i) => `
+  const rows = eco.lignes.map((l, i) => ligneEcoHtml(l, i)).join('');
+  return sectionEcoHtml({ eco, rows, detecte, alerte, avertissements });
+}
+
+// Une ligne du tableau éco. Extraite pour être réutilisée par « Ajouter une pièce ».
+function ligneEcoHtml(l, i) {
+  return `
     <tr data-eco-row="${i}">
       <td><input data-eco="designation" value="${esc(l.designation)}" style="width:100%;min-width:140px"></td>
       <td class="num"><input data-eco="quantite" type="number" min="1" step="1" value="${l.quantite}" style="width:64px;text-align:right"></td>
@@ -129,8 +140,10 @@ function renderEcoSection(eco) {
            plus rien. Le tarif de la grille s'affiche en repère (placeholder). -->
       <td class="num"><input data-eco="tarif" type="number" min="0" step="0.01" value="" placeholder="auto" style="width:80px;text-align:right" title="Vide = tarif de la grille, recalculé à chaque changement. Une valeur saisie ici prend le pas."></td>
       <td class="num"><strong data-eco="total">—</strong></td>
-    </tr>`).join('');
+    </tr>`;
+}
 
+function sectionEcoHtml({ eco, rows, detecte, alerte, avertissements }) {
   return `
     <div class="card" style="margin-top:16px">
       <div class="section-header" style="margin-bottom:6px">
@@ -140,7 +153,10 @@ function renderEcoSection(eco) {
         Barème tablettes et panneaux revêtus, <strong>à la dimension</strong> (longueur × hauteur), pas au poids.
         Tarifs de la grille en TTC. Modifie n'importe quelle ligne : le total suit.
       </p>
-      ${alerte}${avertissements}
+      ${!detecte ? `<p class="muted" style="font-size:13px">
+        ${icon('alert', 13)} Aucune tablette ni panneau lu automatiquement dans ce devis.
+        Saisis les pièces ci-dessous — le tarif se calcule tout seul dès que longueur et hauteur sont renseignées.
+      </p>` : alerte}${avertissements}
       <div style="overflow-x:auto">
         <table class="pipeline-table" style="margin-top:10px;min-width:720px">
           <thead>
@@ -164,7 +180,8 @@ function renderEcoSection(eco) {
         </table>
       </div>
       <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button class="btn btn-ghost btn-sm" id="df-eco-report">${icon('arrowUp', 14)} Reporter dans l'éco-participation</button>
+        <button class="btn btn-ghost btn-sm" id="df-eco-add">${icon('plus', 14)} Ajouter une pièce</button>
+        <button class="btn btn-ghost btn-sm" id="df-eco-report">${icon('check', 14)} Reporter dans l'éco-participation</button>
         <span class="muted" style="font-size:12px" id="df-eco-report-msg"></span>
       </div>
     </div>`;
@@ -285,10 +302,131 @@ function wireEco(out) {
   tbody.addEventListener('change', () => recomputeEco(out));
   out.querySelector('#df-tva')?.addEventListener('change', () => recomputeEco(out));
   out.querySelector('#df-eco-report')?.addEventListener('click', () => reporterEco(out));
+  // Ajout d'une pièce à la main : indispensable quand le devis ne porte pas ses
+  // dimensions (nomenclatures) ou qu'une pièce a été oubliée à la lecture.
+  out.querySelector('#df-eco-add')?.addEventListener('click', () => {
+    const tbody = out.querySelector('#df-eco-rows');
+    const index = tbody.querySelectorAll('tr[data-eco-row]').length;
+    tbody.insertAdjacentHTML('beforeend', ligneEcoHtml({ ...LIGNE_ECO_VIDE }, index));
+    recomputeEco(out);
+    // Curseur dans la désignation de la ligne qui vient d'apparaître.
+    tbody.querySelector(`tr[data-eco-row="${index}"] [data-eco=designation]`)?.focus();
+  });
   const r = recomputeEco(out);
   // Report automatique UNIQUEMENT si tout est chiffré : un total partiel ne
   // s'invite pas dans le prix client sans que quelqu'un l'ait décidé.
   if (r && r.lignes && !r.incalculables) reporterEco(out, { silencieux: true });
+}
+
+
+// ---------------------------------------------------------------------------
+// P-H4 — Création du devis client depuis le chiffrage
+// ---------------------------------------------------------------------------
+// Rattachement (choix JMG 27/08) : un projet existant, ou un client dont le
+// projet est créé à la volée. Le devis part en BROUILLON et reste modifiable.
+
+function openModalCreerDevis(out) {
+  const coef = Number(out.querySelector('#df-coef')?.value);
+  const prixHtTexte = out.querySelector('#df-prixht')?.textContent || '';
+  if (!coef || coef <= 0) { toast('Renseigne d\'abord le coefficient de marge', 'error'); return; }
+
+  const totalHt = Number(out.querySelector('#df-totalht').dataset.v) || 0;
+  const eco = Number(out.querySelector('#df-eco').value) || 0;
+  const tva = Number(out.querySelector('#df-tva').value) || 0;
+  const prixClientHt = Math.round((totalHt * coef + eco) * 100) / 100;
+  const designation = out.querySelector('#df-designation')?.value || '';
+
+  const projets = (state.projets || []).slice().sort((a, b) =>
+    String(a['Référence'] || '').localeCompare(String(b['Référence'] || ''), 'fr'));
+  const clients = (state.clients || []).slice().sort((a, b) =>
+    String(a.Nom || '').localeCompare(String(b.Nom || ''), 'fr'));
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-bg';
+  modal.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cd-title" style="max-width:560px">
+      <h2 id="cd-title">Créer le devis client</h2>
+      <p class="muted" style="margin-top:0">
+        ${esc(designation || 'Prestation')} — <strong>${eur(prixClientHt)} HT</strong>
+        ${eco > 0 ? ` (dont ${eur(eco)} d'éco-contribution)` : ''} · TVA ${tva} %
+      </p>
+
+      <div style="display:flex;gap:16px;margin:14px 0 10px">
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+          <input type="radio" name="cd-mode" value="projet" checked> Projet existant
+        </label>
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+          <input type="radio" name="cd-mode" value="client"> Nouveau chantier pour un client
+        </label>
+      </div>
+
+      <div id="cd-bloc-projet">
+        <label>Projet
+          <select id="cd-projet" style="width:100%">
+            <option value="">— choisir —</option>
+            ${projets.map(p => `<option value="${esc(p.id)}">${esc(p['Référence'] || '(sans référence)')}</option>`).join('')}
+          </select>
+        </label>
+        ${projets.length ? '' : '<p class="muted" style="font-size:13px">Aucun projet chargé — utilise « Nouveau chantier pour un client ».</p>'}
+      </div>
+
+      <div id="cd-bloc-client" style="display:none">
+        <label>Client
+          <select id="cd-client" style="width:100%">
+            <option value="">— choisir —</option>
+            ${clients.map(c => `<option value="${esc(c.id)}">${esc(c.Nom || '(sans nom)')}</option>`).join('')}
+          </select>
+        </label>
+        <p class="muted" style="font-size:13px;margin-top:4px">Un projet sera créé automatiquement pour ce client.</p>
+      </div>
+
+      <div class="modal-actions" style="margin-top:18px">
+        <button type="button" class="btn btn-ghost" id="cd-cancel">Annuler</button>
+        <button type="button" class="btn btn-primary" id="cd-ok">Créer le devis</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  hydrateIcons(modal);
+  const close = () => modal.remove();
+  modal.querySelector('#cd-cancel').onclick = close;
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+
+  modal.querySelectorAll('input[name=cd-mode]').forEach(r => r.addEventListener('change', () => {
+    const parProjet = modal.querySelector('input[name=cd-mode]:checked').value === 'projet';
+    modal.querySelector('#cd-bloc-projet').style.display = parProjet ? '' : 'none';
+    modal.querySelector('#cd-bloc-client').style.display = parProjet ? 'none' : '';
+  }));
+
+  modal.querySelector('#cd-ok').addEventListener('click', async () => {
+    const parProjet = modal.querySelector('input[name=cd-mode]:checked').value === 'projet';
+    const projetId = parProjet ? modal.querySelector('#cd-projet').value : '';
+    const clientId = parProjet ? '' : modal.querySelector('#cd-client').value;
+    if (parProjet && !projetId) { toast('Choisis un projet', 'error'); return; }
+    if (!parProjet && !clientId) { toast('Choisis un client', 'error'); return; }
+
+    const btn = modal.querySelector('#cd-ok');
+    btn.disabled = true; btn.textContent = 'Création…';
+    try {
+      const r = await creerDevisClientExpress({
+        projetId: projetId || undefined,
+        clientId: clientId || undefined,
+        designation,
+        prixClientHt,
+        tvaTaux: tva,
+        ecoHt: eco,
+        origine: current?.parsed?.document?.numero || '',
+      });
+      close();
+      // Jamais de silence : ce qui n'a pas pu être fait est annoncé, pas avalé
+      // sous un message de succès.
+      if (r.avertissements?.length) toast(r.avertissements.join(' · '), 'error', 7000);
+      toast(`Devis ${r.numero} créé${r.projetCree ? ' (projet créé)' : ''}`, 'success');
+      location.hash = `#devis/${r.devisId}`;
+    } catch (err) {
+      btn.disabled = false; btn.textContent = 'Créer le devis';
+      toast('Erreur : ' + (err.message || err), 'error', 6000);
+    }
+  });
 }
 
 function renderResult(out, res) {
@@ -358,8 +496,8 @@ function renderResult(out, res) {
       </table>
 
       <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-primary" id="df-create" disabled title="Disponible à l'étape suivante (P-H4)">${icon('filePlus', 14)} Créer le devis client</button>
-        <span class="muted" style="font-size:12px;align-self:center">Création du devis client : étape suivante (P-H4).</span>
+        <button class="btn btn-primary" id="df-create">${icon('filePlus', 14)} Créer le devis client</button>
+        <span class="muted" style="font-size:12px;align-self:center">Le devis part en brouillon et reste modifiable.</span>
       </div>
     </div>
 
@@ -390,4 +528,7 @@ function renderResult(out, res) {
 
   // Éco-contribution : tableau par pièce, recalcul live, report dans le prix.
   wireEco(out);
+
+  // P-H4 — création du devis client à partir du chiffrage affiché.
+  out.querySelector('#df-create')?.addEventListener('click', () => openModalCreerDevis(out));
 }
