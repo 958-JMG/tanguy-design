@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { buildInvoiceLines, buildEcheanceInvoiceLines, normalizeName, vatEnum } = require('./pennylane');
+const { buildInvoiceLines, buildEcheanceInvoiceLines, normalizeName, vatEnum, detailErreur } = require('./pennylane');
 
 test('vatEnum — pourcentages courants + fractions + défaut', () => {
   assert.strictEqual(vatEnum(20), 'FR_200');
@@ -183,4 +183,28 @@ test('PENNYLANE_LIBELLE_PRODUIT surcharge le libellé sans redéploiement', () =
     if (avant === undefined) delete process.env.PENNYLANE_LIBELLE_PRODUIT;
     else process.env.PENNYLANE_LIBELLE_PRODUIT = avant;
   }
+});
+
+// ── Détail des erreurs Pennylane (diagnostic + repli prénom vide) ────────────
+// Les validations arrivent sous trois formes selon l'endpoint : un message, un
+// tableau, ou un objet { champ: [raisons] }. Ce dernier se réduisait à « HTTP 422 ».
+
+test('detailErreur — message simple', () => {
+  assert.strictEqual(detailErreur({ message: "first_name can't be blank" }), "first_name can't be blank");
+});
+
+test('detailErreur — tableau d\'erreurs', () => {
+  assert.strictEqual(detailErreur({ errors: ['a', 'b'] }), 'a; b');
+});
+
+test('detailErreur — objet { champ: [raisons] } : le champ fautif est nommé', () => {
+  const d = detailErreur({ errors: { first_name: ["can't be blank"], last_name: ['too short'] } });
+  assert.match(d, /first_name: can't be blank/);
+  assert.match(d, /last_name: too short/);
+});
+
+test('detailErreur — rien d\'exploitable → chaîne vide (l\'appelant met son propre message)', () => {
+  assert.strictEqual(detailErreur({}), '');
+  assert.strictEqual(detailErreur(null), '');
+  assert.strictEqual(detailErreur({ errors: {} }), '');
 });

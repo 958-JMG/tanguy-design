@@ -42,13 +42,30 @@ async function apiGet(path) {
   throw new Error(`Pennylane GET ${path.split('?')[0]} → 429 (limite de débit)`);
 }
 
+// Détail lisible d'une erreur Pennylane. Les validations arrivent tantôt en
+// `message`, tantôt en tableau `errors`, tantôt en objet { champ: [raisons] } —
+// ce dernier cas se réduisait à « HTTP 422 », ce qui rendait le diagnostic
+// impossible et empêchait tout repli ciblé.
+function detailErreur(j) {
+  if (!j || typeof j !== 'object') return '';
+  if (typeof j.message === 'string' && j.message) return j.message;
+  const e = j.errors;
+  if (Array.isArray(e)) return e.join('; ');
+  if (e && typeof e === 'object') {
+    return Object.entries(e)
+      .map(([champ, raisons]) => `${champ}: ${Array.isArray(raisons) ? raisons.join(', ') : raisons}`)
+      .join('; ');
+  }
+  return '';
+}
+
 async function apiPost(path, body) {
   for (let attempt = 0; attempt < 3; attempt++) {
     await throttle();
     const r = await fetch(BASE + path, { method: 'POST', headers: headers({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) });
     if (r.status === 429) { await sleep(1200 * (attempt + 1)); continue; }
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.message || (Array.isArray(j.errors) && j.errors.join('; ')) || `Pennylane POST ${path} → HTTP ${r.status}`);
+    if (!r.ok) throw new Error(detailErreur(j) || `Pennylane POST ${path} → HTTP ${r.status}`);
     return j;
   }
   throw new Error(`Pennylane POST ${path} → 429 (limite de débit)`);
@@ -261,7 +278,25 @@ async function createCustomer({ name, isCompany = false, first_name, last_name, 
       const p = payloadIndividuPennylane(name, contact);
       fn = p.first_name; ln = p.last_name;
     }
-    j = await apiPost('/individual_customers', { first_name: fn || '', last_name: ln || String(name || '').trim() || 'Client', ...billing, ...(email ? { emails: [email] } : {}) });
+    const nomFinal = ln || String(name || '').trim() || 'Client';
+    const base = { last_name: nomFinal, ...billing, ...(email ? { emails: [email] } : {}) };
+    try {
+      // Prénom vide quand il est inconnu : c'est VOULU — mieux vaut pas de prénom
+      // qu'un patronyme rangé dans la mauvaise case.
+      j = await apiPost('/individual_customers', { first_name: fn || '', ...base });
+    } catch (e) {
+      // Si la création échoue ALORS QUE le prénom est vide, on retente une fois
+      // avec un tiret : Pennylane peut exiger un first_name, et son message de
+      // validation ne nomme pas toujours le champ fautif. On ne remet JAMAIS le
+      // patronyme en prénom — c'était précisément le défaut corrigé.
+      // Un prénom connu n'a rien à voir avec ce cas : l'erreur remonte telle quelle.
+      if (fn) throw e;
+      try {
+        j = await apiPost('/individual_customers', { first_name: '-', ...base });
+      } catch (e2) {
+        throw e; // l'erreur d'origine est la plus informative
+      }
+    }
   }
   id = j && (j.id || (j.customer && j.customer.id) || (j.individual_customer && j.individual_customer.id) || (j.company_customer && j.company_customer.id));
   return { id: String(id || ''), raw: j };
@@ -335,6 +370,7 @@ async function fetchInvoicePdf(invoiceId) {
 }
 
 module.exports = {
+  detailErreur,
   // purs (testables sans réseau)
   buildInvoiceLines, buildEcheanceInvoiceLines, normalizeName, vatEnum,
   // réseau
