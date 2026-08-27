@@ -23,6 +23,8 @@ const { DEVIS_IMPORT_HASH_FIELD, computeImportHash, buildHashFilterFormula } = r
 // Artefacts générés par une signature de devis (BC + tâches) — nettoyage à la
 // coche quand un devis signé repasse à « Refusé » (dossier MORALES).
 const { resumeGeneres, commandesGenereesPar, tachesGenereesPar, filtrerIdsAutorises } = require('./services/devis-generes-helper');
+// Barème éco-contribution des tablettes et panneaux (à la dimension, pas au poids).
+const ecoBareme = require('./services/eco-contribution-bareme');
 const { buildRetroApporteurs, TAUX_RETRO } = require('./services/retro-apporteurs-helper');
 const { canAccess, pickAllowedFields } = require('./services/acl');
 const logger = require('./services/logger');
@@ -1597,6 +1599,28 @@ app.post('/api/devis-fournisseur/parse', requireAuth, upload.single('pdf'), asyn
       if (eco) ecopart = { categorie: eco.categorie, montant_ht: eco.montant, source: 'grille' };
     } catch (e) { logger.warn(`[devis-fournisseur/parse] éco-part non résolue: ${e.message}`); }
 
+    // Éco-contribution des tablettes / panneaux : barème À LA DIMENSION appliqué
+    // aux pièces lues dans le devis. Distinct de `ecopart` (forfait par catégorie,
+    // grille Airtable) : on ne remplace rien en silence, l'écran affiche les deux
+    // et c'est l'équipe qui reporte le montant retenu dans le prix client.
+    // Le taux de TVA du devis sert à convertir le barème (donné en TTC) vers du HT.
+    let ecoContribution = null;
+    try {
+      const pieces = Array.isArray(parsed?.pieces_eco_contribution) ? parsed.pieces_eco_contribution : [];
+      if (pieces.length) {
+        ecoContribution = ecoBareme.calculerEcoContribution(
+          pieces.map(pc => ({
+            designation: pc.designation,
+            quantite: pc.quantite,
+            longueurMm: pc.longueur_mm,
+            hauteurMm: pc.hauteur_mm,
+            materiau: mapMateriauEco(pc.materiau),
+          })),
+          { tauxTvaPct: Number(parsed?.totaux?.tva_taux) || null },
+        );
+      }
+    } catch (e) { logger.warn(`[devis-fournisseur/parse] éco-contribution non calculée: ${e.message}`); }
+
     // Prix client suggéré = total net fournisseur × coefficient (+ éco-part).
     // Si pas de coefficient connu : on laisse null → l'équipe le saisit dans le builder.
     const totalHt = Number(parsed?.totaux?.total_ht) || null;
@@ -1610,11 +1634,23 @@ app.post('/api/devis-fournisseur/parse', requireAuth, upload.single('pdf'), asyn
       enrichissement: {
         marge,
         ecopart,
+        eco_contribution: ecoContribution,
         suggestion: { total_ht_fournisseur: totalHt, prix_client_ht: prixClientHt },
       },
     };
   });
 });
+
+// Libellé matériau renvoyé par le parsing → clé du barème éco-contribution.
+// « Inconnu » (ou tout libellé non reconnu) → undefined, ce qui laisse le barème
+// appliquer son défaut Tanguy (panneaux de particules) plutôt que de refuser.
+function mapMateriauEco(libelle) {
+  const n = String(libelle || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (n.includes('massif')) return ecoBareme.MATERIAUX.BOIS_MASSIF;
+  if (n.includes('particule') || n.includes('melamine') || n.includes('agglomere') || n.includes('mdf')) return ecoBareme.MATERIAUX.PANNEAUX_PARTICULES;
+  if (n.includes('biosource') || n.includes('certifie')) return ecoBareme.MATERIAUX.BIOSOURCES;
+  return undefined;
+}
 
 // Associe un fournisseur parsé à une ligne de la grille des marges.
 // Match tolérant : type détecté OU nom, insensible casse/accents, par inclusion.
