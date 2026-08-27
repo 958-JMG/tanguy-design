@@ -69,6 +69,16 @@ Analyse ce PDF de devis fournisseur et retourne UNIQUEMENT un objet JSON valide 
       "categorie": "Plan de travail | Meuble | Usinage | Service | Autre"
     }
   ],
+  "pieces_eco_contribution": [
+    {
+      "designation": "libellé de la tablette / du panneau",
+      "quantite": 2,
+      "longueur_mm": 1800,
+      "hauteur_mm": 300,
+      "epaisseur_mm": 19,
+      "materiau": "Bois massif | Panneaux de particules | Biosourcé | Inconnu"
+    }
+  ],
   "alertes_parsing": "texte libre si champs ambigus/illisibles, sinon chaîne vide"
 }
 
@@ -81,6 +91,10 @@ RÈGLES :
 - "tva_taux" : le taux figurant sur le devis fournisseur (peut être 10 % pour un fournisseur italien, 20 % pour Granit Evolution). C'est la TVA du fournisseur, informative ; la TVA du devis client sera recalculée en aval.
 - "categorie_suggeree" : déduis du contenu (plans de travail → « Plan de travail » ; meubles/dressing/cuisine → « Meuble » ; etc.). Sert au mapping éco-participation en aval.
 - Si un champ est absent, mets "" ou null ou [] selon le type — n'invente jamais une valeur.
+- "pieces_eco_contribution" : liste des TABLETTES et PANNEAUX revêtus (avec décor) avec leurs DIMENSIONS, pour le calcul de l'éco-contribution. Cette liste est INDÉPENDANTE de "lignes_detail" : remplis-la même sur une nomenclature de fabrication (Novamobili, Metron) où les micro-composants ne doivent PAS apparaître dans lignes_detail. Ce sont deux usages différents — lignes_detail sert au prix, pieces_eco_contribution sert à la déclaration environnementale.
+- Dimensions : "longueur_mm" = la plus grande dimension du plan de la pièce, "hauteur_mm" = la seconde (largeur/profondeur du panneau), toutes deux en MILLIMÈTRES (convertis depuis cm ou m si besoin ; « 180 × 30 cm » → 1800 et 300). Ne DEVINE JAMAIS une dimension absente : mets null. Une dimension inventée fausse la déclaration.
+- "materiau" : déduis-le des mentions du devis (panneau mélaminé/aggloméré/MDF → « Panneaux de particules » ; chêne/hêtre/bois massif → « Bois massif » ; mention biosourcé/certifié → « Biosourcé »). Si rien ne permet de trancher, mets « Inconnu » — surtout pas une hypothèse.
+- Si le devis ne comporte aucune tablette ni panneau, "pieces_eco_contribution" doit être un tableau VIDE [].
 - Retourne UNIQUEMENT le JSON.`;
 
 /**
