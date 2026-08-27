@@ -92,16 +92,20 @@ const MATERIAUX_UI = [
   'Bois et dérivés certifiés, matériaux biosourcés ≥ 50%',
 ];
 
+// Ligne vierge : sert à la saisie manuelle quand le devis ne porte pas ses
+// dimensions (nomenclatures) ou que la lecture automatique n'a rien trouvé.
+const LIGNE_ECO_VIDE = {
+  designation: '', quantite: 1, longueurMm: null, hauteurMm: null,
+  materiau: 'Panneaux de particules ≥ 75%', gestionDurable: 'certifiee', tarifUnitaireTtc: null,
+};
+
 function renderEcoSection(eco) {
-  if (!eco || !eco.lignes || !eco.lignes.length) {
-    return `
-      <div class="card" style="margin-top:16px">
-        <div class="section-header" style="margin-bottom:6px"><h2 class="section-title">Éco-contribution</h2></div>
-        <p class="muted" style="font-size:13px">
-          ${icon('info', 13)} Aucune tablette ni panneau détecté dans ce devis. Si le devis en contient,
-          les dimensions n'ont pas pu être lues — ajoute-les à la main dans l'éco-participation ci-dessus.
-        </p>
-      </div>`;
+  // La section est TOUJOURS affichée, même sans pièce détectée : le calcul ne
+  // doit pas dépendre entièrement de ce que la lecture automatique a trouvé.
+  // Sans pièce, une ligne vierge attend la saisie.
+  const detecte = !!(eco && eco.lignes && eco.lignes.length);
+  if (!detecte) {
+    eco = { lignes: [{ ...LIGNE_ECO_VIDE }], complet: false, piecesIncalculables: 1, avertissements: [] };
   }
 
   const alerte = !eco.complet
@@ -113,7 +117,13 @@ function renderEcoSection(eco) {
     ? `<p class="muted" style="font-size:12px">${eco.avertissements.map(a => `${icon('alert', 12)} ${esc(a)}`).join('<br>')}</p>`
     : '';
 
-  const rows = eco.lignes.map((l, i) => `
+  const rows = eco.lignes.map((l, i) => ligneEcoHtml(l, i)).join('');
+  return sectionEcoHtml({ eco, rows, detecte, alerte, avertissements });
+}
+
+// Une ligne du tableau éco. Extraite pour être réutilisée par « Ajouter une pièce ».
+function ligneEcoHtml(l, i) {
+  return `
     <tr data-eco-row="${i}">
       <td><input data-eco="designation" value="${esc(l.designation)}" style="width:100%;min-width:140px"></td>
       <td class="num"><input data-eco="quantite" type="number" min="1" step="1" value="${l.quantite}" style="width:64px;text-align:right"></td>
@@ -130,8 +140,10 @@ function renderEcoSection(eco) {
            plus rien. Le tarif de la grille s'affiche en repère (placeholder). -->
       <td class="num"><input data-eco="tarif" type="number" min="0" step="0.01" value="" placeholder="auto" style="width:80px;text-align:right" title="Vide = tarif de la grille, recalculé à chaque changement. Une valeur saisie ici prend le pas."></td>
       <td class="num"><strong data-eco="total">—</strong></td>
-    </tr>`).join('');
+    </tr>`;
+}
 
+function sectionEcoHtml({ eco, rows, detecte, alerte, avertissements }) {
   return `
     <div class="card" style="margin-top:16px">
       <div class="section-header" style="margin-bottom:6px">
@@ -141,7 +153,10 @@ function renderEcoSection(eco) {
         Barème tablettes et panneaux revêtus, <strong>à la dimension</strong> (longueur × hauteur), pas au poids.
         Tarifs de la grille en TTC. Modifie n'importe quelle ligne : le total suit.
       </p>
-      ${alerte}${avertissements}
+      ${!detecte ? `<p class="muted" style="font-size:13px">
+        ${icon('alert', 13)} Aucune tablette ni panneau lu automatiquement dans ce devis.
+        Saisis les pièces ci-dessous — le tarif se calcule tout seul dès que longueur et hauteur sont renseignées.
+      </p>` : alerte}${avertissements}
       <div style="overflow-x:auto">
         <table class="pipeline-table" style="margin-top:10px;min-width:720px">
           <thead>
@@ -165,7 +180,8 @@ function renderEcoSection(eco) {
         </table>
       </div>
       <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button class="btn btn-ghost btn-sm" id="df-eco-report">${icon('arrowUp', 14)} Reporter dans l'éco-participation</button>
+        <button class="btn btn-ghost btn-sm" id="df-eco-add">${icon('plus', 14)} Ajouter une pièce</button>
+        <button class="btn btn-ghost btn-sm" id="df-eco-report">${icon('check', 14)} Reporter dans l'éco-participation</button>
         <span class="muted" style="font-size:12px" id="df-eco-report-msg"></span>
       </div>
     </div>`;
@@ -286,6 +302,16 @@ function wireEco(out) {
   tbody.addEventListener('change', () => recomputeEco(out));
   out.querySelector('#df-tva')?.addEventListener('change', () => recomputeEco(out));
   out.querySelector('#df-eco-report')?.addEventListener('click', () => reporterEco(out));
+  // Ajout d'une pièce à la main : indispensable quand le devis ne porte pas ses
+  // dimensions (nomenclatures) ou qu'une pièce a été oubliée à la lecture.
+  out.querySelector('#df-eco-add')?.addEventListener('click', () => {
+    const tbody = out.querySelector('#df-eco-rows');
+    const index = tbody.querySelectorAll('tr[data-eco-row]').length;
+    tbody.insertAdjacentHTML('beforeend', ligneEcoHtml({ ...LIGNE_ECO_VIDE }, index));
+    recomputeEco(out);
+    // Curseur dans la désignation de la ligne qui vient d'apparaître.
+    tbody.querySelector(`tr[data-eco-row="${index}"] [data-eco=designation]`)?.focus();
+  });
   const r = recomputeEco(out);
   // Report automatique UNIQUEMENT si tout est chiffré : un total partiel ne
   // s'invite pas dans le prix client sans que quelqu'un l'ait décidé.
