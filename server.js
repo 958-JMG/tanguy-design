@@ -20,6 +20,9 @@ const { recapPaieMois, alertesVisitesMedicales, joursOuvres } = require('./servi
 const { joursRetard, niveauRelanceSuggere, buildEmailRelance, buildEmailRelanceFournisseur, buildMailto } = require('./services/relances-helper');
 const pennylane = require('./services/pennylane');
 const { DEVIS_IMPORT_HASH_FIELD, computeImportHash, buildHashFilterFormula } = require('./services/devis-idempotency');
+// Artefacts générés par une signature de devis (BC + tâches) — nettoyage à la
+// coche quand un devis signé repasse à « Refusé » (dossier MORALES).
+const { resumeGeneres, commandesGenereesPar, tachesGenereesPar, filtrerIdsAutorises } = require('./services/devis-generes-helper');
 // Barème éco-contribution des tablettes et panneaux (à la dimension, pas au poids).
 const ecoBareme = require('./services/eco-contribution-bareme');
 const { buildRetroApporteurs, TAUX_RETRO } = require('./services/retro-apporteurs-helper');
@@ -2254,6 +2257,169 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     });
   } catch (e) {
     logger.error('[devis/sign] error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- DEVIS : artefacts générés par une signature (BC + tâches) ---
+// Retour Virginie 2026-08 (dossier MORALES) : « certaines commandes apparaissent
+// en double ». Cause : un devis signé génère 4 BC + les tâches de suivi ; le
+// repasser à « Refusé » via le PATCH générique n'a AUCUN effet de bord, donc ces
+// artefacts survivent et se cumulent avec ceux du devis réellement accepté.
+// Ces deux routes permettent de les retrouver et de les supprimer À LA COCHE.
+// Rien n'est jamais supprimé automatiquement : un BC confirmé par un AR existe
+// pour de vrai chez le fournisseur, même si le devis client a été refusé.
+app.get('/api/devis/:id/generes', requireAuth, async (req, res) => {
+  const devisId = req.params.id;
+  try {
+    const devis = (await atFetchByIds(TABLES.devis.id, [devisId]))[0];
+    if (!devis) return res.status(404).json({ error: 'Devis introuvable' });
+    const dv = devis.fields || {};
+    const numero = dv['Numéro devis'] || '';
+    const projetId = (dv['Projet'] || [])[0] || null;
+
+    // Sans numéro de devis, aucun rattachement fiable n'est possible : on le DIT
+    // plutôt que de renvoyer une liste vide qui ferait croire qu'il n'y a rien.
+    if (!numero) {
+      return res.json({
+        ok: true, numero: '', statut: dv.Statut || '', rien: true,
+        indetermine: 'Ce devis n\'a pas de numéro : impossible de retrouver ce que sa signature a généré.',
+        commandes: [], taches: [], echeancesFacturees: [],
+        totalSupprimables: 0, totalSuggere: 0, aRisque: 0,
+      });
+    }
+
+    let commandes = [], taches = [];
+    if (projetId) {
+      const projet = (await atFetchByIds(TABLES.projets.id, [projetId]))[0];
+      const cmdIds = projet?.fields?.['Commandes'] || [];
+      const tacheIds = projet?.fields?.['Tâches'] || [];
+      [commandes, taches] = await Promise.all([
+        cmdIds.length ? atFetchByIds(TABLES.commandes.id, cmdIds) : [],
+        tacheIds.length ? atFetchByIds(TABLES.taches.id, tacheIds) : [],
+      ]);
+    }
+
+    // Échéances du devis + repérage de celles déjà facturées (Pennylane ou
+    // facture client FC-…). On ne les supprime jamais : une facture émise se
+    // traite en compta. On les remonte pour que l'écran le dise.
+    const echIds = dv['Échéances devis'] || [];
+    const echeancesRaw = echIds.length ? await atFetchByIds(TABLES['echeances-devis'].id, echIds) : [];
+    let facturesClients = [];
+    if (echeancesRaw.length) {
+      try { facturesClients = await atFetchAll(TABLES['factures-clients'].id); }
+      catch (e) { logger.warn({ err: e.message, devisId }, '[devis/generes] factures clients KO'); }
+    }
+    const echeances = echeancesRaw.map(e => {
+      const fc = facturesClients.find(f => (f.fields?.['Échéance liée'] || []).includes(e.id));
+      return {
+        id: e.id,
+        libelle: e.fields?.['Libellé'] || '',
+        montantPrevu: e.fields?.['Montant prévu'] || 0,
+        facturePennylaneId: e.fields?.[PL_ECH_FIELD] || null,
+        numeroFacture: fc?.fields?.['Numéro'] || null,
+      };
+    });
+
+    const resume = resumeGeneres({
+      numero,
+      commandes: commandes.map(c => ({
+        id: c.id,
+        numero: c.fields?.['Numéro'] || '',
+        type: c.fields?.['Référence courte'] || c.fields?.['Type'] || '',
+        statut: c.fields?.['Statut'] || '',
+        montantHT: c.fields?.['Montant HT'] || 0,
+        montantAR: c.fields?.['Montant AR'] || 0,
+        factureRecue: !!c.fields?.['Facture reçue'],
+        notes: c.fields?.['Notes'] || '',
+      })),
+      taches: taches.map(t => ({
+        id: t.id,
+        titre: t.fields?.['Titre'] || '',
+        statut: t.fields?.['Statut'] || '',
+        assigneeA: t.fields?.['Assignée à'] || '',
+        echeance: t.fields?.['Échéance'] || '',
+        description: t.fields?.['Description'] || '',
+      })),
+      echeances,
+    });
+
+    res.json({ ok: true, statut: dv.Statut || '', ...resume });
+  } catch (e) {
+    logger.error({ err: e.message, devisId }, '[devis/generes] error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Suppression des artefacts COCHÉS. requireAdmin : aligné sur l'ACL commandes
+// (DELETE: admin). Les ids reçus sont re-vérifiés côté serveur contre la
+// détection — un id qui n'appartient pas à ce devis est REJETÉ, pas supprimé.
+app.post('/api/devis/:id/generes/supprimer', requireAuth, requireAdmin, async (req, res) => {
+  const devisId = req.params.id;
+  const { commandeIds = [], tacheIds = [] } = req.body || {};
+  try {
+    const devis = (await atFetchByIds(TABLES.devis.id, [devisId]))[0];
+    if (!devis) return res.status(404).json({ error: 'Devis introuvable' });
+    const dv = devis.fields || {};
+    const numero = dv['Numéro devis'] || '';
+    if (!numero) return res.status(400).json({ error: 'Devis sans numéro : rattachement impossible' });
+    const projetId = (dv['Projet'] || [])[0] || null;
+    if (!projetId) return res.status(400).json({ error: 'Devis sans projet' });
+
+    const projet = (await atFetchByIds(TABLES.projets.id, [projetId]))[0];
+    const cmdIdsProjet = projet?.fields?.['Commandes'] || [];
+    const tacheIdsProjet = projet?.fields?.['Tâches'] || [];
+    const [commandes, taches] = await Promise.all([
+      cmdIdsProjet.length ? atFetchByIds(TABLES.commandes.id, cmdIdsProjet) : [],
+      tacheIdsProjet.length ? atFetchByIds(TABLES.taches.id, tacheIdsProjet) : [],
+    ]);
+
+    const cmdDetectees = commandesGenereesPar(commandes.map(c => ({
+      id: c.id,
+      numero: c.fields?.['Numéro'] || '',
+      statut: c.fields?.['Statut'] || '',
+      montantAR: c.fields?.['Montant AR'] || 0,
+      factureRecue: !!c.fields?.['Facture reçue'],
+      notes: c.fields?.['Notes'] || '',
+    })), numero);
+    const tchDetectees = tachesGenereesPar(taches.map(t => ({
+      id: t.id,
+      titre: t.fields?.['Titre'] || '',
+      statut: t.fields?.['Statut'] || '',
+      description: t.fields?.['Description'] || '',
+    })), numero);
+
+    const cmdFiltre = filtrerIdsAutorises(commandeIds, cmdDetectees);
+    const tchFiltre = filtrerIdsAutorises(tacheIds, tchDetectees);
+
+    const supprimes = { commandes: [], taches: [] };
+    const echecs = [];
+    for (const id of cmdFiltre.autorises) {
+      try { await atDelete(TABLES.commandes.id, id); supprimes.commandes.push(id); }
+      catch (e) { echecs.push({ id, table: 'commandes', erreur: e.message }); }
+    }
+    for (const id of tchFiltre.autorises) {
+      try { await atDelete(TABLES.taches.id, id); supprimes.taches.push(id); }
+      catch (e) { echecs.push({ id, table: 'taches', erreur: e.message }); }
+    }
+
+    logger.info({
+      devisId, numero,
+      commandesSupprimees: supprimes.commandes.length,
+      tachesSupprimees: supprimes.taches.length,
+      rejetes: cmdFiltre.rejetes.length + tchFiltre.rejetes.length,
+      echecs: echecs.length,
+    }, '[devis/generes/supprimer] nettoyage');
+
+    res.json({
+      ok: true,
+      supprimes,
+      total: supprimes.commandes.length + supprimes.taches.length,
+      rejetes: [...cmdFiltre.rejetes, ...tchFiltre.rejetes],
+      echecs,
+    });
+  } catch (e) {
+    logger.error({ err: e.message, devisId }, '[devis/generes/supprimer] error');
     res.status(500).json({ error: e.message });
   }
 });
