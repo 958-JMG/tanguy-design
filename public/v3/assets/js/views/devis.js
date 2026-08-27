@@ -9,6 +9,7 @@ import {
   fetchDevisDetail, patchDevis, signDevisTanguy, importDevisClient,
   pushDevisToPennylane, pennylanePdfUrl,
   pushEcheancesFactures, echeancePdfUrl,
+  fetchDevisGeneres, supprimerDevisGeneres,
 } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 
@@ -96,6 +97,9 @@ function renderFiche(app, data) {
       </div>
     </div>
 
+    <!-- Artefacts laissés par une signature annulée (rempli après coup, cf. checkArtefactsGeneres) -->
+    <div id="generes-banner"></div>
+
     ${plQuote ? `<div class="card" style="margin-bottom:16px;display:flex;align-items:center;gap:8px">
       ${icon('check-circle', 16)}<span>Brouillon dans Pennylane${f['Pennylane numéro'] ? ` · ${esc(f['Pennylane numéro'])}` : ''}. Virginie l'envoie depuis Pennylane ou télécharge le PDF pour l'envoyer depuis sa boîte mail.</span>
     </div>` : ''}
@@ -156,6 +160,10 @@ function renderFiche(app, data) {
   `;
 
   hydrateIcons(app);
+
+  // Un devis non signé qui a laissé des BC derrière lui → bandeau de nettoyage.
+  // Asynchrone et non bloquant : la fiche s'affiche sans l'attendre.
+  checkArtefactsGeneres(devis, statut);
 
   // Bindings
   document.getElementById('btn-edit-devis')?.addEventListener('click', () => openModalEditDevis(devis));
@@ -288,6 +296,142 @@ function renderZone(zone, lignes) {
   `;
 }
 
+
+// ---------------------------------------------------------------------------
+// Nettoyage des artefacts d'une signature annulée (retour Virginie, MORALES)
+// ---------------------------------------------------------------------------
+// Signer un devis crée 4 BC (Meubles / Électroménager / Accessoires / Plan de
+// travail) + les tâches de suivi. Le repasser à « Refusé » ne les supprimait pas :
+// ils se cumulaient avec ceux du devis réellement accepté, d'où les « commandes
+// en double ». On propose la suppression À LA COCHE — jamais d'office : un BC
+// confirmé par un AR existe pour de vrai chez le fournisseur.
+
+// Bandeau sur la fiche d'un devis non signé qui a laissé des artefacts derrière lui.
+// Rattrape aussi les dossiers déjà cassés (MORALES), pas seulement les futurs.
+async function checkArtefactsGeneres(devis, statut) {
+  const slot = document.getElementById('generes-banner');
+  if (!slot || statut === 'Signé') return;
+  let r;
+  try { r = await fetchDevisGeneres(devis.id); }
+  catch (e) { return; } // silencieux : le bandeau est un bonus, pas le cœur de la fiche
+  if (r.indetermine) {
+    slot.innerHTML = `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--line)">
+      <p class="muted" style="margin:0">${esc(r.indetermine)}</p></div>`;
+    return;
+  }
+  if (r.rien) return;
+  slot.innerHTML = `
+    <div class="card" style="margin-bottom:16px;border-left:3px solid var(--accent)">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span>${icon('alert-triangle', 16)}</span>
+        <span style="flex:1;min-width:0">
+          Ce devis est en « ${esc(statut)} » mais sa signature a laissé
+          <strong>${r.commandes.length} bon${r.commandes.length > 1 ? 's' : ''} de commande</strong>
+          ${r.taches.length ? ` et <strong>${r.taches.length} tâche${r.taches.length > 1 ? 's' : ''}</strong>` : ''}
+          sur le projet. C'est ce qui fait apparaître des commandes en double.
+        </span>
+        <button class="btn btn-primary btn-sm" id="btn-nettoyer-generes">${icon('trash', 14)} Voir et nettoyer</button>
+      </div>
+    </div>`;
+  hydrateIcons(slot);
+  document.getElementById('btn-nettoyer-generes')?.addEventListener('click', () => openModalNettoyage(devis.id, r));
+}
+
+function ligneArtefact(kind, a, libelle, meta) {
+  const id = `nx-${kind}-${a.id}`;
+  return `
+    <label for="${id}" style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);margin-bottom:6px;cursor:pointer;${a.risque ? 'background:var(--red-lo,#fdf3f3)' : ''}">
+      <input type="checkbox" id="${id}" data-kind="${kind}" data-id="${esc(a.id)}" ${a.suggere ? 'checked' : ''} style="margin-top:3px">
+      <span style="flex:1;min-width:0">
+        <strong style="display:block;word-break:break-word">${esc(libelle)}</strong>
+        <span class="muted" style="font-size:12px">${esc(meta)}</span>
+        ${a.risque ? `<span style="display:block;font-size:12px;color:var(--accent);margin-top:2px">${icon('alert-triangle', 12)} ${esc(a.risque)} — décoché par précaution</span>` : ''}
+      </span>
+    </label>`;
+}
+
+function openModalNettoyage(devisId, r) {
+  const modal = document.createElement('div');
+  modal.className = 'modal-bg';
+  modal.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="nx-title" style="max-width:640px">
+      <h2 id="nx-title">Nettoyer ce que la signature a généré</h2>
+      <p class="muted" style="margin-top:0">
+        Décoche ce que tu veux garder. Les éléments qui ont déjà vécu (AR reçu, BC envoyé,
+        tâche terminée) sont décochés d'office : à toi de décider.
+      </p>
+
+      ${r.commandes.length ? `
+        <h3 style="font-size:14px;margin:16px 0 8px">Bons de commande (${r.commandes.length})</h3>
+        ${r.commandes.map(c => ligneArtefact('cmd', c, c.numero || '(sans numéro)',
+          [c.type, c.statut, c.montantHT ? `${Number(c.montantHT).toLocaleString('fr-FR')} € HT` : null,
+           c.source === 'numero' ? 'rattaché par son numéro' : null].filter(Boolean).join(' · '))).join('')}
+      ` : ''}
+
+      ${r.taches.length ? `
+        <h3 style="font-size:14px;margin:16px 0 8px">Tâches de suivi (${r.taches.length})</h3>
+        ${r.taches.map(t => ligneArtefact('tache', t, t.titre || '(sans titre)',
+          [t.statut, t.assigneeA, t.echeance].filter(Boolean).join(' · '))).join('')}
+      ` : ''}
+
+      ${r.echeancesFacturees.length ? `
+        <div class="card" style="margin-top:16px;border-left:3px solid var(--accent)">
+          <p style="margin:0 0 4px"><strong>${r.echeancesFacturees.length} échéance${r.echeancesFacturees.length > 1 ? 's' : ''} de ce devis ${r.echeancesFacturees.length > 1 ? 'ont' : 'a'} déjà donné lieu à une facture.</strong></p>
+          <p class="muted" style="margin:0;font-size:13px">
+            ${r.echeancesFacturees.map(e => `${esc(e.libelle || 'Échéance')}${e.reference ? ` (${esc(e.reference)})` : ''}`).join(' · ')}.
+            Une facture émise ne se supprime pas depuis le cockpit : à traiter avec la comptable, dans Pennylane.
+          </p>
+        </div>
+      ` : ''}
+
+      <div class="modal-actions" style="margin-top:20px">
+        <button type="button" class="btn btn-ghost" id="nx-cancel">Annuler</button>
+        <button type="button" class="btn btn-primary" id="nx-ok" style="background:var(--accent)">${icon('trash', 14)} Supprimer la sélection</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  hydrateIcons(modal);
+  const close = () => modal.remove();
+  modal.querySelector('#nx-cancel').onclick = close;
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+
+  modal.querySelector('#nx-ok').addEventListener('click', async () => {
+    const cochees = [...modal.querySelectorAll('input[type=checkbox]:checked')];
+    if (!cochees.length) { toast('Rien de coché', 'error'); return; }
+    const commandeIds = cochees.filter(c => c.dataset.kind === 'cmd').map(c => c.dataset.id);
+    const tacheIds = cochees.filter(c => c.dataset.kind === 'tache').map(c => c.dataset.id);
+    const quoi = [
+      commandeIds.length ? `${commandeIds.length} bon${commandeIds.length > 1 ? 's' : ''} de commande` : null,
+      tacheIds.length ? `${tacheIds.length} tâche${tacheIds.length > 1 ? 's' : ''}` : null,
+    ].filter(Boolean).join(' et ');
+    const ok = await confirmModal(
+      `Supprimer ${quoi} ?\n\nAction irréversible. Le devis lui-même n'est pas touché.`,
+      { okLabel: 'Supprimer', danger: true },
+    );
+    if (!ok) return;
+    const btn = modal.querySelector('#nx-ok');
+    btn.disabled = true;
+    btn.textContent = 'Suppression…';
+    try {
+      const res = await supprimerDevisGeneres(devisId, { commandeIds, tacheIds });
+      close();
+      // Jamais de silence : on annonce ce qui a échoué ou été refusé, pas seulement le succès.
+      if (res.echecs?.length) {
+        toast(`${res.total} supprimé(s), ${res.echecs.length} en échec — voir la fiche projet`, 'error', 6000);
+      } else if (res.rejetes?.length) {
+        toast(`${res.total} supprimé(s), ${res.rejetes.length} ignoré(s) (non rattachés à ce devis)`, 'error', 6000);
+      } else {
+        toast(`${res.total} élément${res.total > 1 ? 's' : ''} supprimé${res.total > 1 ? 's' : ''}`, 'success');
+      }
+      router();
+    } catch (err) {
+      btn.disabled = false;
+      btn.innerHTML = 'Supprimer la sélection';
+      toast('Erreur : ' + (err.message || err), 'error', 6000);
+    }
+  });
+}
+
 // Modale édition champs header (Numéro, Type, Statut, Date, Valable, Notes)
 function openModalEditDevis(devis) {
   const f = devis.fields || {};
@@ -327,10 +471,28 @@ function openModalEditDevis(devis) {
     const fd = new FormData(e.target);
     const fields = {};
     for (const [k, v] of fd.entries()) if (v) fields[k] = v;
+    // Bascule « Signé » → autre statut : la signature a généré des BC + des tâches
+    // qu'aucun mécanisme ne supprimait (dossier MORALES). On propose le nettoyage
+    // à la coche juste après l'enregistrement, tant que le contexte est frais.
+    const etaitSigne = f.Statut === 'Signé';
+    const devientNonSigne = etaitSigne && fields.Statut && fields.Statut !== 'Signé';
     try {
       await patchDevis(devis.id, fields);
       close();
       toast('Devis enregistré', 'success');
+      if (devientNonSigne) {
+        try {
+          const r = await fetchDevisGeneres(devis.id);
+          if (!r.rien && r.totalSupprimables > 0) {
+            openModalNettoyage(devis.id, r);
+            return; // le nettoyage rafraîchira la vue lui-même
+          }
+        } catch (e) {
+          // Jamais de silence : si on ne PEUT pas vérifier, on le dit au lieu de
+          // laisser croire qu'il n'y avait rien à nettoyer.
+          toast('Statut enregistré, mais impossible de vérifier les commandes générées par la signature', 'error', 6000);
+        }
+      }
       router();
     } catch (err) {
       toast('Erreur : ' + err.message, 'error', 5000);

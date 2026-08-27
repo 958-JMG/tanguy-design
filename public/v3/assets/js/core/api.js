@@ -349,6 +349,22 @@ export function echeancePdfUrl(echeanceId) {
   return `/api/echeances/${echeanceId}/pennylane/pdf`;
 }
 
+// Artefacts générés par la signature d'un devis (BC + tâches de suivi).
+// Sert à nettoyer quand un devis SIGNÉ repasse à « Refusé » : le changement de
+// statut n'a aucun effet de bord côté Airtable, les BC restent (dossier MORALES).
+export async function fetchDevisGeneres(devisId) {
+  return api(`/api/devis/${devisId}/generes`);
+}
+
+// Supprime les artefacts COCHÉS. Le serveur re-vérifie que chaque id appartient
+// bien à ce devis avant de supprimer quoi que ce soit.
+export async function supprimerDevisGeneres(devisId, { commandeIds = [], tacheIds = [] }) {
+  return api(`/api/devis/${devisId}/generes/supprimer`, {
+    method: 'POST',
+    body: JSON.stringify({ commandeIds, tacheIds }),
+  });
+}
+
 // PATCH champs header devis (Numéro, Type, Statut, Date, Notes…).
 export async function patchDevis(devisId, fields) {
   return api(`/api/data/devis/${devisId}`, {
