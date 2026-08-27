@@ -31,6 +31,8 @@ const { descriptionDevis } = require('./services/description-devis-helper');
 // Rétro-commission 5 % sur les devis artisans — règle UNIQUE (cf. le helper :
 // s'applique à tous les devis, pas aux seuls artisans contractuels).
 const { retroTotale } = require('./services/retro-artisans-helper');
+// Devis client issu du Devis express (P-H4) : numérotation et construction.
+const { numeroDevisExpress, construireDevisClient, referenceProjet } = require('./services/devis-express-helper');
 const { buildRetroApporteurs, TAUX_RETRO } = require('./services/retro-apporteurs-helper');
 const { canAccess, pickAllowedFields } = require('./services/acl');
 const logger = require('./services/logger');
@@ -2286,6 +2288,109 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     });
   } catch (e) {
     logger.error('[devis/sign] error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- DEVIS EXPRESS : création du devis client (P-H4) ---
+// Le Devis express s'arrêtait au chiffrage : le bouton « Créer le devis client »
+// était désactivé depuis l'origine. Cette route ferme la chaîne
+// devis fournisseur → prix client → DEVIS CLIENT, lequel alimente ensuite la
+// signature (bons de commande), les échéances et les brouillons Pennylane.
+//
+// Rattachement (choix JMG 27/08) : un projet existant, ou un client dont le
+// projet est créé à la volée — même logique que l'import de devis Winner.
+//
+// requireAuth et non requireAdmin : le Devis express est ouvert à toute
+// l'équipe, et le devis créé part en BROUILLON. À restreindre si Virginie
+// préfère que seule elle puisse créer des devis.
+app.post('/api/devis-express/creer-devis', requireAuth, async (req, res) => {
+  const b = req.body || {};
+  const { projetId, clientId, designation, prixClientHt, tvaTaux, ecoHt, origine } = b;
+  try {
+    if (!projetId && !clientId) return res.status(400).json({ error: 'projetId ou clientId requis' });
+    if (!(Number(prixClientHt) > 0)) return res.status(422).json({ error: 'Prix client HT requis' });
+
+    // 1. Projet : existant, ou créé à la volée pour le client choisi.
+    let resolvedProjetId = projetId || null;
+    let resolvedClientId = clientId || null;
+    let projetCree = false;
+
+    if (resolvedProjetId) {
+      const [p] = await atFetchByIds(TABLES.projets.id, [resolvedProjetId]);
+      if (!p) return res.status(404).json({ error: 'Projet introuvable' });
+      resolvedClientId = (p.fields?.Client || [])[0] || resolvedClientId;
+    } else {
+      const [c] = await atFetchByIds(TABLES.clients.id, [resolvedClientId]);
+      if (!c) return res.status(404).json({ error: 'Client introuvable' });
+      const np = await atCreate(TABLES.projets.id, {
+        'Référence': referenceProjet(c.fields?.Nom, designation),
+        'Client': [resolvedClientId],
+        'Statut': 'Devis',
+        'Description': 'Projet créé depuis le Devis express',
+        'Budget HT': Math.round(Number(prixClientHt) * 100) / 100,
+      });
+      resolvedProjetId = np.id;
+      projetCree = true;
+      logger.info({ projetId: resolvedProjetId }, '[devis-express] projet créé');
+    }
+
+    // 2. Numéro séquentiel EXP-AAAA-NNN, calculé sur les numéros RÉELLEMENT
+    //    présents (et non sur un compteur, qui rendrait un numéro déjà pris
+    //    après une suppression).
+    const tousDevis = await atFetchAll(TABLES.devis.id);
+    const numero = numeroDevisExpress(
+      tousDevis.map(d => d.fields?.['Numéro devis']),
+      new Date().getFullYear(),
+    );
+
+    // 3. Champs du devis + ligne unique.
+    const { fields, ligne, coherence, avertissements } = construireDevisClient({
+      numero,
+      designation,
+      prixClientHt: Number(prixClientHt),
+      tvaTaux: Number(tvaTaux),
+      ecoHt: Number(ecoHt) || 0,
+      dateDevis: todayISO(),
+      origine,
+    });
+    // Un devis dont le TTC ne se retrouve pas depuis les bases casserait la
+    // facturation des semaines plus tard, sans bruit. On refuse tout de suite.
+    if (!coherence.ok) {
+      return res.status(422).json({ error: 'Totaux incohérents — devis non créé', avertissements, coherence });
+    }
+
+    fields['Projet'] = [resolvedProjetId];
+    if (resolvedClientId) fields['Client'] = [resolvedClientId];
+    Object.keys(fields).forEach(k => { if (fields[k] === null || fields[k] === '') delete fields[k]; });
+
+    const devisRec = await atCreate(TABLES.devis.id, fields);
+
+    // 4. Ligne du devis. Non bloquant : un devis sans sa ligne reste exploitable
+    //    (les totaux sont sur le devis), mais l'échec est DIT, pas avalé.
+    let ligneCreee = true;
+    try {
+      const lf = { ...ligne, 'Devis': [devisRec.id] };
+      Object.keys(lf).forEach(k => { if (lf[k] === null || lf[k] === '') delete lf[k]; });
+      await atCreate(TABLES['lignes-devis'].id, lf);
+    } catch (e) {
+      ligneCreee = false;
+      avertissements.push('La ligne du devis n\'a pas pu être créée : ' + e.message);
+      logger.warn({ err: e.message, devisId: devisRec.id }, '[devis-express] ligne non créée');
+    }
+
+    logger.info({ devisId: devisRec.id, numero, projetCree }, '[devis-express] devis client créé');
+    res.json({
+      ok: true,
+      devisId: devisRec.id,
+      numero,
+      projetId: resolvedProjetId,
+      projetCree,
+      ligneCreee,
+      avertissements,
+    });
+  } catch (e) {
+    logger.error({ err: e.message }, '[devis-express] création KO');
     res.status(500).json({ error: e.message });
   }
 });
