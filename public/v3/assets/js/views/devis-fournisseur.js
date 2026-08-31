@@ -24,6 +24,10 @@ const eur = (n) => (n == null || Number.isNaN(Number(n)))
 let current = null;
 
 export function renderDevisFournisseur(app) {
+  if (!state.isAdmin) {
+    app.innerHTML = `<div class="card"><h2>Accès réservé</h2><p class="muted">Devis express (import d'un devis fournisseur pour générer un devis client) est réservé aux administrateurs.</p></div>`;
+    return;
+  }
   app.innerHTML = `
     <div class="page-head">
       <h1 class="page-title">${icon('calculator', 22)} Devis express</h1>
