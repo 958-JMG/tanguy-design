@@ -302,17 +302,28 @@ function requireAuth(req, res, next) {
   return res.redirect('/login');
 }
 
-// RC Pro 2026 : refuse l'accès si user n'est pas dans ADMIN_LOGINS (Stock, Marges, etc.)
+// Source de vérité du rôle admin : la case « Admin » de la fiche utilisateur
+// (Airtable « Users cockpit »). ADMIN_LOGINS reste un filet de sécurité (break-glass)
+// pour ne jamais verrouiller virginie/jmg même si Airtable est indisponible.
+// Cache usersStore (TTL 60s, invalidé à chaque écriture) → cocher/décocher la case
+// prend effet quasi immédiatement, sans reconnexion.
+async function isAdminLogin(login) {
+  if (!login) return false;
+  if (ADMIN_LOGINS.has(login)) return true;
+  try { return await usersStore.isAdmin(login); } catch { return false; }
+}
+
+// RC Pro 2026 : refuse l'accès si l'utilisateur n'est pas admin (Stock, Marges, Gestion…).
 // Le menu Admin frontend était masqué via window.ME_ADMIN mais l'API restait ouverte
 // à tout user authentifié (bypass trivial via curl). Ajout d'un check serveur.
 function requireAdmin(req, res, next) {
   if (!req.session || !req.session.user) {
     return res.status(401).json({ error: 'not authenticated' });
   }
-  if (!ADMIN_LOGINS.has(req.session.user)) {
-    return res.status(403).json({ error: 'admin only' });
-  }
-  next();
+  isAdminLogin(req.session.user).then(ok => {
+    if (!ok) return res.status(403).json({ error: 'admin only' });
+    next();
+  }).catch(() => res.status(500).json({ error: 'auth check failed' }));
 }
 
 // === Rôle POSEUR (accès terrain restreint) ========================================
@@ -332,10 +343,11 @@ async function isRestrictedPoseur(req) {
 function requirePoseur(req, res, next) {
   const login = req.session?.user;
   if (!login) return res.status(401).json({ error: 'not authenticated' });
-  if (ADMIN_LOGINS.has(login)) return next();
-  usersStore.findUser(login)
-    .then(u => (u && u.poseur && u.actif !== false) ? next() : res.status(403).json({ error: 'réservé aux poseurs' }))
-    .catch(() => res.status(403).json({ error: 'réservé aux poseurs' }));
+  isAdminLogin(login).then(admin => {
+    if (admin) return next();
+    return usersStore.findUser(login)
+      .then(u => (u && u.poseur && u.actif !== false) ? next() : res.status(403).json({ error: 'réservé aux poseurs' }));
+  }).catch(() => res.status(403).json({ error: 'réservé aux poseurs' }));
 }
 // Verrou global : un poseur restreint ne peut toucher QUE /api/me, /api/logout, /api/poseur/*.
 app.use('/api', async (req, res, next) => {
@@ -348,14 +360,14 @@ app.use('/api', async (req, res, next) => {
 // ACL complète /api/data/:table : cf. services/acl.js (Sprint 0.7).
 // Mapping (table × verb × role) + whitelist des champs modifiables par table.
 // Remplace l'ancien requireAdminIfRestrictedTable qui ne protégeait que `stock`.
-function userRole(req) {
-  return ADMIN_LOGINS.has(req.session?.user) ? 'admin' : '*';
+async function userRole(req) {
+  return (await isAdminLogin(req.session?.user)) ? 'admin' : '*';
 }
-function requireTableAccess(req, res, verb) {
+async function requireTableAccess(req, res, verb) {
   const tableKey = req.params.table;
   const t = TABLES[tableKey];
   if (!t) { res.status(404).json({ error: 'unknown table' }); return null; }
-  const role = userRole(req);
+  const role = await userRole(req);
   if (!canAccess(role, tableKey, verb)) {
     logger.warn({ user: req.session?.user, role, table: tableKey, verb }, 'ACL refus');
     res.status(role === 'admin' ? 405 : 403).json({ error: role === 'admin' ? `${verb} non autorisé sur ${tableKey}` : 'admin requis' });
@@ -960,10 +972,8 @@ app.post('/api/login/enroll/verify', loginLimiter, async (req, res) => {
 // Source : table Airtable "Users cockpit" via services/users-store.js.
 function requireAdminUsers(req, res, next) {
   if (!req.session?.user) return res.status(401).json({ error: 'non authentifié' });
-  // Permissive : admin si dans ADMIN_LOGINS env OU si user.admin=true dans Airtable
-  if (ADMIN_LOGINS.has(req.session.user)) return next();
-  // Check async dans usersStore
-  usersStore.isAdmin(req.session.user).then(isAdmin => {
+  // Même règle que partout : case « Admin » Airtable OU allowlist env (cf. isAdminLogin).
+  isAdminLogin(req.session.user).then(isAdmin => {
     if (isAdmin) return next();
     return res.status(403).json({ error: 'admin requis pour gérer les utilisateurs' });
   }).catch(e => res.status(500).json({ error: e.message }));
@@ -1039,14 +1049,15 @@ app.post('/api/admin/users/:id/reset-2fa', requireAdminUsers, async (req, res) =
 
 app.get('/api/me', async (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: 'not authenticated' });
-  // Sprint v4 — isAdmin lu depuis Airtable OU env ADMIN_LOGINS (rétrocompat)
-  const isAdmin = ADMIN_LOGINS.has(req.session.user) || await usersStore.isAdmin(req.session.user);
+  // isAdmin : case « Admin » Airtable OU allowlist env (cf. isAdminLogin) — même
+  // règle que les gardes serveur, donc le menu affiché = les accès réellement ouverts.
+  const isAdmin = await isAdminLogin(req.session.user);
   res.json({ user: req.session.user, isAdmin });
 });
 
 // --- Data API générique avec ACL (cf. services/acl.js) ---
 app.get('/api/data/:table', requireAuth, async (req, res) => {
-  const t = requireTableAccess(req, res, 'GET'); if (!t) return;
+  const t = await requireTableAccess(req, res, 'GET'); if (!t) return;
   try {
     const records = await atFetchAll(t.id);
     res.json({ ok: true, records });
@@ -1054,7 +1065,7 @@ app.get('/api/data/:table', requireAuth, async (req, res) => {
 });
 
 app.post('/api/data/:table', requireAuth, async (req, res) => {
-  const t = requireTableAccess(req, res, 'POST'); if (!t) return;
+  const t = await requireTableAccess(req, res, 'POST'); if (!t) return;
   try {
     const fields = pickAllowedFields(req.params.table, req.body.fields);
     const rec = await atCreate(t.id, fields);
@@ -1063,7 +1074,7 @@ app.post('/api/data/:table', requireAuth, async (req, res) => {
 });
 
 app.patch('/api/data/:table/:id', requireAuth, async (req, res) => {
-  const t = requireTableAccess(req, res, 'PATCH'); if (!t) return;
+  const t = await requireTableAccess(req, res, 'PATCH'); if (!t) return;
   try {
     const fields = pickAllowedFields(req.params.table, req.body.fields);
     const rec = await atPatch(t.id, req.params.id, fields);
@@ -1135,7 +1146,7 @@ app.post('/api/projets/:projetId/echeances/:echeanceId/facturer', requireAuth, a
 });
 
 app.delete('/api/data/:table/:id', requireAuth, async (req, res) => {
-  const t = requireTableAccess(req, res, 'DELETE'); if (!t) return;
+  const t = await requireTableAccess(req, res, 'DELETE'); if (!t) return;
   try {
     const d = await atDelete(t.id, req.params.id);
     res.json({ ok: true, deleted: d });
@@ -4446,4 +4457,5 @@ if (require.main === module) {
   })();
 }
 
+app.isAdminLogin = isAdminLogin; // exposé pour les tests d'accès
 module.exports = app;
