@@ -1603,7 +1603,7 @@ app.get('/api/echeances/:id/pennylane/pdf', requireAuth, async (req, res) => {
 // + éco-participation suggérée + prix client suggéré). La création du devis
 // client se fait en aval (P-H4).
 // ──────────────────────────────────────────────────────────────────────────
-app.post('/api/devis-fournisseur/parse', requireAuth, upload.single('pdf'), async (req, res) => {
+app.post('/api/devis-fournisseur/parse', requireAdmin, upload.single('pdf'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'PDF requis' });
   if (!validatePdfMagicBytes(req.file.buffer)) return res.status(400).json({ error: 'Fichier non reconnu comme PDF (signature %PDF manquante)' });
   if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY non configurée' });
@@ -2304,7 +2304,7 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
 // requireAuth et non requireAdmin : le Devis express est ouvert à toute
 // l'équipe, et le devis créé part en BROUILLON. À restreindre si Virginie
 // préfère que seule elle puisse créer des devis.
-app.post('/api/devis-express/creer-devis', requireAuth, async (req, res) => {
+app.post('/api/devis-express/creer-devis', requireAdmin, async (req, res) => {
   const b = req.body || {};
   const { projetId, clientId, designation, prixClientHt, tvaTaux, ecoHt, origine } = b;
   try {
@@ -4434,10 +4434,16 @@ app.use('/v3',  requireAuth, express.static(path.join(__dirname, 'public', 'v3')
 
 // Démarrage : sous flag e2e, on remappe d'abord les tables par nom (base de test),
 // puis on écoute. En prod (flag absent), resolveTablesByNameIfE2E() est un no-op.
-(async () => {
-  try { await resolveTablesByNameIfE2E(); } catch (e) { logger.warn('[e2e] resolve tables KO: ' + e.message); }
-  app.listen(PORT, () => {
-    logger.info(`✅ Tanguy Design — Cockpit v0.3.0 on port ${PORT}`);
-    logger.info(`   Users: ${Object.keys(USERS).length} | Airtable: ${BASE_ID ? 'OK' : 'MISSING'} | Claude: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'MISSING'}`);
-  });
-})();
+// require.main === module : on n'écoute QUE lancé directement (node server.js).
+// Importé par un test (require('./server')), on expose `app` sans ouvrir de port.
+if (require.main === module) {
+  (async () => {
+    try { await resolveTablesByNameIfE2E(); } catch (e) { logger.warn('[e2e] resolve tables KO: ' + e.message); }
+    app.listen(PORT, () => {
+      logger.info(`✅ Tanguy Design — Cockpit v0.3.0 on port ${PORT}`);
+      logger.info(`   Users: ${Object.keys(USERS).length} | Airtable: ${BASE_ID ? 'OK' : 'MISSING'} | Claude: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'MISSING'}`);
+    });
+  })();
+}
+
+module.exports = app;
