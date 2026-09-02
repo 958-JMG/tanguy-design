@@ -49,11 +49,16 @@ function joursAbsenceDansMois(absence, mois) {
 
 /**
  * Récapitulatif mensuel des éléments de paie par salarié.
+ *
+ * Ne porte PAS le solde de congés : depuis le 02/09/2026 il est recalculé par
+ * services/conges-helper (acquis − posés). Le relayer ici ferait vivre deux
+ * chiffres pour la même chose, dont un faux — l'ancien champ Airtable
+ * « Solde congés » n'était jamais crédité.
  * Les heures hebdo sont rattachées au mois de leur lundi (champ "Semaine du").
  * Seules les absences Validées sont comptées.
  *
  * @param {object} opts
- * @param {Array<{id, nom, poste, typeContrat, soldeConges}>} opts.salaries
+ * @param {Array<{id, nom, poste, typeContrat}>} opts.salaries
  * @param {Array<{salarieId, semaine, heuresNormales, heuresSupp}>} opts.heures
  * @param {Array<{salarieId, type, dateDebut, dateFin, jours, statut}>} opts.absences
  * @param {string} opts.mois 'YYYY-MM'
@@ -80,7 +85,6 @@ function recapPaieMois({ salaries = [], heures = [], absences = [], mois }) {
       congesPris,
       maladie,
       autresAbsences,
-      soldeConges: typeof sal.soldeConges === 'number' ? sal.soldeConges : null,
     };
   });
 }

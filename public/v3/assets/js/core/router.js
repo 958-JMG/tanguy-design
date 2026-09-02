@@ -8,6 +8,7 @@ import { renderCommande } from '../views/commande.js';
 import { renderDevis } from '../views/devis.js';
 import { renderPipeline } from '../views/pipeline.js';
 import { renderCalendar } from '../views/calendar.js';
+import { renderPose } from '../views/pose.js';
 import { renderAdmin } from '../views/admin.js';
 import { renderGestion } from '../views/gestion.js';
 import { renderSav } from '../views/sav.js';
@@ -43,6 +44,7 @@ export function router() {
       case 'devis':            return rest.length ? renderDevis(app, decodeURIComponent(rest[0])) : renderDashboard(app);
       case 'pipeline':         return renderPipeline(app, rest.length ? decodeURIComponent(rest.join('/')) : null);
       case 'calendar':         return renderCalendar(app);
+      case 'pose':             return renderPose(app);
       case 'devis-fournisseur': return renderDevisFournisseur(app);
       case 'gestion':          return renderGestion(app, rest.length ? decodeURIComponent(rest[0]) : 'facturation');
       case 'sav':              return renderSav(app);
