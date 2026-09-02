@@ -57,6 +57,11 @@ const FIELDS = [
     description: 'Droits RTT sur une année pleine, en jours ouvrés. VIDE = pas de RTT pour ce salarié. Dès qu’un nombre est saisi, son compteur RTT apparaît dans l’écran RH.' },
   { name: 'Report CP', options: NUMBER,
     description: 'Reliquat de congés payés reporté de l’année précédente, repris du bulletin de paie. S’ajoute aux droits ouverts. Vide = 0.' },
+  // Ajouté le 02/09 après remarque JMG : une alternante comme Marine cumule des
+  // heures supplémentaires et les transforme en RTT. Ses RTT ne viennent donc
+  // pas d’un droit annuel mais d’une conversion.
+  { name: 'Heures pour 1 RTT', options: NUMBER,
+    description: 'Nombre d’heures supplémentaires validées qui donnent 1 jour de RTT (ex. 7 pour une journée de 7 h). VIDE = les heures supplémentaires de ce salarié ne se convertissent pas en RTT.' },
 ];
 
 async function fetchSchema() {

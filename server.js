@@ -4033,6 +4033,7 @@ function normSalarie(r) {
     joursCpAn: typeof f['Jours CP par an'] === 'number' ? f['Jours CP par an'] : null,
     joursRttAn: typeof f['Jours RTT par an'] === 'number' ? f['Jours RTT par an'] : null,
     reportCp: typeof f['Report CP'] === 'number' ? f['Report CP'] : null,
+    heuresPour1Rtt: typeof f['Heures pour 1 RTT'] === 'number' ? f['Heures pour 1 RTT'] : null,
     prochaineVisite: f['Prochaine visite médicale'] || null, actif: !!f['Actif'],
   };
 }
@@ -4085,9 +4086,10 @@ app.get('/api/rh/conges', requireAdmin, async (req, res) => {
     ? String(req.query.date)
     : new Date().toISOString().slice(0, 10);
   try {
-    const [salariesRaw, absencesRaw] = await Promise.all([
+    const [salariesRaw, absencesRaw, heuresRaw] = await Promise.all([
       atFetchAll(TABLES.salaries.id),
       atFetchAll(TABLES.absences.id),
+      atFetchAll(TABLES['heures-salaries'].id),
     ]);
     const salaries = salariesRaw.map(normSalarie).filter(s => s.actif);
     const absences = absencesRaw.map(r => ({
@@ -4099,7 +4101,15 @@ app.get('/api/rh/conges', requireAdmin, async (req, res) => {
       dateFin: r.fields['Date fin'] || null,
       statut: r.fields['Statut'] || '',
     })).filter(a => a.salarieId && a.dateDebut);
-    const compteurs = compteursCongesEquipe({ salaries, absences, aujourdhui });
+    // Heures supplémentaires : elles alimentent les RTT des salariés dont la
+    // fiche porte « Heures pour 1 RTT » (cas de l'alternance).
+    const heures = heuresRaw.map(r => ({
+      salarieId: (r.fields['Salarié'] || [])[0],
+      semaine: r.fields['Semaine du'] || '',
+      heuresSupp: Number(r.fields['Heures supp']) || 0,
+      valide: !!r.fields['Validé'],
+    })).filter(h => h.salarieId && h.semaine);
+    const compteurs = compteursCongesEquipe({ salaries, absences, heures, aujourdhui });
     res.json({ ok: true, aujourdhui, periode: compteurs[0]?.periode || null, compteurs });
   } catch (e) {
     logger.error('[rh/conges] error:', e.message);
