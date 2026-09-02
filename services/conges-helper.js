@@ -31,8 +31,10 @@
  * Ces trois limites sont remontées à l'appelant (`limites`) pour être affichées.
  */
 
-const ACQUISITION_PAR_MOIS = 2.5;   // jours ouvrables
-const PLAFOND_ANNUEL = 30;          // jours ouvrables
+// Minimum légal : 30 jours ouvrables par an, soit 2,5 par mois travaillé.
+// C'est un DÉFAUT, pas une règle figée : chaque salarié peut porter son propre
+// « Jours CP par an » (convention collective plus favorable, temps partiel…).
+const CP_PAR_AN_DEFAUT = 30;        // jours ouvrables
 const TYPES_CP = ['Congés payés'];
 const TYPES_RTT = ['RTT'];
 
@@ -115,6 +117,28 @@ function estOuvrable(iso) {
   return !feriesDeLAnnee(dt.getUTCFullYear()).has(iso);
 }
 
+/** Jour ouvré = lundi à vendredi, hors jour férié. Unité des RTT (un RTT est un
+ *  jour de travail posé ; le samedi n'en est pas un). */
+function estOuvre(iso) {
+  const dt = versDate(iso);
+  if (!dt) return false;
+  const jour = dt.getUTCDay();
+  if (jour === 0 || jour === 6) return false;
+  return !feriesDeLAnnee(dt.getUTCFullYear()).has(iso);
+}
+
+/** Liste des jours ouvrés de [debut, fin] inclus. */
+function joursOuvresEntre(debut, fin) {
+  const d0 = versDate(debut), d1 = versDate(fin);
+  if (!d0 || !d1 || d1 < d0) return [];
+  const out = [];
+  for (let d = d0; d <= d1; d = ajouterJours(d, 1)) {
+    const iso = versIso(d);
+    if (estOuvre(iso)) out.push(iso);
+  }
+  return out;
+}
+
 /** Liste des jours ouvrables de [debut, fin] inclus. [] si bornes invalides ou inversées. */
 function joursOuvrablesEntre(debut, fin) {
   const d0 = versDate(debut), d1 = versDate(fin);
@@ -176,10 +200,18 @@ function moisComplets(debut, aujourdhui) {
 }
 
 /**
- * Congés acquis sur la période.
+ * Droits acquis sur la période, au prorata des mois travaillés.
+ *
+ * `joursParAn` est le droit d'une année pleine — 30 jours ouvrables par défaut
+ * pour les congés payés, mais chaque salarié peut avoir le sien (« Jours CP par
+ * an » / « Jours RTT par an » sur sa fiche). Le rythme mensuel en découle :
+ * 30/an = 2,5/mois, 25/an = 2,08/mois, 12 RTT/an = 1/mois.
+ *
  * @returns {{mois:number, jours:number, plafonne:boolean, entreeInconnue:boolean, debutAcquisition:string}}
  */
-function congesAcquis({ dateEntree, periode, aujourdhui }) {
+function congesAcquis({ dateEntree, periode, aujourdhui, joursParAn = CP_PAR_AN_DEFAUT }) {
+  const plafond = Number(joursParAn) > 0 ? Number(joursParAn) : 0;
+  const parMois = plafond / 12;
   // Sans date d'entrée (3 salariés sur 4 au 02/09), on suppose le salarié
   // présent depuis le début de la période — et on le DIT à l'appelant.
   const entree = versDate(dateEntree);
@@ -189,11 +221,12 @@ function congesAcquis({ dateEntree, periode, aujourdhui }) {
   // On ne compte pas au-delà de la fin de période.
   const borne = versDate(aujourdhui) > versDate(periode.fin) ? periode.fin : aujourdhui;
   const mois = moisComplets(depart, borne);
-  const brut = mois * ACQUISITION_PAR_MOIS;
+  const brut = mois * parMois;
   return {
     mois,
-    jours: Math.min(PLAFOND_ANNUEL, brut),
-    plafonne: brut > PLAFOND_ANNUEL,
+    // Arrondi au dixième : 2,08/mois produit sinon des chiffres illisibles.
+    jours: Math.round(Math.min(plafond, brut) * 10) / 10,
+    plafonne: brut > plafond,
     entreeInconnue,
     debutAcquisition: depart,
   };
@@ -211,7 +244,10 @@ function congesAcquis({ dateEntree, periode, aujourdhui }) {
  * @returns {{jours:number, dates:string[], jusquAujourdhui:number, aVenir:number,
  *            detail:Array, chevauchements:Array}}
  */
-function joursPosesDistincts({ absences = [], types, periode, aujourdhui }) {
+function joursPosesDistincts({ absences = [], types, periode, aujourdhui, unite = 'ouvrables' }) {
+  // Les congés payés se décomptent en jours OUVRABLES (samedi compris, choix
+  // JMG), les RTT en jours OUVRÉS — un RTT est un jour de travail posé.
+  const joursEntre = unite === 'ouvres' ? joursOuvresEntre : joursOuvrablesEntre;
   const retenues = (absences || []).filter(a =>
     a && a.statut === 'Validée' && types.includes(a.type));
 
@@ -222,10 +258,10 @@ function joursPosesDistincts({ absences = [], types, periode, aujourdhui }) {
     const debut = a.dateDebut > periode.debut ? a.dateDebut : periode.debut;
     const finAbs = a.dateFin || a.dateDebut;
     const fin = finAbs < periode.fin ? finAbs : periode.fin;
-    const jours = joursOuvrablesEntre(debut, fin);
+    const jours = joursEntre(debut, fin);
     for (const j of jours) dates.add(j);
     detail.push({ id: a.id, libelle: a.libelle || '', type: a.type,
-      dateDebut: a.dateDebut, dateFin: finAbs, joursOuvrables: jours.length });
+      dateDebut: a.dateDebut, dateFin: finAbs, jours: jours.length, unite });
   }
 
   // Paires qui se recouvrent : on les remonte pour que Virginie puisse trancher.
@@ -270,24 +306,38 @@ function joursPosesDistincts({ absences = [], types, periode, aujourdhui }) {
  */
 function compteurConges({ salarie, absences = [], aujourdhui }) {
   const periode = periodeDeReference(aujourdhui);
-  // Période précédente : c'est ELLE qui ouvre les droits qu'on prend aujourd'hui.
-  // En France on ne consomme pas les congés qu'on est en train d'acquérir : ceux
-  // pris à l'été 2026 viennent de l'année 06/2025-05/2026. Compter « acquis
-  // cette période moins pris cette période » mettait les 4 salariés de Tanguy en
-  // négatif au 02/09 — un compteur faux, comme celui qu'on remplace.
+  // Période précédente : c'est ELLE qui ouvre les droits de congés payés qu'on
+  // prend aujourd'hui. En France on ne consomme pas les congés qu'on est en
+  // train d'acquérir : ceux pris à l'été 2026 viennent de l'année 06/2025-05/2026.
   const precedente = periodeDeReference(`${Number(periode.debut.slice(0, 4)) - 1}-06-01`);
   const siennes = (absences || []).filter(a => a && a.salarieId === salarie.id);
 
-  // Droits ouverts : ce que le salarié a acquis sur la période précédente, donc
-  // ce qu'il peut prendre maintenant. Interrogée à sa clôture, une période
-  // complète vaut 30 jours.
-  const ouverts = congesAcquis({ dateEntree: salarie.dateEntree, periode: precedente, aujourdhui: precedente.fin });
-  // En cours d'acquisition : sera disponible à partir du 1ᵉʳ juin prochain.
-  const enCours = congesAcquis({ dateEntree: salarie.dateEntree, periode, aujourdhui });
+  // Paramètres de la FICHE du salarié. Vides = comportement par défaut ; c'est
+  // Virginie qui les remplit, jamais le serveur.
+  const nb = v => (typeof v === 'number' && isFinite(v) ? v : null);
+  const cpAn = nb(salarie.joursCpAn) !== null && nb(salarie.joursCpAn) > 0 ? nb(salarie.joursCpAn) : CP_PAR_AN_DEFAUT;
+  const cpAnPersonnalise = nb(salarie.joursCpAn) !== null && nb(salarie.joursCpAn) > 0 && nb(salarie.joursCpAn) !== CP_PAR_AN_DEFAUT;
+  const rttAn = nb(salarie.joursRttAn);          // null ou 0 = pas de RTT
+  const report = nb(salarie.reportCp) || 0;
 
-  const cp = joursPosesDistincts({ absences: siennes, types: TYPES_CP, periode, aujourdhui });
-  const rtt = joursPosesDistincts({ absences: siennes, types: TYPES_RTT, periode, aujourdhui });
-  const solde = Math.round((ouverts.jours - cp.jours) * 10) / 10;
+  // ── Congés payés : droits de l'année précédente, + le reliquat reporté.
+  const ouverts = congesAcquis({ dateEntree: salarie.dateEntree, periode: precedente, aujourdhui: precedente.fin, joursParAn: cpAn });
+  const enCours = congesAcquis({ dateEntree: salarie.dateEntree, periode, aujourdhui, joursParAn: cpAn });
+  const droitsOuverts = Math.round((ouverts.jours + report) * 10) / 10;
+  const cp = joursPosesDistincts({ absences: siennes, types: TYPES_CP, periode, aujourdhui, unite: 'ouvrables' });
+  const solde = Math.round((droitsOuverts - cp.jours) * 10) / 10;
+
+  // ── RTT : acquis ET consommés sur l'année en cours, en jours ouvrés.
+  // Tant que « Jours RTT par an » est vide sur la fiche, on ne calcule AUCUN
+  // droit — on compte seulement ce qui a été posé, et on le dit.
+  const rtt = joursPosesDistincts({ absences: siennes, types: TYPES_RTT, periode, aujourdhui, unite: 'ouvres' });
+  let rttDroits = null, rttSolde = null, rttDepassement = false;
+  if (rttAn !== null && rttAn > 0) {
+    const acq = congesAcquis({ dateEntree: salarie.dateEntree, periode, aujourdhui, joursParAn: rttAn });
+    rttDroits = acq.jours;
+    rttSolde = Math.round((rttDroits - rtt.jours) * 10) / 10;
+    rttDepassement = rttSolde < 0;
+  }
 
   const limites = [];
   if (ouverts.entreeInconnue) {
@@ -297,10 +347,13 @@ function compteurConges({ salarie, absences = [], aujourdhui }) {
     limites.push(`${cp.chevauchements.length} absence(s) se recouvrent : les jours communs ne sont comptés qu'une fois. À vérifier, c'est souvent une saisie en double.`);
   }
   if (solde < 0) {
-    limites.push(`Solde négatif : ${cp.jours} jours posés pour ${ouverts.jours} jours de droits ouverts.`);
+    limites.push(`Solde de congés négatif : ${cp.jours} jours posés pour ${droitsOuverts} jours de droits ouverts${report ? ` (dont ${report} de report)` : ''}.`);
   }
-  if (rtt.jours) {
-    limites.push(`${rtt.jours} jour(s) de RTT posés, mais les droits RTT ne sont pas paramétrés : aucun solde RTT n'est calculé.`);
+  if (rttAn === null && rtt.jours) {
+    limites.push(`${rtt.jours} jour(s) de RTT posés, mais « Jours RTT par an » est vide sur la fiche : aucun solde RTT n'est calculé. Le renseigner active le compteur.`);
+  }
+  if (rttDepassement) {
+    limites.push(`Solde RTT négatif : ${rtt.jours} jours posés pour ${rttDroits} acquis à ce jour.`);
   }
 
   return {
@@ -308,21 +361,26 @@ function compteurConges({ salarie, absences = [], aujourdhui }) {
     nom: salarie.nom,
     periode,
     periodePrecedente: precedente,
-    // Ce qu'on peut prendre aujourd'hui, et ce qui reste après les congés posés.
-    droitsOuverts: ouverts.jours,
+    // Paramètres appliqués, renvoyés pour que l'écran puisse les montrer.
+    cpParAn: cpAn,
+    cpParAnPersonnalise: cpAnPersonnalise,
+    report,
+    // Congés payés
+    droitsOuverts,
     poses: cp.jours,
     pris: cp.jusquAujourdhui,
     aVenir: cp.aVenir,
     solde,
-    // Négatif = plus de jours posés que de droits ouverts. Ce n'est pas
-    // impossible (anticipation accordée) mais ça doit se voir.
     depassement: solde < 0,
-    // Ce qui se constitue pour l'année prochaine.
     enAcquisition: enCours.jours,
     moisAcquis: enCours.mois,
     entreeInconnue: ouverts.entreeInconnue,
+    // RTT — droits null tant que la fiche ne les définit pas.
+    rttParAn: rttAn,
+    rttDroits,
     rttPoses: rtt.jours,
-    droitsRTT: null,          // volontairement non calculé — règle inconnue
+    rttSolde,
+    rttDepassement,
     chevauchements: cp.chevauchements,
     detail: cp.detail,
     limites,
@@ -335,8 +393,8 @@ function compteursEquipe({ salaries = [], absences = [], aujourdhui }) {
 }
 
 module.exports = {
-  ACQUISITION_PAR_MOIS, PLAFOND_ANNUEL,
-  paques, joursFeries, estOuvrable, joursOuvrablesEntre,
+  CP_PAR_AN_DEFAUT,
+  paques, joursFeries, estOuvrable, joursOuvrablesEntre, estOuvre, joursOuvresEntre,
   periodeDeReference, moisComplets, congesAcquis,
   joursPosesDistincts, compteurConges, compteursEquipe,
 };

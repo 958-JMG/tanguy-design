@@ -11,7 +11,7 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  paques, joursFeries, estOuvrable, joursOuvrablesEntre,
+  paques, joursFeries, estOuvrable, joursOuvrablesEntre, estOuvre, joursOuvresEntre,
   periodeDeReference, moisComplets, congesAcquis,
   joursPosesDistincts, compteurConges, compteursEquipe,
 } = require('./conges-helper');
@@ -309,7 +309,7 @@ describe('compteurConges() — sur les données réelles du 02/09/2026', () => {
     assert.ok(c.poses > 30, `posés = ${c.poses}`);
     assert.ok(c.solde < 0);
     assert.equal(c.depassement, true);
-    assert.ok(c.limites.some(l => /Solde négatif/.test(l)));
+    assert.ok(c.limites.some(l => /Solde de congés négatif/.test(l)));
   });
 
   test('Thomas, Marine et Solène ont un solde qui a du sens', () => {
@@ -332,8 +332,11 @@ describe('compteurConges() — sur les données réelles du 02/09/2026', () => {
     assert.equal(par('marine').limites.some(l => /se recouvrent/.test(l)), false);
   });
 
-  test('aucun droit RTT n\'est inventé', () => {
-    for (const c of compteurs) assert.equal(c.droitsRTT, null, c.nom);
+  test('aucun droit RTT n\'est inventé tant que la fiche ne les définit pas', () => {
+    for (const c of compteurs) {
+      assert.equal(c.rttParAn, null, c.nom);
+      assert.equal(c.rttDroits, null, c.nom);
+    }
   });
 
   test('des RTT posés sont comptés et signalés, sans produire de solde', () => {
@@ -343,9 +346,9 @@ describe('compteurConges() — sur les données réelles du 02/09/2026', () => {
       aujourdhui: AUJ,
     });
     assert.equal(c.rttPoses, 2);
-    assert.equal(c.droitsRTT, null);
+    assert.equal(c.rttDroits, null);
     assert.equal(c.poses, 0, 'un RTT ne consomme pas de congé payé');
-    assert.ok(c.limites.some(l => /droits RTT ne sont pas paramétrés/.test(l)));
+    assert.ok(c.limites.some(l => /« Jours RTT par an » est vide/.test(l)));
   });
 
   test('un salarié sans absence dispose de tous ses droits ouverts', () => {
@@ -372,5 +375,162 @@ describe('compteurConges() — sur les données réelles du 02/09/2026', () => {
   test('les absences d\'un autre salarié ne fuient pas dans le compteur', () => {
     const c = compteurConges({ salarie: { id: 'marine', nom: 'Marine' }, absences: ABSENCES, aujourdhui: AUJ });
     assert.equal(c.poses, joursOuvrablesEntre('2026-07-20', '2026-07-31').length);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Paramètres par salarié (02/09/2026) — Virginie règle les droits sur la fiche
+// de chaque salarié plutôt que d'attendre une règle unique dans le code.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('jours ouvrés (unité des RTT)', () => {
+  test('le samedi n\'est PAS un jour ouvré, contrairement aux jours ouvrables', () => {
+    assert.equal(estOuvre('2026-09-05'), false, 'samedi');
+    assert.equal(estOuvrable('2026-09-05'), true, 'samedi, mais ouvrable');
+  });
+  test('une semaine pleine vaut 5 jours ouvrés et 6 ouvrables', () => {
+    assert.equal(joursOuvresEntre('2026-09-07', '2026-09-13').length, 5);
+    assert.equal(joursOuvrablesEntre('2026-09-07', '2026-09-13').length, 6);
+  });
+  test('un férié en semaine ne compte pas non plus', () => {
+    assert.equal(estOuvre('2026-07-14'), false);
+  });
+});
+
+describe('« Jours CP par an » de la fiche salarié', () => {
+  const periode = periodeDeReference('2026-09-02');
+
+  test('vide → 30 jours ouvrables, le minimum légal', () => {
+    const c = compteurConges({ salarie: { id: 'a', nom: 'A' }, absences: [], aujourdhui: '2026-09-02' });
+    assert.equal(c.cpParAn, 30);
+    assert.equal(c.droitsOuverts, 30);
+    assert.equal(c.cpParAnPersonnalise, false);
+  });
+
+  test('une convention plus favorable se règle sur la fiche', () => {
+    const c = compteurConges({ salarie: { id: 'a', nom: 'A', joursCpAn: 35 }, absences: [], aujourdhui: '2026-09-02' });
+    assert.equal(c.cpParAn, 35);
+    assert.equal(c.droitsOuverts, 35);
+    assert.equal(c.cpParAnPersonnalise, true);
+  });
+
+  test('un décompte en jours ouvrés (25/an) suit le même chemin', () => {
+    // 25/12 = 2,08/mois. Sur une période pleine on retombe bien sur 25.
+    const c = compteurConges({ salarie: { id: 'a', nom: 'A', joursCpAn: 25 }, absences: [], aujourdhui: '2026-09-02' });
+    assert.equal(c.droitsOuverts, 25);
+    // Trois mois de la période en cours : 3 × 2,08 = 6,25 → arrondi au dixième.
+    assert.equal(c.enAcquisition, 6.3);
+  });
+
+  test('valeur absurde (0, négative, texte) → on retombe sur le défaut légal', () => {
+    for (const v of [0, -5, null, undefined, 'douze']) {
+      const c = compteurConges({ salarie: { id: 'a', nom: 'A', joursCpAn: v }, absences: [], aujourdhui: '2026-09-02' });
+      assert.equal(c.cpParAn, 30, `valeur ${JSON.stringify(v)}`);
+    }
+  });
+});
+
+describe('« Report CP » — le reliquat repris du bulletin', () => {
+  test('vide → 0, rien ne change', () => {
+    const c = compteurConges({ salarie: { id: 'a', nom: 'A' }, absences: [], aujourdhui: '2026-09-02' });
+    assert.equal(c.report, 0);
+    assert.equal(c.droitsOuverts, 30);
+  });
+
+  test('un reliquat s\'ajoute aux droits ouverts', () => {
+    const c = compteurConges({ salarie: { id: 'a', nom: 'A', reportCp: 8.5 }, absences: [], aujourdhui: '2026-09-02' });
+    assert.equal(c.report, 8.5);
+    assert.equal(c.droitsOuverts, 38.5);
+  });
+
+  test('il peut sortir un salarié du rouge — cas réel de Sébastien', () => {
+    // 47 jours posés pour 30 de droits → −17. Avec 20 jours de report : +3.
+    const abs = [{ id: 'x', salarieId: 's', type: 'Congés payés', statut: 'Validée',
+                   dateDebut: '2026-07-27', dateFin: '2026-09-20' }];
+    const sans = compteurConges({ salarie: { id: 's', nom: 'S', dateEntree: '2022-09-09' }, absences: abs, aujourdhui: '2026-09-02' });
+    const avec = compteurConges({ salarie: { id: 's', nom: 'S', dateEntree: '2022-09-09', reportCp: 20 }, absences: abs, aujourdhui: '2026-09-02' });
+    assert.equal(sans.depassement, true);
+    assert.equal(avec.depassement, false);
+    assert.equal(avec.solde, Math.round((50 - sans.poses) * 10) / 10);
+  });
+
+  test('le message de solde négatif mentionne le report quand il existe', () => {
+    const abs = [{ id: 'x', salarieId: 's', type: 'Congés payés', statut: 'Validée',
+                   dateDebut: '2026-06-01', dateFin: '2026-08-31' }];
+    const c = compteurConges({ salarie: { id: 's', nom: 'S', reportCp: 3 }, absences: abs, aujourdhui: '2026-09-02' });
+    assert.ok(c.limites.some(l => /Solde de congés négatif/.test(l) && /dont 3 de report/.test(l)));
+  });
+});
+
+describe('« Jours RTT par an » — le compteur n\'existe que si Virginie le règle', () => {
+  const AUJ = '2026-09-02';
+  const rttAbs = [{ id: 'r1', salarieId: 'a', type: 'RTT', statut: 'Validée', dateDebut: '2026-06-08', dateFin: '2026-06-12' }];
+
+  test('vide → aucun droit calculé, mais les RTT posés sont comptés et signalés', () => {
+    const c = compteurConges({ salarie: { id: 'a', nom: 'A' }, absences: rttAbs, aujourdhui: AUJ });
+    assert.equal(c.rttParAn, null);
+    assert.equal(c.rttDroits, null);
+    assert.equal(c.rttSolde, null);
+    assert.equal(c.rttPoses, 5, 'lundi → vendredi = 5 jours ouvrés');
+    assert.ok(c.limites.some(l => /« Jours RTT par an » est vide/.test(l)));
+  });
+
+  test('renseigné → le compteur apparaît, au prorata des mois écoulés', () => {
+    // 12 RTT/an = 1 par mois ; 3 mois écoulés au 02/09 → 3 acquis, 5 posés.
+    const c = compteurConges({ salarie: { id: 'a', nom: 'A', joursRttAn: 12 }, absences: rttAbs, aujourdhui: AUJ });
+    assert.equal(c.rttParAn, 12);
+    assert.equal(c.rttDroits, 3);
+    assert.equal(c.rttPoses, 5);
+    assert.equal(c.rttSolde, -2);
+    assert.equal(c.rttDepassement, true);
+    assert.ok(c.limites.some(l => /Solde RTT négatif/.test(l)));
+    assert.equal(c.limites.some(l => /est vide/.test(l)), false, 'plus de message « à paramétrer »');
+  });
+
+  test('renseigné et non dépassé → solde positif, aucune alerte', () => {
+    const c = compteurConges({ salarie: { id: 'a', nom: 'A', joursRttAn: 24 }, absences: rttAbs, aujourdhui: AUJ });
+    assert.equal(c.rttDroits, 6);
+    assert.equal(c.rttSolde, 1);
+    assert.equal(c.rttDepassement, false);
+    assert.equal(c.limites.length, 1, 'seule la date d\'entrée inconnue subsiste');
+  });
+
+  test('mis à 0 → traité comme « pas de RTT »', () => {
+    const c = compteurConges({ salarie: { id: 'a', nom: 'A', joursRttAn: 0 }, absences: rttAbs, aujourdhui: AUJ });
+    assert.equal(c.rttDroits, null);
+  });
+
+  test('les RTT ne touchent jamais au compteur de congés payés, et réciproquement', () => {
+    const melange = [
+      { id: 'r', salarieId: 'a', type: 'RTT', statut: 'Validée', dateDebut: '2026-06-08', dateFin: '2026-06-12' },
+      { id: 'c', salarieId: 'a', type: 'Congés payés', statut: 'Validée', dateDebut: '2026-07-06', dateFin: '2026-07-11' },
+    ];
+    const c = compteurConges({ salarie: { id: 'a', nom: 'A', joursRttAn: 12 }, absences: melange, aujourdhui: AUJ });
+    assert.equal(c.rttPoses, 5, 'RTT en jours ouvrés');
+    assert.equal(c.poses, 6, 'CP en jours ouvrables, samedi compris');
+  });
+
+  test('les RTT se comptent en jours OUVRÉS : une plage qui inclut un samedi vaut 5, pas 6', () => {
+    // La plage DOIT couvrir un samedi, sinon les deux unités donnent le même
+    // chiffre et le test ne prouve rien : lundi 8 → samedi 13 juin 2026.
+    const memePlage = (type) => [{ id: 'x', salarieId: 'a', type, statut: 'Validée',
+      dateDebut: '2026-06-08', dateFin: '2026-06-13' }];
+    const enRtt = compteurConges({ salarie: { id: 'a', nom: 'A', joursRttAn: 12 }, absences: memePlage('RTT'), aujourdhui: AUJ });
+    const enCp  = compteurConges({ salarie: { id: 'a', nom: 'A' }, absences: memePlage('Congés payés'), aujourdhui: AUJ });
+    assert.equal(enRtt.rttPoses, 5, 'RTT : le samedi ne compte pas');
+    assert.equal(enCp.poses, 6, 'CP : le samedi compte');
+  });
+});
+
+describe('les paramètres n\'altèrent pas les salariés existants', () => {
+  test('sans aucun paramètre, les chiffres du 02/09 sont inchangés', () => {
+    // Marine : 11 jours posés, 30 de droits → 19. Le comportement livré ce matin.
+    const c = compteurConges({
+      salarie: { id: 'marine', nom: 'DA SILVA Marine' },
+      absences: [{ id: 'a1', salarieId: 'marine', type: 'Congés payés', statut: 'Validée', dateDebut: '2026-07-20', dateFin: '2026-07-31' }],
+      aujourdhui: '2026-09-02' });
+    assert.equal(c.droitsOuverts, 30);
+    assert.equal(c.poses, 11);
+    assert.equal(c.solde, 19);
   });
 });

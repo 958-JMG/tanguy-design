@@ -4028,6 +4028,11 @@ function normSalarie(r) {
     id: r.id, nom: f['Nom'] || '?', poste: f['Poste'] || '', typeContrat: f['Type contrat'] || '',
     soldeConges: typeof f['Solde congés'] === 'number' ? f['Solde congés'] : null,
     dateEntree: f['Date entrée'] || null,
+    // Paramètres de congés réglés par Virginie sur la fiche du salarié.
+    // Absents ou vides = valeurs par défaut (30 j ouvrables, pas de RTT, 0 report).
+    joursCpAn: typeof f['Jours CP par an'] === 'number' ? f['Jours CP par an'] : null,
+    joursRttAn: typeof f['Jours RTT par an'] === 'number' ? f['Jours RTT par an'] : null,
+    reportCp: typeof f['Report CP'] === 'number' ? f['Report CP'] : null,
     prochaineVisite: f['Prochaine visite médicale'] || null, actif: !!f['Actif'],
   };
 }
