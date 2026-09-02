@@ -13,7 +13,8 @@ const assert = require('node:assert/strict');
 const {
   paques, joursFeries, estOuvrable, joursOuvrablesEntre, estOuvre, joursOuvresEntre,
   periodeDeReference, moisComplets, congesAcquis,
-  joursPosesDistincts, compteurConges, compteursEquipe,
+  joursPosesDistincts, heuresSuppDeLaPeriode, rttDepuisHeures,
+  compteurConges, compteursEquipe,
 } = require('./conges-helper');
 
 describe('jours fériés', () => {
@@ -348,7 +349,7 @@ describe('compteurConges() — sur les données réelles du 02/09/2026', () => {
     assert.equal(c.rttPoses, 2);
     assert.equal(c.rttDroits, null);
     assert.equal(c.poses, 0, 'un RTT ne consomme pas de congé payé');
-    assert.ok(c.limites.some(l => /« Jours RTT par an » est vide/.test(l)));
+    assert.ok(c.limites.some(l => /ni « Jours RTT par an » ni « Heures pour 1 RTT » ne sont réglés/.test(l)));
   });
 
   test('un salarié sans absence dispose de tous ses droits ouverts', () => {
@@ -472,7 +473,7 @@ describe('« Jours RTT par an » — le compteur n\'existe que si Virginie le r�
     assert.equal(c.rttDroits, null);
     assert.equal(c.rttSolde, null);
     assert.equal(c.rttPoses, 5, 'lundi → vendredi = 5 jours ouvrés');
-    assert.ok(c.limites.some(l => /« Jours RTT par an » est vide/.test(l)));
+    assert.ok(c.limites.some(l => /ni « Jours RTT par an » ni « Heures pour 1 RTT » ne sont réglés/.test(l)));
   });
 
   test('renseigné → le compteur apparaît, au prorata des mois écoulés', () => {
@@ -484,7 +485,7 @@ describe('« Jours RTT par an » — le compteur n\'existe que si Virginie le r�
     assert.equal(c.rttSolde, -2);
     assert.equal(c.rttDepassement, true);
     assert.ok(c.limites.some(l => /Solde RTT négatif/.test(l)));
-    assert.equal(c.limites.some(l => /est vide/.test(l)), false, 'plus de message « à paramétrer »');
+    assert.equal(c.limites.some(l => /ne sont réglés/.test(l)), false, 'plus de message « à paramétrer »');
   });
 
   test('renseigné et non dépassé → solde positif, aucune alerte', () => {
@@ -532,5 +533,146 @@ describe('les paramètres n\'altèrent pas les salariés existants', () => {
     assert.equal(c.droitsOuverts, 30);
     assert.equal(c.poses, 11);
     assert.equal(c.solde, 19);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Heures supplémentaires → RTT (remarque JMG du 02/09) : une alternante comme
+// Marine cumule des heures supp et les transforme en RTT. Ses RTT ne viennent
+// donc pas d'un droit annuel. Cas réel en base : 35 h + 10 h supp, semaine du
+// 31/08, NON validées.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('cumul des heures supplémentaires', () => {
+  const periode = periodeDeReference('2026-09-02');
+
+  test('validées et en attente sont comptées séparément', () => {
+    const r = heuresSuppDeLaPeriode({ periode, heures: [
+      { semaine: '2026-08-31', heuresSupp: 10, valide: false },
+      { semaine: '2026-08-24', heuresSupp: 4,  valide: true },
+      { semaine: '2026-08-17', heuresSupp: 3,  valide: true },
+    ]});
+    assert.equal(r.validees, 7);
+    assert.equal(r.enAttente, 10);
+  });
+
+  test('une semaine hors période ne compte pas', () => {
+    const r = heuresSuppDeLaPeriode({ periode, heures: [
+      { semaine: '2026-05-25', heuresSupp: 8, valide: true },   // période précédente
+      { semaine: '2026-06-01', heuresSupp: 5, valide: true },
+    ]});
+    assert.equal(r.validees, 5);
+  });
+
+  test('heures nulles, négatives ou illisibles ignorées sans planter', () => {
+    const r = heuresSuppDeLaPeriode({ periode, heures: [
+      { semaine: '2026-07-06', heuresSupp: 0, valide: true },
+      { semaine: '2026-07-13', heuresSupp: -3, valide: true },
+      { semaine: '2026-07-20', heuresSupp: 'huit', valide: true },
+      null,
+      { heuresSupp: 5, valide: true },        // sans semaine
+    ]});
+    assert.deepEqual(r, { validees: 0, enAttente: 0 });
+  });
+
+  test('conversion en jours', () => {
+    assert.equal(rttDepuisHeures(14, 7), 2);
+    assert.equal(rttDepuisHeures(10, 7), 1.4);
+    assert.equal(rttDepuisHeures(0, 7), 0);
+  });
+
+  test('sans taux de conversion, rien ne se convertit', () => {
+    for (const taux of [null, undefined, 0, -7, 'sept']) {
+      assert.equal(rttDepuisHeures(14, taux), 0, `taux ${JSON.stringify(taux)}`);
+    }
+  });
+});
+
+describe('les RTT de Marine viennent de ses heures, pas d\'un droit annuel', () => {
+  const AUJ = '2026-09-02';
+  const marine = { id: 'marine', nom: 'DA SILVA Marine' };
+  // La saisie réelle de la base au 02/09 : 10 h supp, NON validées.
+  const heuresReelles = [{ salarieId: 'marine', semaine: '2026-08-31', heuresSupp: 10, valide: false }];
+
+  test('heures non validées → aucun RTT, et on le DIT', () => {
+    const c = compteurConges({ salarie: { ...marine, heuresPour1Rtt: 7 }, heures: heuresReelles, aujourdhui: AUJ });
+    assert.equal(c.heuresSuppEnAttente, 10);
+    assert.equal(c.heuresSuppValidees, 0);
+    assert.equal(c.rttConverti, 0);
+    assert.equal(c.rttDroits, 0, 'le compteur existe, mais à zéro');
+    assert.ok(c.limites.some(l => /10 h supplémentaires .*attendent d'être validées/.test(l)));
+  });
+
+  test('une fois validées, elles deviennent des RTT', () => {
+    const c = compteurConges({
+      salarie: { ...marine, heuresPour1Rtt: 7 },
+      heures: [{ salarieId: 'marine', semaine: '2026-08-31', heuresSupp: 14, valide: true }],
+      aujourdhui: AUJ });
+    assert.equal(c.heuresSuppValidees, 14);
+    assert.equal(c.rttConverti, 2);
+    assert.equal(c.rttDroits, 2);
+    assert.equal(c.rttSolde, 2);
+  });
+
+  test('sans « Heures pour 1 RTT », des heures validées ne donnent rien — et l\'écran le signale', () => {
+    // Le silence serait le pire cas : des heures dues qui n'apparaissent nulle part.
+    const c = compteurConges({
+      salarie: marine,
+      heures: [{ salarieId: 'marine', semaine: '2026-08-31', heuresSupp: 14, valide: true }],
+      aujourdhui: AUJ });
+    assert.equal(c.rttDroits, null);
+    assert.equal(c.heuresSuppValidees, 14);
+    assert.ok(c.limites.some(l => /14 h supplémentaires validées ne donnent aucun RTT/.test(l)));
+  });
+
+  test('les RTT posés se déduisent des heures converties', () => {
+    const c = compteurConges({
+      salarie: { ...marine, heuresPour1Rtt: 7 },
+      absences: [{ id: 'r', salarieId: 'marine', type: 'RTT', statut: 'Validée', dateDebut: '2026-08-10', dateFin: '2026-08-10' }],
+      heures: [{ salarieId: 'marine', semaine: '2026-08-31', heuresSupp: 21, valide: true }],
+      aujourdhui: AUJ });
+    assert.equal(c.rttDroits, 3);
+    assert.equal(c.rttPoses, 1);
+    assert.equal(c.rttSolde, 2);
+    assert.equal(c.rttDepassement, false);
+  });
+
+  test('poser plus de RTT que d\'heures converties passe en dépassement', () => {
+    const c = compteurConges({
+      salarie: { ...marine, heuresPour1Rtt: 7 },
+      absences: [{ id: 'r', salarieId: 'marine', type: 'RTT', statut: 'Validée', dateDebut: '2026-08-10', dateFin: '2026-08-14' }],
+      heures: [{ salarieId: 'marine', semaine: '2026-08-31', heuresSupp: 7, valide: true }],
+      aujourdhui: AUJ });
+    assert.equal(c.rttDroits, 1);
+    assert.equal(c.rttPoses, 5);
+    assert.equal(c.rttSolde, -4);
+    assert.equal(c.rttDepassement, true);
+  });
+
+  test('les deux sources se cumulent : droit annuel ET heures converties', () => {
+    // Un salarié à 39 h qui fait aussi des heures supp au-delà.
+    const c = compteurConges({
+      salarie: { id: 'x', nom: 'X', joursRttAn: 12, heuresPour1Rtt: 7 },
+      heures: [{ salarieId: 'x', semaine: '2026-08-31', heuresSupp: 14, valide: true }],
+      aujourdhui: AUJ });
+    assert.equal(c.rttAnnuel, 3, '3 mois écoulés à 1 RTT/mois');
+    assert.equal(c.rttConverti, 2);
+    assert.equal(c.rttDroits, 5);
+  });
+
+  test('les heures d\'un autre salarié ne fuient pas dans le compteur', () => {
+    const c = compteurConges({
+      salarie: { ...marine, heuresPour1Rtt: 7 },
+      heures: [{ salarieId: 'autre', semaine: '2026-08-31', heuresSupp: 70, valide: true }],
+      aujourdhui: AUJ });
+    assert.equal(c.heuresSuppValidees, 0);
+    assert.equal(c.rttDroits, 0);
+  });
+
+  test('aucune heure fournie → comportement d\'avant, inchangé', () => {
+    const c = compteurConges({ salarie: marine, aujourdhui: AUJ });
+    assert.equal(c.heuresSuppValidees, 0);
+    assert.equal(c.heuresSuppEnAttente, 0);
+    assert.equal(c.rttDroits, null);
   });
 });

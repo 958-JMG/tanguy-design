@@ -294,6 +294,44 @@ function joursPosesDistincts({ absences = [], types, periode, aujourdhui, unite 
   };
 }
 
+// ─────────────────── Heures supplémentaires → RTT ───────────────────
+// Remarque JMG du 02/09 : une alternante cumule des heures supplémentaires et
+// les transforme en RTT. Ses RTT ne viennent donc pas d'un droit annuel.
+
+/**
+ * Heures supplémentaires d'un salarié sur la période, séparées en validées et
+ * en attente. Une semaine est rattachée à la période par son lundi (« Semaine du »).
+ *
+ * Le partage validées / en attente n'est pas cosmétique : seules les validées
+ * ouvrent des droits — même règle que pour les absences — mais taire les autres
+ * ferait disparaître des heures dues sans que personne ne le voie.
+ */
+function heuresSuppDeLaPeriode({ heures = [], periode }) {
+  let validees = 0, enAttente = 0;
+  for (const h of heures || []) {
+    if (!h || !h.semaine) continue;
+    const sem = String(h.semaine).slice(0, 10);
+    if (sem < periode.debut || sem > periode.fin) continue;
+    const n = Number(h.heuresSupp);
+    if (!isFinite(n) || n <= 0) continue;
+    if (h.valide) validees += n; else enAttente += n;
+  }
+  return {
+    validees: Math.round(validees * 100) / 100,
+    enAttente: Math.round(enAttente * 100) / 100,
+  };
+}
+
+/**
+ * Heures supplémentaires validées converties en jours de RTT.
+ * `heuresPour1Rtt` vide ou nul → aucune conversion (retourne 0).
+ */
+function rttDepuisHeures(heuresValidees, heuresPour1Rtt) {
+  const taux = Number(heuresPour1Rtt);
+  if (!isFinite(taux) || taux <= 0) return 0;
+  return Math.round((heuresValidees / taux) * 10) / 10;
+}
+
 // ──────────────────────────── Compteur complet ────────────────────────────
 
 /**
@@ -304,7 +342,7 @@ function joursPosesDistincts({ absences = [], types, periode, aujourdhui, unite 
  * @param {Array<{id, salarieId, type, dateDebut, dateFin, statut, libelle}>} opts.absences
  * @param {string} opts.aujourdhui 'YYYY-MM-DD'
  */
-function compteurConges({ salarie, absences = [], aujourdhui }) {
+function compteurConges({ salarie, absences = [], heures = [], aujourdhui }) {
   const periode = periodeDeReference(aujourdhui);
   // Période précédente : c'est ELLE qui ouvre les droits de congés payés qu'on
   // prend aujourd'hui. En France on ne consomme pas les congés qu'on est en
@@ -317,8 +355,9 @@ function compteurConges({ salarie, absences = [], aujourdhui }) {
   const nb = v => (typeof v === 'number' && isFinite(v) ? v : null);
   const cpAn = nb(salarie.joursCpAn) !== null && nb(salarie.joursCpAn) > 0 ? nb(salarie.joursCpAn) : CP_PAR_AN_DEFAUT;
   const cpAnPersonnalise = nb(salarie.joursCpAn) !== null && nb(salarie.joursCpAn) > 0 && nb(salarie.joursCpAn) !== CP_PAR_AN_DEFAUT;
-  const rttAn = nb(salarie.joursRttAn);          // null ou 0 = pas de RTT
+  const rttAn = nb(salarie.joursRttAn);          // null ou 0 = pas de droit annuel
   const report = nb(salarie.reportCp) || 0;
+  const heuresPour1Rtt = nb(salarie.heuresPour1Rtt);   // null ou 0 = pas de conversion
 
   // ── Congés payés : droits de l'année précédente, + le reliquat reporté.
   const ouverts = congesAcquis({ dateEntree: salarie.dateEntree, periode: precedente, aujourdhui: precedente.fin, joursParAn: cpAn });
@@ -331,10 +370,19 @@ function compteurConges({ salarie, absences = [], aujourdhui }) {
   // Tant que « Jours RTT par an » est vide sur la fiche, on ne calcule AUCUN
   // droit — on compte seulement ce qui a été posé, et on le dit.
   const rtt = joursPosesDistincts({ absences: siennes, types: TYPES_RTT, periode, aujourdhui, unite: 'ouvres' });
+  const siennesHeures = (heures || []).filter(h => h && h.salarieId === salarie.id);
+  const hSupp = heuresSuppDeLaPeriode({ heures: siennesHeures, periode });
+  // Deux sources de RTT, cumulables : un droit annuel (régime 39 h) et la
+  // conversion des heures supplémentaires validées (cas de l'alternance).
+  const rttAnnuel = (rttAn !== null && rttAn > 0)
+    ? congesAcquis({ dateEntree: salarie.dateEntree, periode, aujourdhui, joursParAn: rttAn }).jours
+    : null;
+  const rttConverti = rttDepuisHeures(hSupp.validees, heuresPour1Rtt);
+  const convertitLesHeures = heuresPour1Rtt !== null && heuresPour1Rtt > 0;
+
   let rttDroits = null, rttSolde = null, rttDepassement = false;
-  if (rttAn !== null && rttAn > 0) {
-    const acq = congesAcquis({ dateEntree: salarie.dateEntree, periode, aujourdhui, joursParAn: rttAn });
-    rttDroits = acq.jours;
+  if (rttAnnuel !== null || convertitLesHeures) {
+    rttDroits = Math.round(((rttAnnuel || 0) + rttConverti) * 10) / 10;
     rttSolde = Math.round((rttDroits - rtt.jours) * 10) / 10;
     rttDepassement = rttSolde < 0;
   }
@@ -349,8 +397,14 @@ function compteurConges({ salarie, absences = [], aujourdhui }) {
   if (solde < 0) {
     limites.push(`Solde de congés négatif : ${cp.jours} jours posés pour ${droitsOuverts} jours de droits ouverts${report ? ` (dont ${report} de report)` : ''}.`);
   }
-  if (rttAn === null && rtt.jours) {
-    limites.push(`${rtt.jours} jour(s) de RTT posés, mais « Jours RTT par an » est vide sur la fiche : aucun solde RTT n'est calculé. Le renseigner active le compteur.`);
+  if (rttDroits === null && rtt.jours) {
+    limites.push(`${rtt.jours} jour(s) de RTT posés, mais ni « Jours RTT par an » ni « Heures pour 1 RTT » ne sont réglés sur la fiche : aucun solde RTT n'est calculé. Renseigner l'un des deux active le compteur.`);
+  }
+  if (hSupp.enAttente > 0) {
+    limites.push(`${hSupp.enAttente} h supplémentaires ${convertitLesHeures ? "ne sont pas encore converties : elles attendent d'être validées" : 'saisies et non validées'}.`);
+  }
+  if (hSupp.validees > 0 && !convertitLesHeures) {
+    limites.push(`${hSupp.validees} h supplémentaires validées ne donnent aucun RTT : « Heures pour 1 RTT » est vide sur la fiche.`);
   }
   if (rttDepassement) {
     limites.push(`Solde RTT négatif : ${rtt.jours} jours posés pour ${rttDroits} acquis à ce jour.`);
@@ -377,6 +431,11 @@ function compteurConges({ salarie, absences = [], aujourdhui }) {
     entreeInconnue: ouverts.entreeInconnue,
     // RTT — droits null tant que la fiche ne les définit pas.
     rttParAn: rttAn,
+    rttAnnuel,
+    heuresPour1Rtt,
+    heuresSuppValidees: hSupp.validees,
+    heuresSuppEnAttente: hSupp.enAttente,
+    rttConverti,
     rttDroits,
     rttPoses: rtt.jours,
     rttSolde,
@@ -388,13 +447,14 @@ function compteurConges({ salarie, absences = [], aujourdhui }) {
 }
 
 /** Compteurs de toute l'équipe, dans l'ordre reçu. */
-function compteursEquipe({ salaries = [], absences = [], aujourdhui }) {
-  return salaries.map(s => compteurConges({ salarie: s, absences, aujourdhui }));
+function compteursEquipe({ salaries = [], absences = [], heures = [], aujourdhui }) {
+  return salaries.map(s => compteurConges({ salarie: s, absences, heures, aujourdhui }));
 }
 
 module.exports = {
   CP_PAR_AN_DEFAUT,
   paques, joursFeries, estOuvrable, joursOuvrablesEntre, estOuvre, joursOuvresEntre,
   periodeDeReference, moisComplets, congesAcquis,
-  joursPosesDistincts, compteurConges, compteursEquipe,
+  joursPosesDistincts, heuresSuppDeLaPeriode, rttDepuisHeures,
+  compteurConges, compteursEquipe,
 };

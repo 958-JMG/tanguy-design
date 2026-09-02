@@ -560,6 +560,26 @@ async function renderTresorerie(body) {
 // Onglet RH — salariés, absences, heures, paie
 // ════════════════════════════════════════════════════════════════════════════
 
+// D'où viennent les droits RTT d'un salarié : un droit annuel, des heures
+// supplémentaires converties, ou les deux. Sans ça, « 2 j / 2 » ne dit pas si
+// ces jours sont acquis d'office ou payés par des heures faites.
+function origineRtt(cg) {
+  const bouts = [];
+  if (cg.rttAnnuel) bouts.push(`${cg.rttAnnuel} j acquis`);
+  if (cg.rttConverti) bouts.push(`${cg.rttConverti} j depuis ${cg.heuresSuppValidees} h supp`);
+  const attente = cg.heuresSuppEnAttente
+    ? ` · ${cg.heuresSuppEnAttente} h en attente de validation` : '';
+  if (!bouts.length && !attente) return '';
+  const acquis = bouts.join(' + ');
+  const enAttente = attente
+    ? `<span class="rtt-attente" title="Heures supplémentaires saisies mais pas encore validées : elles ne comptent pas tant qu'elles ne le sont pas.">${cg.heuresSuppEnAttente} h à valider</span>`
+    : '';
+  // Sans droits acquis, on n'affiche pas de tiret devant les heures en attente :
+  // « 0 j / 0 — 10 h à valider » se lit mal.
+  const texte = [acquis ? esc(acquis) : '', enAttente].filter(Boolean).join(' · ');
+  return `<div class="muted rtt-origine">${texte}</div>`;
+}
+
 async function renderRH(body) {
   try {
     const [sal, alertes, conges] = await Promise.all([
@@ -618,7 +638,8 @@ async function renderRH(body) {
             <td class="num muted">+${cg ? cg.enAcquisition : 0} j</td>
             <td class="num">${!cg ? '—'
               : cg.rttDroits !== null
-                ? `<strong${cg.rttDepassement ? ' style="color:var(--accent)"' : ''}>${cg.rttSolde} j</strong> <span class="muted">/ ${cg.rttDroits}</span>`
+                ? `<strong${cg.rttDepassement ? ' style="color:var(--accent)"' : ''}>${cg.rttSolde} j</strong>
+                   <span class="muted">/ ${cg.rttDroits}</span>${origineRtt(cg)}`
                 : (cg.rttPoses
                     ? `<span class="muted" title="${cg.rttPoses} jour(s) posés, mais aucun droit RTT n'est réglé sur la fiche">${cg.rttPoses} j posés ?</span>`
                     : '<span class="muted" title="Pas de RTT pour ce salarié. Se règle sur sa fiche.">—</span>')}</td>
@@ -740,6 +761,14 @@ function openModalSalarie(s, onDone) {
           <span class="muted">En jours <strong>ouvrés</strong> (du lundi au vendredi).
             <strong>Laisser vide si ce salarié n'a pas de RTT</strong> — son compteur RTT n'apparaîtra pas.</span>
         </label>
+        <label>Heures supplémentaires pour 1 RTT
+          <input name="Heures pour 1 RTT" type="text" inputmode="decimal" autocomplete="off" placeholder="aucune conversion"
+                 value="${s?.['Heures pour 1 RTT'] ?? ''}">
+          <span class="muted">Pour un salarié qui <strong>cumule des heures supplémentaires et les
+            transforme en RTT</strong> (alternance, par exemple) : indiquer combien d'heures valent
+            un jour, par exemple 7. Seules les heures <strong>validées</strong> sont converties.
+            Vide = pas de conversion.</span>
+        </label>
         <label>Congés reportés de l'an dernier
           <input name="Report CP" type="text" inputmode="decimal" autocomplete="off" placeholder="0"
                  value="${s?.['Report CP'] ?? ''}">
@@ -769,7 +798,7 @@ function openModalSalarie(s, onDone) {
     }
     // Paramètres de congés : nombres, et un champ VIDÉ doit être effacé en base
     // (null) — sinon on ne pourrait jamais revenir au comportement par défaut.
-    for (const k of ['Jours CP par an', 'Jours RTT par an', 'Report CP']) {
+    for (const k of ['Jours CP par an', 'Jours RTT par an', 'Report CP', 'Heures pour 1 RTT']) {
       const brut = String(fd.get(k) ?? '').trim();
       if (brut === '') { fields[k] = null; continue; }
       // La virgule décimale française est acceptée : « 32,5 » comme « 32.5 ».

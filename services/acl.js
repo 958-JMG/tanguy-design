@@ -81,7 +81,7 @@ const FIELD_WHITELIST = {
   // Sprint v5 — Automatisation Virginie
   'factures-clients':      ['Numéro', 'Projet', 'Client', 'Échéance liée', 'Type', 'Date émission', 'Date échéance', 'Montant HT', 'Montant TVA', 'Montant TTC', 'Montant réglé', 'Date règlement', 'Mode règlement', 'Statut', 'Niveau relance', 'Date dernière relance', 'Notes'],
   'factures-fournisseurs': ['Numéro', 'Fournisseur', 'Commande', 'Projet', 'Date facture', 'Date échéance', 'Montant HT', 'Montant TVA', 'Montant TTC', 'Statut', 'Contrôle', 'Écart', 'Date paiement', 'Mode paiement', 'Pointée relevé', 'Alertes parsing', 'Notes'],
-  salaries:                ['Nom', 'Poste', 'Email', 'Téléphone', 'Type contrat', 'Date entrée', 'Solde congés', 'Jours CP par an', 'Jours RTT par an', 'Report CP', 'Dernière visite médicale', 'Prochaine visite médicale', 'Actif', 'Notes'],
+  salaries:                ['Nom', 'Poste', 'Email', 'Téléphone', 'Type contrat', 'Date entrée', 'Solde congés', 'Jours CP par an', 'Jours RTT par an', 'Report CP', 'Heures pour 1 RTT', 'Dernière visite médicale', 'Prochaine visite médicale', 'Actif', 'Notes'],
   absences:                ['Libellé', 'Salarié', 'Type', 'Date début', 'Date fin', 'Jours ouvrés', 'Statut', 'Notes'],
   'heures-salaries':       ['Libellé', 'Salarié', 'Semaine du', 'Heures normales', 'Heures supp', 'Projet', 'Validé', 'Notes'],
 
