@@ -604,6 +604,7 @@ async function renderRH(body) {
           <th class="num" title="Jours ouvrables posés depuis le 1er juin, comptés une seule fois même si deux absences se recouvrent">Posés</th>
           <th class="num" title="Droits ouverts moins jours posés">Solde</th>
           <th class="num" title="Se constitue pour l'année prochaine — disponible au 1er juin suivant">En cours</th>
+          <th class="num" title="Solde RTT. Vide si le salarié n'a pas de RTT — se règle sur sa fiche.">RTT</th>
           <th>Visite médicale</th><th>Statut</th><th></th></tr></thead>
         <tbody>
           ${salaries.map(s => { const cg = parSalarie.get(s.id); return `
@@ -615,6 +616,12 @@ async function renderRH(body) {
             <td class="num">${cg ? cg.poses + ' j' : '—'}${cg && cg.aVenir ? ` <span class="muted" title="dont ${cg.aVenir} j encore à venir">(dont ${cg.aVenir} à venir)</span>` : ''}</td>
             <td class="num">${cg ? `<strong${cg.depassement ? ' style="color:var(--accent)"' : ''}>${cg.solde} j</strong>` : '—'}</td>
             <td class="num muted">+${cg ? cg.enAcquisition : 0} j</td>
+            <td class="num">${!cg ? '—'
+              : cg.rttDroits !== null
+                ? `<strong${cg.rttDepassement ? ' style="color:var(--accent)"' : ''}>${cg.rttSolde} j</strong> <span class="muted">/ ${cg.rttDroits}</span>`
+                : (cg.rttPoses
+                    ? `<span class="muted" title="${cg.rttPoses} jour(s) posés, mais aucun droit RTT n'est réglé sur la fiche">${cg.rttPoses} j posés ?</span>`
+                    : '<span class="muted" title="Pas de RTT pour ce salarié. Se règle sur sa fiche.">—</span>')}</td>
             <td>${fmtDate(s['Prochaine visite médicale'])}</td>
             <td>${s['Actif'] ? '<span class="badge phase-signe">Actif</span>' : '<span class="muted">Sorti</span>'}</td>
             <td><button class="btn btn-ghost btn-sm" data-action="edit-salarie" data-id="${esc(s.id)}">${icon('edit', 12)}</button></td>
@@ -633,6 +640,8 @@ async function renderRH(body) {
           d'absence depuis le 1<sup>er</sup> juin, hors jours fériés — un même jour couvert par deux
           absences ne compte qu'une fois. La colonne <strong>en cours</strong> est ce qui se constitue
           pour l'an prochain.
+          <strong>Les droits de chacun se règlent sur sa fiche</strong> (crayon en bout de ligne) :
+          jours de congés par an, jours de RTT, et report de l'an dernier.
         </p>
         ${limites.length ? `<ul class="muted" style="margin:6px 0 0;padding-left:18px;line-height:1.7">
           ${limites.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}
@@ -711,11 +720,32 @@ function openModalSalarie(s, onDone) {
         <select name="Type contrat">${['CDI', 'CDD', 'Alternance', 'Stage', 'Indépendant'].map(t => `<option${(s?.['Type contrat'] || 'CDI') === t ? ' selected' : ''}>${t}</option>`).join('')}</select>
       </label>
       <label>Date d'entrée <input name="Date entrée" type="date" value="${esc(s?.['Date entrée'] || '')}"></label>
-      <p class="muted" style="margin:4px 0 12px;font-size:12px">
-        Le solde de congés ne se saisit plus : il est calculé depuis la date d'entrée
-        et les absences validées. Renseigner la date d'entrée suffit — sans elle, la
-        présence est supposée depuis le 1<sup>er</sup> juin.
-      </p>
+
+      <fieldset class="fs-conges">
+        <legend>Congés de ce salarié</legend>
+        <p class="muted" style="margin:0 0 10px;font-size:12px">
+          Le solde ne se saisit plus : il se calcule à partir de ces réglages, de la date
+          d'entrée et des absences validées. <strong>Tout laisser vide donne le minimum
+          légal</strong> : 30 jours ouvrables de congés payés, et pas de RTT.
+        </p>
+        <label>Jours de congés payés par an
+          <input name="Jours CP par an" type="text" inputmode="decimal" autocomplete="off" placeholder="30 par défaut"
+                 value="${s?.['Jours CP par an'] ?? ''}">
+          <span class="muted">En jours <strong>ouvrables</strong> (samedi compris). 30 = minimum légal ;
+            mettre plus si la convention collective est plus favorable.</span>
+        </label>
+        <label>Jours de RTT par an
+          <input name="Jours RTT par an" type="text" inputmode="decimal" autocomplete="off" placeholder="aucun"
+                 value="${s?.['Jours RTT par an'] ?? ''}">
+          <span class="muted">En jours <strong>ouvrés</strong> (du lundi au vendredi).
+            <strong>Laisser vide si ce salarié n'a pas de RTT</strong> — son compteur RTT n'apparaîtra pas.</span>
+        </label>
+        <label>Congés reportés de l'an dernier
+          <input name="Report CP" type="text" inputmode="decimal" autocomplete="off" placeholder="0"
+                 value="${s?.['Report CP'] ?? ''}">
+          <span class="muted">Le reliquat repris du bulletin de paie. S'ajoute aux droits ouverts.</span>
+        </label>
+      </fieldset>
       <label>Dernière visite médicale <input name="Dernière visite médicale" type="date" value="${esc(s?.['Dernière visite médicale'] || '')}"></label>
       <label>Prochaine visite médicale <input name="Prochaine visite médicale" type="date" value="${esc(s?.['Prochaine visite médicale'] || '')}"></label>
       <label style="display:flex;align-items:center;gap:8px;flex-direction:row">
@@ -736,6 +766,21 @@ function openModalSalarie(s, onDone) {
     for (const k of ['Nom', 'Poste', 'Email', 'Téléphone', 'Type contrat', 'Date entrée', 'Dernière visite médicale', 'Prochaine visite médicale', 'Notes']) {
       const v = fd.get(k);
       if (v) fields[k] = v;
+    }
+    // Paramètres de congés : nombres, et un champ VIDÉ doit être effacé en base
+    // (null) — sinon on ne pourrait jamais revenir au comportement par défaut.
+    for (const k of ['Jours CP par an', 'Jours RTT par an', 'Report CP']) {
+      const brut = String(fd.get(k) ?? '').trim();
+      if (brut === '') { fields[k] = null; continue; }
+      // La virgule décimale française est acceptée : « 32,5 » comme « 32.5 ».
+      // (Un input type=number l'aurait rejetée en rendant une valeur vide, donc
+      // en EFFAÇANT le réglage sans un mot.)
+      const n = Number(brut.replace(',', '.'));
+      if (!isFinite(n) || n < 0) {
+        toast(`« ${k} » : indiquer un nombre de jours (ex. 30 ou 32,5), ou laisser vide.`, 'error', 6000);
+        return;
+      }
+      fields[k] = n;
     }
     fields['Actif'] = fd.get('Actif') === 'on';
     try {

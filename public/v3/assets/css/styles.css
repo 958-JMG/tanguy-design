@@ -2329,3 +2329,23 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 @media (max-width: 760px) {
   .kb-board { grid-template-columns: 1fr; }
 }
+
+/* Réglages de congés sur la fiche salarié (02/09/2026) — un bloc à part, pour
+   que Virginie voie d'un coup d'œil ce qui pilote les compteurs. */
+.fs-conges {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+  margin: 4px 0 14px;
+  background: var(--paper);
+}
+.fs-conges legend {
+  padding: 0 6px;
+  font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--ink3);
+}
+.fs-conges label { display: block; margin-bottom: 10px; }
+.fs-conges label:last-child { margin-bottom: 0; }
+/* L'explication passe SOUS le champ, en petit — sans elle, « jours ouvrables »
+   contre « jours ouvrés » est un piège à contresens. */
+.fs-conges label .muted { display: block; font-size: 11px; line-height: 1.45; margin-top: 3px; }
