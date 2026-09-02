@@ -2,7 +2,7 @@
 // Utilisé par les vues projet, client et calendrier. CRUD via /api/data/rendez-vous.
 
 import { icon, hydrateIcons } from './lucide.js';
-import { resoudreClient } from './client-match.js';
+import { resoudreClient, normaliserNom } from './client-match.js';
 import { toast, confirmModal } from './ui.js';
 import { state } from './state.js';
 import { createRendezVous, patchRendezVous, deleteRendezVous, fetchClients } from './api.js';
@@ -78,6 +78,54 @@ function clientNameById(id) {
   return c ? (c.Nom || '') : '';
 }
 
+// ── Sélecteur de projet (2026-09-02) ─────────────────────────────────────────
+// Jusqu'ici le lien Projet n'était posé QUE si le RDV naissait d'une fiche projet :
+// un rendez-vous créé depuis le calendrier ne pouvait jamais en recevoir un
+// (6 des 22 rendez-vous de la base étaient dans ce cas). L'agenda affichant
+// désormais le nom du projet sur chaque carte, il faut pouvoir le renseigner ici.
+
+// Libellé d'un projet dans le sélecteur : « Cuisine M — DUPONT ».
+// La référence seule ne suffit pas : sur 163 projets, « Cuisine » revient souvent.
+function projetLabel(p) {
+  const ref = String(p['Référence'] || '').trim() || '(sans référence)';
+  const cNom = clientNameById((p.Client || [])[0]);
+  return cNom ? `${ref} — ${cNom}` : ref;
+}
+
+function projetLabelById(id) {
+  const p = (state.projets || []).find(x => x.id === id);
+  return p ? projetLabel(p) : '';
+}
+
+// Options du datalist : les projets du client courant d'abord (cas courant),
+// puis tous les autres — pour ne jamais empêcher un rattachement.
+function optionsProjets(clientId) {
+  const tous = state.projets || [];
+  const duClient = clientId ? tous.filter(p => (p.Client || [])[0] === clientId) : [];
+  const ids = new Set(duClient.map(p => p.id));
+  const autres = tous.filter(p => !ids.has(p.id));
+  return [...duClient, ...autres].map(p => `<option value="${esc(projetLabel(p))}"></option>`).join('');
+}
+
+/**
+ * Libellé saisi → id de projet.
+ * @returns {{id:string}|{erreur:string}|null} null si la saisie est vide (aucun projet voulu).
+ */
+function resoudreProjetSaisi(saisie) {
+  const s = normaliserNom(saisie);
+  if (!s) return null;
+  const tous = state.projets || [];
+  const exact = tous.filter(p => normaliserNom(projetLabel(p)) === s);
+  if (exact.length === 1) return { id: exact[0].id };
+  // Référence seule (« Cuisine M ») : acceptée si une seule correspond.
+  const parRef = tous.filter(p => normaliserNom(p['Référence'] || '') === s);
+  if (parRef.length === 1) return { id: parRef[0].id };
+  if (parRef.length > 1) {
+    return { erreur: `« ${saisie} » correspond à ${parRef.length} projets. Choisir dans la liste (la proposition inclut le nom du client).` };
+  }
+  return { erreur: `Aucun projet ne correspond à « ${saisie} ». Choisir dans la liste, ou vider le champ pour ne rattacher aucun projet.` };
+}
+
 // Modale création / édition d'un RDV.
 // opts : { rdv?, projetId?, clientId?, contextLabel?, onSaved? }
 export function openModalRdv({ rdv = null, projetId = null, clientId = null, contextLabel = '', onSaved = null } = {}) {
@@ -91,6 +139,10 @@ export function openModalRdv({ rdv = null, projetId = null, clientId = null, con
   // Client : sélecteur recherchable (datalist). Prérempli depuis le contexte ou le RDV existant.
   const initialClientId = (rdv ? f.Client?.[0] : clientId) || null;
   const initialClientName = clientNameById(initialClientId);
+
+  // Projet : celui du RDV existant, sinon celui du contexte d'ouverture (fiche projet).
+  const initialProjetId = (rdv ? f.Projet?.[0] : projetId) || null;
+  const initialProjetLabel = projetLabelById(initialProjetId);
 
   // Journée entière (heuristique 00:00) : pilote le type de l'input date.
   const hasDate = !!f['Date et heure'];
@@ -106,6 +158,13 @@ export function openModalRdv({ rdv = null, projetId = null, clientId = null, con
                value="${esc(initialClientName)}" placeholder="Rechercher un client…">
         <datalist id="rdv-client-list">
           ${(state.clients || []).map(c => `<option value="${esc(c.Nom || '')}"></option>`).join('')}
+        </datalist>
+      </label>
+      <label>Projet <span class="muted">(optionnel)</span>
+        <input name="__projetNom" id="rdv-projet" list="rdv-projet-list" autocomplete="off"
+               value="${esc(initialProjetLabel)}" placeholder="Rechercher un projet…">
+        <datalist id="rdv-projet-list">
+          ${optionsProjets(initialClientId)}
         </datalist>
       </label>
       <label>Objet <span class="muted">(optionnel)</span>
@@ -145,8 +204,19 @@ export function openModalRdv({ rdv = null, projetId = null, clientId = null, con
     fetchClients().then(() => {
       const dl = modal.querySelector('#rdv-client-list');
       if (dl) dl.innerHTML = (state.clients || []).map(c => `<option value="${esc(c.Nom || '')}"></option>`).join('');
+      // Les libellés de projet portent le nom du client : ils étaient incomplets
+      // tant que les clients n'étaient pas chargés.
+      const dp = modal.querySelector('#rdv-projet-list');
+      if (dp) dp.innerHTML = optionsProjets(initialClientId);
     }).catch(() => {});
   }
+
+  // Changer de client remonte SES projets en tête de liste (sans jamais masquer les autres).
+  modal.querySelector('#rdv-client').addEventListener('change', e => {
+    const c = resoudreClient(String(e.target.value || '').trim(), state.clients || []).client;
+    const dp = modal.querySelector('#rdv-projet-list');
+    if (dp) dp.innerHTML = optionsProjets(c ? c.id : null);
+  });
 
   // Toggle Journée entière → bascule l'input entre date et datetime-local en conservant la date.
   const dateInput = modal.querySelector('#rdv-date');
@@ -175,7 +245,7 @@ export function openModalRdv({ rdv = null, projetId = null, clientId = null, con
     const clientName = String(fd.get('__clientName') || '').trim();
     const fields = {};
     for (const [k, v] of fd.entries()) {
-      if (k === '__journee' || k === '__clientName') continue;   // champs auxiliaires UI
+      if (k === '__journee' || k === '__clientName' || k === '__projetNom') continue;   // champs auxiliaires UI
       if (v !== '') fields[k] = v;
     }
     // Date : journée entière → minuit local ; sinon datetime-local complet.
@@ -196,7 +266,16 @@ export function openModalRdv({ rdv = null, projetId = null, clientId = null, con
       if (c) resolvedClientId = c.id;
     }
     if (resolvedClientId) fields.Client = [resolvedClientId];
-    if (isNew && projetId) fields.Projet = [projetId];
+
+    // Projet saisi. Une saisie qui ne correspond à rien ARRÊTE l'enregistrement :
+    // enregistrer en ignorant le champ laisserait croire au rattachement.
+    const projetSaisi = String(fd.get('__projetNom') || '').trim();
+    const res = resoudreProjetSaisi(projetSaisi);
+    if (res && res.erreur) { toast(res.erreur, 'error', 6000); return; }
+    if (res && res.id) fields.Projet = [res.id];
+    else if (!projetSaisi && initialProjetId) fields.Projet = [];   // champ vidé → on détache
+    else if (!projetSaisi && isNew && projetId) fields.Projet = [projetId];
+
     try {
       if (isNew) await createRendezVous(fields); else await patchRendezVous(rdv.id, fields);
       close();

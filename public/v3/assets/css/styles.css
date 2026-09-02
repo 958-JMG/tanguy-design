@@ -663,6 +663,173 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 .cal-event.is-start { font-weight: 600; }
 .cal-more { font-size: 10px; padding: 2px 6px; }
 
+/* Agenda v3 (2026-09) — carte à 2 lignes : (1) qui/quoi, (2) nom du projet.
+   `white-space: nowrap` de .cal-event s'appliquait au bouton entier ; on repasse
+   en bloc pour empiler, et chaque ligne tronque pour elle-même. */
+.cal-event.has-projet, .calw-ev, .calw-band {
+  display: flex; flex-direction: column; gap: 1px;
+  white-space: normal;
+  line-height: 1.25;
+}
+.cal-ev-titre, .cal-ev-projet {
+  display: block;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0;
+}
+.cal-ev-projet {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.92;
+  letter-spacing: 0.01em;
+}
+/* Nom déduit du client faute de lien direct (SAV) : signalé, jamais présenté comme acquis. */
+.cal-ev-projet.is-deduit { font-style: italic; opacity: 0.85; }
+/* Projet absent ou indéterminé : la carte le dit au lieu de laisser un blanc. */
+.cal-ev-projet.is-vide { font-style: italic; opacity: 0.62; }
+
+/* Bascule Mois / Semaine */
+.cal-switch {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm, 8px);
+  overflow: hidden;
+  background: white;
+}
+.cal-switch-btn {
+  border: none; background: transparent;
+  padding: 6px 12px;
+  font-size: 13px; color: var(--ink2);
+  cursor: pointer;
+}
+.cal-switch-btn + .cal-switch-btn { border-left: 1px solid var(--line); }
+.cal-switch-btn.is-on { background: var(--ink1); color: var(--paper); font-weight: 600; }
+.cal-switch-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Bandeau « des rendez-vous n'ont pas de projet » */
+.cal-alerte {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 8px 12px; margin-bottom: 12px;
+  border: 1px solid var(--line); border-left: 3px solid var(--gold);
+  border-radius: var(--r-md);
+  background: white; font-size: 13px; color: var(--ink2);
+}
+
+/* === Vue SEMAINE (planning horaire) ===
+   3 bandes empilées : en-têtes de jours, bande « journée », grille horaire.
+   Chaque bande partage la même gouttière de 56 px + 7 colonnes égales.
+   minmax(0, 1fr) : sans lui, min-width:auto fait déborder la grille sur iPhone. */
+.calw {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  --calw-gutter: 56px;
+  --calw-hauteur-heure: 46px;
+}
+.calw-head, .calw-allday, .calw-body {
+  display: grid;
+  grid-template-columns: var(--calw-gutter) repeat(7, minmax(0, 1fr));
+}
+.calw-gutter {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink3); padding: 6px 4px; text-align: right;
+  border-right: 1px solid var(--line);
+}
+.calw-head { background: var(--paper); border-bottom: 1px solid var(--line); }
+.calw-dayhead {
+  padding: 6px 4px; text-align: center;
+  border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.calw-dayhead:last-child { border-right: none; }
+.calw-dayhead-j { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink3); }
+.calw-dayhead-n { font-size: 15px; font-weight: 600; color: var(--ink1); }
+.calw-dayhead.is-today .calw-dayhead-n {
+  background: var(--ink1); color: var(--paper);
+  width: 24px; height: 24px; border-radius: 50%; line-height: 24px;
+}
+
+/* Bande « journée » : poses, réceptions, RDV sans heure.
+   Les bandes et les cases de dépôt vivent dans LA MÊME grille que l'en-tête et la
+   grille horaire — une grille imbriquée les désalignait des colonnes de jours,
+   et le glisser-déposer visait alors un autre jour que celui visé à l'écran. */
+.calw-allday {
+  border-bottom: 1px solid var(--line);
+  min-height: 34px;
+  grid-template-rows: repeat(var(--calw-lignes, 1), auto);
+  padding: 3px 0;
+  align-items: start;
+}
+.calw-allday .calw-gutter { grid-column: 1; grid-row: 1 / -1; }
+/* Cases de dépôt : sous les bandes, sur toute la hauteur de la zone. */
+.calw-allday-drop {
+  grid-row: 1 / -1;
+  border-right: 1px solid var(--line);
+  min-height: 28px;
+}
+.calw-allday-drop:last-of-type { border-right: none; }
+.calw-band {
+  text-align: left; border: none; border-radius: 4px;
+  padding: 2px 6px; margin: 1px 2px;
+  font-size: 11px; color: white; background: var(--accent);
+  cursor: grab; min-width: 0; z-index: 1;
+}
+.calw-band:hover { opacity: 0.85; }
+
+/* Grille horaire */
+.calw-body { position: relative; }
+.calw-hours { padding: 0; text-align: right; }
+.calw-hour {
+  height: var(--calw-hauteur-heure);
+  border-top: 1px solid var(--line);
+  padding-right: 6px;
+  font-size: 10px; color: var(--ink3);
+}
+.calw-hour span { position: relative; top: -6px; }
+.calw-hour:first-child { border-top: none; }
+.calw-hour:first-child span { top: 0; }
+.calw-col {
+  position: relative;
+  border-right: 1px solid var(--line);
+}
+.calw-col:last-child { border-right: none; }
+.calw-col.is-today { background: var(--accent-lo, rgba(0,0,0,.02)); }
+.calw-slot {
+  height: var(--calw-hauteur-heure);
+  border-top: 1px solid var(--line);
+  transition: background 0.12s;
+}
+.calw-slot:first-child { border-top: none; }
+.calw-slot.drag-over, .calw-allday-drop.drag-over { background: var(--accent-lo); }
+.calw-ev {
+  position: absolute;
+  text-align: left; border: none; border-radius: 4px;
+  padding: 2px 5px;
+  font-size: 11px; color: white; background: var(--accent);
+  cursor: grab;
+  overflow: hidden;
+  min-height: 20px;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.5);
+}
+.calw-ev:hover { opacity: 0.9; z-index: 2; }
+.calw-ev.dragging, .calw-band.dragging { opacity: 0.4; }
+.calw-ev-h { font-size: 10px; font-weight: 600; opacity: 0.9; }
+
+/* Les couleurs par type valent pour les 3 formes de carte. */
+.calw-ev.rtype-decouverte, .calw-band.rtype-decouverte                 { background: #2f6f9f; }
+.calw-ev.rtype-metre, .calw-band.rtype-metre                           { background: #127a6b; }
+.calw-ev.rtype-presentation-devis, .calw-band.rtype-presentation-devis { background: var(--gold); }
+.calw-ev.rtype-suivi-chantier, .calw-band.rtype-suivi-chantier         { background: #6b4f9e; }
+.calw-ev.rtype-reception, .calw-band.rtype-reception                   { background: #2e8b57; }
+.calw-ev.rtype-pose, .calw-band.rtype-pose                             { background: #c25b30; }
+.calw-ev.rtype-reception-pose, .calw-band.rtype-reception-pose         { background: #2e8b57; }
+.calw-ev.rtype-sav, .calw-band.rtype-sav                               { background: #b23b3b; }
+.calw-ev.rtype-autre, .calw-band.rtype-autre                           { background: #5b5b5b; }
+.calw-ev.color-accent, .calw-band.color-accent                         { background: var(--accent); }
+.calw-ev.color-reception, .calw-band.color-reception {
+  background: #1f7a4d; border: 1px dashed rgba(255,255,255,.6);
+}
+
 /* Agenda v2 — couleurs statiques distinctes par Type de RDV */
 .cal-event.rtype-decouverte         { background: #2f6f9f; }
 .cal-event.rtype-metre              { background: #127a6b; }
@@ -682,9 +849,28 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 .rdv-allday input { width: auto; margin: 0; }
 
 @media (max-width: 760px) {
-  .cal-cell { min-height: 60px; }
+  .cal-cell { min-height: 72px; }
   .cal-event { font-size: 10px; padding: 2px 4px; }
+  .cal-ev-projet { font-size: 9px; }
   .cal-title { min-width: 100px; font-size: 14px; }
+  .cal-nav { flex-wrap: wrap; gap: 6px; }
+
+  /* Vue semaine sur iPhone (390 px) : 7 colonnes lisibles ne tiennent pas dans
+     la largeur. On fait défiler la grille horizontalement plutôt que d'écraser
+     les cartes — la gouttière des heures reste collée à gauche. */
+  .calw { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* Pistes à largeur MINIMALE fixe, jamais dictées par le contenu : les trois
+     grilles (en-tête, bande journée, grille horaire) se calculent séparément et
+     ne s'alignent que si leurs pistes ne dépendent pas de ce qu'elles portent.
+     Un `min-width: max-content` ici élargissait la seule bande « journée » au
+     gabarit de son plus long libellé — les colonnes glissaient de 84 à 159 px et
+     un dépôt tombait sur le mauvais jour. */
+  .calw-head, .calw-allday, .calw-body {
+    grid-template-columns: var(--calw-gutter) repeat(7, minmax(84px, 1fr));
+  }
+  .calw-gutter { position: sticky; left: 0; z-index: 3; background: white; }
+  .calw-head .calw-gutter { background: var(--paper); }
+  .calw-band, .calw-ev { font-size: 10px; }
 }
 
 /* === Stepper fiche projet === */
