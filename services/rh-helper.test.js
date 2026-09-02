@@ -59,8 +59,8 @@ describe('joursAbsenceDansMois()', () => {
 
 describe('recapPaieMois()', () => {
   const salaries = [
-    { id: 'recS1', nom: 'Marie Dupont', poste: 'Poseuse', typeContrat: 'CDI', soldeConges: 12.5 },
-    { id: 'recS2', nom: 'Jean Martin', poste: 'Conseiller', typeContrat: 'CDI', soldeConges: 8 },
+    { id: 'recS1', nom: 'Marie Dupont', poste: 'Poseuse', typeContrat: 'CDI' },
+    { id: 'recS2', nom: 'Jean Martin', poste: 'Conseiller', typeContrat: 'CDI' },
   ];
   const heures = [
     { salarieId: 'recS1', semaine: '2026-06-01', heuresNormales: 35, heuresSupp: 4 },
@@ -81,7 +81,7 @@ describe('recapPaieMois()', () => {
     assert.equal(marie.heuresSupp, 4);
     assert.equal(marie.congesPris, 5);
     assert.equal(marie.maladie, 2);
-    assert.equal(marie.soldeConges, 12.5);
+    assert.equal(marie.soldeConges, undefined, 'le solde ne transite plus par le récap de paie');
     const jean = recap.find(r => r.salarieId === 'recS2');
     assert.equal(jean.heuresNormales, 39);
     assert.equal(jean.congesPris, 0, 'absence non validée ne compte pas');

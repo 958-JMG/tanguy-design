@@ -17,6 +17,7 @@ const { parseFactureFournisseurPdf } = require('./services/facture-fournisseur-p
 const { parseDevisFournisseurPdf } = require('./services/devis-fournisseur-parser');
 const { buildPlanTresorerie, echeancesFacturees, mondayOf, addDays, toCsv } = require('./services/tresorerie-helper');
 const { recapPaieMois, alertesVisitesMedicales, joursOuvres } = require('./services/rh-helper');
+const { compteursEquipe: compteursCongesEquipe } = require('./services/conges-helper');
 const { joursRetard, niveauRelanceSuggere, buildEmailRelance, buildEmailRelanceFournisseur, buildMailto } = require('./services/relances-helper');
 const pennylane = require('./services/pennylane');
 const { DEVIS_IMPORT_HASH_FIELD, computeImportHash, buildHashFilterFormula } = require('./services/devis-idempotency');
@@ -4026,6 +4027,7 @@ function normSalarie(r) {
   return {
     id: r.id, nom: f['Nom'] || '?', poste: f['Poste'] || '', typeContrat: f['Type contrat'] || '',
     soldeConges: typeof f['Solde congés'] === 'number' ? f['Solde congés'] : null,
+    dateEntree: f['Date entrée'] || null,
     prochaineVisite: f['Prochaine visite médicale'] || null, actif: !!f['Actif'],
   };
 }
@@ -4057,7 +4059,7 @@ app.get('/api/rh/paie', requireAdmin, async (req, res) => {
         { key: 'nom', label: 'Salarié' }, { key: 'poste', label: 'Poste' }, { key: 'typeContrat', label: 'Contrat' },
         { key: 'heuresNormales', label: 'Heures normales' }, { key: 'heuresSupp', label: 'Heures supp' },
         { key: 'congesPris', label: 'Congés/RTT pris (j)' }, { key: 'maladie', label: 'Maladie (j)' },
-        { key: 'autresAbsences', label: 'Autres absences (j)' }, { key: 'soldeConges', label: 'Solde congés' },
+        { key: 'autresAbsences', label: 'Autres absences (j)' },
       ]);
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="paie-${mois}.csv"`);
@@ -4066,6 +4068,36 @@ app.get('/api/rh/paie', requireAdmin, async (req, res) => {
     res.json({ ok: true, mois, recap });
   } catch (e) {
     logger.error('[rh/paie] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/rh/conges — compteurs de congés payés, RECALCULÉS à chaque appel.
+// Remplace le champ Airtable « Solde congés », qui ne faisait que descendre
+// (jamais crédité) et affichait −25 pour un salarié au 02/09/2026.
+app.get('/api/rh/conges', requireAdmin, async (req, res) => {
+  const aujourdhui = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || ''))
+    ? String(req.query.date)
+    : new Date().toISOString().slice(0, 10);
+  try {
+    const [salariesRaw, absencesRaw] = await Promise.all([
+      atFetchAll(TABLES.salaries.id),
+      atFetchAll(TABLES.absences.id),
+    ]);
+    const salaries = salariesRaw.map(normSalarie).filter(s => s.actif);
+    const absences = absencesRaw.map(r => ({
+      id: r.id,
+      salarieId: (r.fields['Salarié'] || [])[0],
+      libelle: r.fields['Libellé'] || '',
+      type: r.fields['Type'] || 'Autre',
+      dateDebut: r.fields['Date début'] || null,
+      dateFin: r.fields['Date fin'] || null,
+      statut: r.fields['Statut'] || '',
+    })).filter(a => a.salarieId && a.dateDebut);
+    const compteurs = compteursCongesEquipe({ salaries, absences, aujourdhui });
+    res.json({ ok: true, aujourdhui, periode: compteurs[0]?.periode || null, compteurs });
+  } catch (e) {
+    logger.error('[rh/conges] error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -4125,17 +4157,13 @@ app.post('/api/rh/absences/:id/decision', requireAdmin, async (req, res) => {
     if (!abs) return res.status(404).json({ error: 'absence introuvable' });
     if ((abs.fields['Statut'] || '') !== 'Demandée') return res.status(409).json({ error: `absence déjà ${abs.fields['Statut']}` });
     await atPatch(TABLES.absences.id, abs.id, { 'Statut': decision });
-    let nouveauSolde = null;
-    if (decision === 'Validée' && ['Congés payés', 'RTT'].includes(abs.fields['Type'] || '')) {
-      const salarieId = (abs.fields['Salarié'] || [])[0];
-      const sal = salarieId ? (await atFetchByIds(TABLES.salaries.id, [salarieId]))[0] : null;
-      if (sal && typeof sal.fields['Solde congés'] === 'number') {
-        nouveauSolde = Math.round((sal.fields['Solde congés'] - (Number(abs.fields['Jours ouvrés']) || 0)) * 10) / 10;
-        await atPatch(TABLES.salaries.id, salarieId, { 'Solde congés': nouveauSolde });
-      }
-    }
-    logger.info({ absence: abs.fields['Libellé'], decision, nouveauSolde }, '[rh/absences] décision');
-    res.json({ ok: true, decision, nouveauSolde });
+    // Le solde n'est PLUS décrémenté ici (02/09/2026). Ce compteur ne faisait que
+    // descendre — jamais crédité de l'acquisition — et affichait −25 j pour un
+    // salarié. Le solde est désormais RECALCULÉ à l'affichage par
+    // services/conges-helper (acquis − posés distincts), donc il ne peut plus
+    // dériver, et une absence corrigée ou supprimée se répercute d'elle-même.
+    logger.info({ absence: abs.fields['Libellé'], decision }, '[rh/absences] décision');
+    res.json({ ok: true, decision });
   } catch (e) {
     logger.error('[rh/absences/decision] error:', e.message);
     res.status(500).json({ error: e.message });

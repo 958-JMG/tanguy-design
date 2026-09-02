@@ -562,10 +562,16 @@ async function renderTresorerie(body) {
 
 async function renderRH(body) {
   try {
-    const [sal, alertes] = await Promise.all([
+    const [sal, alertes, conges] = await Promise.all([
       api('/api/data/salaries'),
       api('/api/rh/alertes'),
+      api('/api/rh/conges'),
     ]);
+    // Compteurs de congés RECALCULÉS (acquis − posés distincts) — cf. services/conges-helper.
+    // Le champ Airtable « Solde congés » n'est plus affiché nulle part : il ne
+    // faisait que descendre et affichait des valeurs négatives sans signification.
+    const parSalarie = new Map((conges.compteurs || []).map(c => [c.salarieId, c]));
+    const limites = [...new Set((conges.compteurs || []).flatMap(c => c.limites || []))];
     const salaries = (sal.records || []).map(r => ({ id: r.id, ...r.fields }))
       .sort((a, b) => String(a['Nom'] || '').localeCompare(String(b['Nom'] || '')));
     const actifs = salaries.filter(s => s['Actif']);
@@ -591,21 +597,50 @@ async function renderRH(body) {
         </div>
       </div>
       ${salaries.length ? `
-      <table class="pipeline-table" style="margin-bottom:24px">
-        <thead><tr><th>Nom</th><th>Poste</th><th>Contrat</th><th class="num">Solde congés</th><th>Visite médicale</th><th>Statut</th><th></th></tr></thead>
+      <div class="table-scroll" style="margin-bottom:24px">
+      <table class="pipeline-table">
+        <thead><tr><th>Nom</th><th>Poste</th><th>Contrat</th>
+          <th class="num" title="Droits ouverts : congés acquis sur l'année de référence précédente, donc disponibles aujourd'hui">Droits</th>
+          <th class="num" title="Jours ouvrables posés depuis le 1er juin, comptés une seule fois même si deux absences se recouvrent">Posés</th>
+          <th class="num" title="Droits ouverts moins jours posés">Solde</th>
+          <th class="num" title="Se constitue pour l'année prochaine — disponible au 1er juin suivant">En cours</th>
+          <th>Visite médicale</th><th>Statut</th><th></th></tr></thead>
         <tbody>
-          ${salaries.map(s => `
+          ${salaries.map(s => { const cg = parSalarie.get(s.id); return `
           <tr>
             <td><strong>${esc(s['Nom'] || '?')}</strong></td>
             <td>${esc(s['Poste'] || '—')}</td>
             <td>${esc(s['Type contrat'] || '—')}</td>
-            <td class="num">${s['Solde congés'] != null ? s['Solde congés'] + ' j' : '—'}</td>
+            <td class="num">${cg ? cg.droitsOuverts + ' j' : '—'}${cg && cg.entreeInconnue ? ' <span class="muted" title="Date d\'entrée inconnue : année pleine supposée">?</span>' : ''}</td>
+            <td class="num">${cg ? cg.poses + ' j' : '—'}${cg && cg.aVenir ? ` <span class="muted" title="dont ${cg.aVenir} j encore à venir">(dont ${cg.aVenir} à venir)</span>` : ''}</td>
+            <td class="num">${cg ? `<strong${cg.depassement ? ' style="color:var(--accent)"' : ''}>${cg.solde} j</strong>` : '—'}</td>
+            <td class="num muted">+${cg ? cg.enAcquisition : 0} j</td>
             <td>${fmtDate(s['Prochaine visite médicale'])}</td>
             <td>${s['Actif'] ? '<span class="badge phase-signe">Actif</span>' : '<span class="muted">Sorti</span>'}</td>
             <td><button class="btn btn-ghost btn-sm" data-action="edit-salarie" data-id="${esc(s.id)}">${icon('edit', 12)}</button></td>
-          </tr>`).join('')}
+          </tr>`; }).join('')}
         </tbody>
-      </table>` : `<div class="card" style="margin-bottom:24px"><p class="muted">Aucun salarié. Crée les dossiers du personnel via « Nouveau salarié ».</p></div>`}
+      </table>
+      </div>
+      <div class="card" style="margin-bottom:24px">
+        <p class="muted" style="margin:0 0 6px">
+          <strong>Congés payés — période ${esc(conges.periode ? conges.periode.libelle : '')}.</strong>
+          Compteur recalculé à chaque affichage, plus jamais stocké.
+          Les <strong>droits</strong> sont ceux acquis sur l'année précédente
+          (${esc(conges.compteurs && conges.compteurs[0] ? conges.compteurs[0].periodePrecedente.libelle : '')}) :
+          ce sont eux qu'on consomme aujourd'hui, à raison de 2,5 jours <em>ouvrables</em> par mois
+          travaillé, samedi compris, plafond 30. Les <strong>posés</strong> sont les jours ouvrables
+          d'absence depuis le 1<sup>er</sup> juin, hors jours fériés — un même jour couvert par deux
+          absences ne compte qu'une fois. La colonne <strong>en cours</strong> est ce qui se constitue
+          pour l'an prochain.
+        </p>
+        ${limites.length ? `<ul class="muted" style="margin:6px 0 0;padding-left:18px;line-height:1.7">
+          ${limites.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}
+        <p class="muted" style="margin:8px 0 0;font-size:12px">
+          Le calcul compte des mois calendaires complets et ne modélise pas l'effet des arrêts
+          maladie sur l'acquisition, ni une convention collective plus favorable — à valider en paie.
+        </p>
+      </div>` : `<div class="card" style="margin-bottom:24px"><p class="muted">Aucun salarié. Crée les dossiers du personnel via « Nouveau salarié ».</p></div>`}
 
       <div class="section-header"><h2 class="section-title">Éléments de paie</h2></div>
       <div class="card">
@@ -623,7 +658,7 @@ async function renderRH(body) {
     body.querySelectorAll('[data-action="decider-absence"]').forEach(b => b.addEventListener('click', async () => {
       try {
         const j = await api(`/api/rh/absences/${encodeURIComponent(b.dataset.id)}/decision`, { method: 'POST', body: JSON.stringify({ decision: b.dataset.decision }) });
-        toast(`Absence ${j.decision.toLowerCase()}${j.nouveauSolde != null ? ` — solde congés : ${j.nouveauSolde} j` : ''}`, 'success');
+        toast(`Absence ${j.decision.toLowerCase()} — compteurs de congés remis à jour`, 'success');
         renderRH(body);
       } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
     }));
@@ -644,15 +679,14 @@ async function renderRH(body) {
       try {
         const j = await api(`/api/rh/paie?mois=${encodeURIComponent(mois)}`);
         out.innerHTML = j.recap.length ? `
-          <table class="pipeline-table">
-            <thead><tr><th>Salarié</th><th class="num">H. normales</th><th class="num">H. supp</th><th class="num">Congés/RTT (j)</th><th class="num">Maladie (j)</th><th class="num">Autres (j)</th><th class="num">Solde congés</th></tr></thead>
+          <div class="table-scroll"><table class="pipeline-table">
+            <thead><tr><th>Salarié</th><th class="num">H. normales</th><th class="num">H. supp</th><th class="num">Congés/RTT (j)</th><th class="num">Maladie (j)</th><th class="num">Autres (j)</th></tr></thead>
             <tbody>${j.recap.map(r => `
               <tr><td><strong>${esc(r.nom)}</strong> <span class="muted">${esc(r.poste)}</span></td>
               <td class="num">${r.heuresNormales}</td><td class="num">${r.heuresSupp}</td>
-              <td class="num">${r.congesPris}</td><td class="num">${r.maladie}</td><td class="num">${r.autresAbsences}</td>
-              <td class="num">${r.soldeConges != null ? r.soldeConges + ' j' : '—'}</td></tr>`).join('')}
+              <td class="num">${r.congesPris}</td><td class="num">${r.maladie}</td><td class="num">${r.autresAbsences}</td></tr>`).join('')}
             </tbody>
-          </table>` : '<p class="muted">Aucun salarié actif.</p>';
+          </table></div>` : '<p class="muted">Aucun salarié actif.</p>';
       } catch (err) { out.innerHTML = `<p class="muted">Erreur : ${esc(err.message)}</p>`; }
     });
     document.getElementById('btn-paie-csv').addEventListener('click', () => {
@@ -677,7 +711,11 @@ function openModalSalarie(s, onDone) {
         <select name="Type contrat">${['CDI', 'CDD', 'Alternance', 'Stage', 'Indépendant'].map(t => `<option${(s?.['Type contrat'] || 'CDI') === t ? ' selected' : ''}>${t}</option>`).join('')}</select>
       </label>
       <label>Date d'entrée <input name="Date entrée" type="date" value="${esc(s?.['Date entrée'] || '')}"></label>
-      <label>Solde congés (jours) <input name="Solde congés" type="number" step="0.5" value="${s?.['Solde congés'] ?? 25}"></label>
+      <p class="muted" style="margin:4px 0 12px;font-size:12px">
+        Le solde de congés ne se saisit plus : il est calculé depuis la date d'entrée
+        et les absences validées. Renseigner la date d'entrée suffit — sans elle, la
+        présence est supposée depuis le 1<sup>er</sup> juin.
+      </p>
       <label>Dernière visite médicale <input name="Dernière visite médicale" type="date" value="${esc(s?.['Dernière visite médicale'] || '')}"></label>
       <label>Prochaine visite médicale <input name="Prochaine visite médicale" type="date" value="${esc(s?.['Prochaine visite médicale'] || '')}"></label>
       <label style="display:flex;align-items:center;gap:8px;flex-direction:row">
@@ -699,7 +737,6 @@ function openModalSalarie(s, onDone) {
       const v = fd.get(k);
       if (v) fields[k] = v;
     }
-    fields['Solde congés'] = Number(fd.get('Solde congés')) || 0;
     fields['Actif'] = fd.get('Actif') === 'on';
     try {
       if (isNew) await api('/api/data/salaries', { method: 'POST', body: JSON.stringify({ fields }) });
