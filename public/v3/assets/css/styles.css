@@ -830,6 +830,68 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   background: #1f7a4d; border: 1px dashed rgba(255,255,255,.6);
 }
 
+/* === Onglet Pose — planning horaire des chantiers ===
+   Réutilise la grille .calw ; seul le bloc change. Un bloc = un JOUR de pose,
+   déplaçable (jour + heure) et étirable par son bord bas. */
+.pose-bloc {
+  position: absolute;
+  display: flex; flex-direction: column;
+  border-radius: 5px;
+  background: var(--accent);
+  color: white;
+  overflow: hidden;
+  min-height: 26px;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.55);
+  cursor: grab;
+}
+.pose-bloc.dragging { opacity: 0.4; }
+.pose-bloc:hover { z-index: 2; }
+/* Heures non saisies : le bloc est hachuré pour dire que 08:00–17:00 est une
+   convention d'affichage, pas une décision prise par quelqu'un. */
+.pose-bloc.is-defaut {
+  background-image: repeating-linear-gradient(135deg,
+    rgba(255,255,255,.16) 0 5px, transparent 5px 10px);
+}
+.pose-bloc-corps {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; gap: 1px;
+  border: none; background: none; color: inherit;
+  text-align: left; padding: 3px 6px;
+  font: inherit; cursor: pointer;
+  overflow: hidden;
+}
+.pose-bloc-corps > span {
+  display: block; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pose-h      { font-size: 10px; font-weight: 700; opacity: .95; letter-spacing: .01em; }
+.pose-client { font-size: 11px; font-weight: 600; }
+.pose-ref    { font-size: 10px; opacity: .92; }
+.pose-defaut { font-size: 9px; font-style: italic; opacity: .8; }
+.pose-cta {
+  flex: 0 0 auto;
+  border: none; border-top: 1px solid rgba(255,255,255,.3);
+  background: rgba(0,0,0,.16); color: white;
+  font-size: 9px; letter-spacing: .02em;
+  padding: 2px 6px; cursor: pointer;
+  display: flex; align-items: center; gap: 3px;
+  white-space: nowrap;
+}
+.pose-cta:hover { background: rgba(0,0,0,.3); }
+.pose-cta svg { flex: 0 0 auto; }
+/* Poignée d'étirement : 44 px de large au doigt, 8 px de haut, sur le bord bas. */
+.pose-grip {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: 8px; cursor: ns-resize;
+  background: linear-gradient(to top, rgba(0,0,0,.28), transparent);
+  touch-action: none;
+}
+.pose-grip::after {
+  content: ''; position: absolute; left: 50%; bottom: 2px;
+  width: 22px; height: 2px; margin-left: -11px; border-radius: 2px;
+  background: rgba(255,255,255,.8);
+}
+
 /* Agenda v2 — couleurs statiques distinctes par Type de RDV */
 .cal-event.rtype-decouverte         { background: #2f6f9f; }
 .cal-event.rtype-metre              { background: #127a6b; }
@@ -867,6 +929,12 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
      un dépôt tombait sur le mauvais jour. */
   .calw-head, .calw-allday, .calw-body {
     grid-template-columns: var(--calw-gutter) repeat(7, minmax(84px, 1fr));
+  }
+  /* Planning de pose : colonnes plus larges que dans l'agenda. Deux chantiers
+     sur le même créneau se partagent la colonne — à 84 px chacun tombait à
+     39 px, soit « DU… / Cuis… », illisible. */
+  .calw-pose .calw-head, .calw-pose .calw-body {
+    grid-template-columns: var(--calw-gutter) repeat(7, minmax(150px, 1fr));
   }
   .calw-gutter { position: sticky; left: 0; z-index: 3; background: white; }
   .calw-head .calw-gutter { background: var(--paper); }

@@ -177,6 +177,74 @@ export function disposerEnColonnes(creneaux) {
   return items;
 }
 
+// ───────────────────── Créneaux de pose (onglet Pose) ─────────────────────
+
+// Journée de pose par défaut, quand les heures ne sont pas saisies sur le projet.
+// Ce n'est pas une donnée : c'est ce qu'affiche l'écran tant que personne n'a
+// précisé, et l'écran le signale.
+export const POSE_DEFAUT = { debut: '08:00', fin: '17:00' };
+
+/** 'HH:MM' → minutes depuis minuit. null si le format n'est pas exactement celui-là. */
+export function minutesDeHeure(hhmm) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '').trim());
+  if (!m) return null;
+  const h = Number(m[1]), mn = Number(m[2]);
+  if (h > 23 || mn > 59) return null;
+  return h * 60 + mn;
+}
+
+/** minutes depuis minuit → 'HH:MM'. Borné à [0, 23:59]. */
+export function heureDeMinutes(min) {
+  const v = Math.max(0, Math.min(23 * 60 + 59, Math.round(Number(min) || 0)));
+  return `${String(Math.floor(v / 60)).padStart(2, '0')}:${String(v % 60).padStart(2, '0')}`;
+}
+
+/**
+ * Plage horaire quotidienne d'une pose.
+ *
+ * Renvoie { debut, fin, parDefaut } en minutes, `parDefaut` disant si l'une des
+ * deux heures manquait — l'écran doit le montrer plutôt que de faire passer
+ * 08:00–17:00 pour une décision de Virginie.
+ *
+ * Une fin antérieure ou égale au début est refusée : on retombe sur la journée
+ * standard et on le signale, plutôt que d'afficher un bloc de hauteur nulle
+ * ou négative qui disparaîtrait de l'écran.
+ */
+export function plagePose(projet) {
+  const d = minutesDeHeure(projet && projet['Heure début pose']);
+  const f = minutesDeHeure(projet && projet['Heure fin pose']);
+  if (d === null || f === null || f <= d) {
+    return {
+      debut: minutesDeHeure(POSE_DEFAUT.debut),
+      fin: minutesDeHeure(POSE_DEFAUT.fin),
+      parDefaut: true,
+      // Vrai seulement si des heures ONT été saisies mais ne tiennent pas debout.
+      incoherente: d !== null && f !== null && f <= d,
+    };
+  }
+  return { debut: d, fin: f, parDefaut: false, incoherente: false };
+}
+
+/**
+ * Nouvelle plage après un glisser-déposer vertical : on déplace le créneau à
+ * `nouveauDebut` en conservant sa DURÉE, sans jamais déborder de la journée.
+ * Un créneau plus long que la journée est tronqué, pas replié.
+ */
+export function deplacerPlage({ debut, fin }, nouveauDebut) {
+  const duree = Math.max(15, fin - debut);
+  let d = Math.max(0, Math.round(nouveauDebut));
+  if (d + duree > 24 * 60) d = Math.max(0, 24 * 60 - duree);
+  return { debut: d, fin: Math.min(24 * 60, d + duree) };
+}
+
+/**
+ * Nouvelle fin après un redimensionnement par le bas.
+ * Garde au moins 15 minutes de créneau et ne sort pas de la journée.
+ */
+export function redimensionnerPlage({ debut }, nouvelleFin) {
+  return { debut, fin: Math.min(24 * 60, Math.max(debut + 15, Math.round(nouvelleFin))) };
+}
+
 /**
  * Bornes horaires à afficher dans une vue planning.
  *

@@ -23,9 +23,11 @@ const {
   indexProjetsParId, indexProjetsParClient, resoudreProjet,
   lundiDeLaSemaine, joursDeLaSemaine, minutesDeIso, heureCourte,
   disposerEnColonnes, amplitudeHoraire, jourDeValeurDate,
+  plagePose, minutesDeHeure, heureDeMinutes, deplacerPlage, redimensionnerPlage,
 } = new Function(`${code}; return { indexProjetsParId, indexProjetsParClient, resoudreProjet,
   lundiDeLaSemaine, joursDeLaSemaine, minutesDeIso, heureCourte,
-  disposerEnColonnes, amplitudeHoraire, jourDeValeurDate };`)();
+  disposerEnColonnes, amplitudeHoraire, jourDeValeurDate,
+  plagePose, minutesDeHeure, heureDeMinutes, deplacerPlage, redimensionnerPlage };`)();
 
 // Projets tels qu'ils arrivent de /api/data/projets : { id, ...fields }
 const PROJETS = [
@@ -267,6 +269,84 @@ describe('disposerEnColonnes() — la superposition', () => {
   test('créneaux invalides ignorés, sans planter', () => {
     assert.deepEqual(cols([{ id: 'a', debut: 540, fin: 600 }, { id: 'x', debut: NaN, fin: 10 }, null]), ['a:0/1']);
     assert.deepEqual(disposerEnColonnes(null), []);
+  });
+});
+
+describe('plagePose() — la plage horaire d\'une pose', () => {
+  test('heures saisies → reprises telles quelles', () => {
+    assert.deepEqual(plagePose({ 'Heure début pose': '07:30', 'Heure fin pose': '16:00' }),
+      { debut: 450, fin: 960, parDefaut: false, incoherente: false });
+  });
+
+  test('aucune heure saisie → journée standard, ET c\'est dit', () => {
+    // Les 163 projets existants sont dans ce cas : l'écran doit montrer que
+    // 08:00–17:00 est une convention d'affichage, pas une décision de Virginie.
+    const p = plagePose({});
+    assert.deepEqual({ d: p.debut, f: p.fin, pd: p.parDefaut }, { d: 480, f: 1020, pd: true });
+    assert.equal(p.incoherente, false, 'rien n\'a été saisi : rien d\'incohérent');
+  });
+
+  test('une seule des deux heures → journée standard', () => {
+    assert.equal(plagePose({ 'Heure début pose': '09:00' }).parDefaut, true);
+    assert.equal(plagePose({ 'Heure fin pose': '17:00' }).parDefaut, true);
+  });
+
+  test('fin avant début → journée standard, signalée comme incohérente', () => {
+    // Un bloc de hauteur négative disparaîtrait de l'écran sans un mot.
+    const p = plagePose({ 'Heure début pose': '17:00', 'Heure fin pose': '08:00' });
+    assert.equal(p.parDefaut, true);
+    assert.equal(p.incoherente, true);
+  });
+
+  test('fin égale au début → incohérente aussi (créneau de durée nulle)', () => {
+    assert.equal(plagePose({ 'Heure début pose': '08:00', 'Heure fin pose': '08:00' }).incoherente, true);
+  });
+
+  test('formats invalides rejetés', () => {
+    assert.equal(minutesDeHeure('8h30'), null);
+    assert.equal(minutesDeHeure('25:00'), null);
+    assert.equal(minutesDeHeure('08:60'), null);
+    assert.equal(minutesDeHeure(''), null);
+    assert.equal(minutesDeHeure(null), null);
+  });
+
+  test('formats acceptés, avec ou sans zéro initial', () => {
+    assert.equal(minutesDeHeure('8:30'), 510);
+    assert.equal(minutesDeHeure('08:30'), 510);
+    assert.equal(minutesDeHeure(' 08:30 '), 510);
+    assert.equal(minutesDeHeure('00:00'), 0);
+    assert.equal(minutesDeHeure('23:59'), 1439);
+  });
+
+  test('heureDeMinutes est l\'inverse, et reste bornée', () => {
+    assert.equal(heureDeMinutes(510), '08:30');
+    assert.equal(heureDeMinutes(0), '00:00');
+    assert.equal(heureDeMinutes(-30), '00:00');
+    assert.equal(heureDeMinutes(99999), '23:59');
+  });
+});
+
+describe('déplacer / redimensionner une plage de pose', () => {
+  test('déplacer conserve la durée', () => {
+    assert.deepEqual(deplacerPlage({ debut: 480, fin: 1020 }, 420), { debut: 420, fin: 960 });
+  });
+
+  test('déplacer en fin de journée ne déborde pas sur le lendemain', () => {
+    // 9 h de pose posée à 23:00 : on recale au plus tard possible plutôt que
+    // de laisser le bloc sortir de la grille.
+    assert.deepEqual(deplacerPlage({ debut: 480, fin: 1020 }, 23 * 60), { debut: 900, fin: 1440 });
+  });
+
+  test('déplacer avant minuit reste à 0', () => {
+    assert.deepEqual(deplacerPlage({ debut: 480, fin: 600 }, -60), { debut: 0, fin: 120 });
+  });
+
+  test('redimensionner garde au moins 15 minutes', () => {
+    assert.deepEqual(redimensionnerPlage({ debut: 480 }, 400), { debut: 480, fin: 495 });
+  });
+
+  test('redimensionner ne dépasse pas minuit', () => {
+    assert.deepEqual(redimensionnerPlage({ debut: 480 }, 99999), { debut: 480, fin: 1440 });
   });
 });
 
