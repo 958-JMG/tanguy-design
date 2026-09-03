@@ -111,14 +111,15 @@ export function renderPose(app) {
           <strong class="cal-title">S${isoWeek(a)} · ${a.getDate()} ${MOIS_COURT[a.getMonth()]} – ${b.getDate()} ${MOIS_COURT[b.getMonth()]}</strong>
           <button class="btn btn-ghost btn-sm" id="pose-next" aria-label="Semaine suivante">${icon('arrowRight', 14)}</button>
           <button class="btn btn-ghost btn-sm" id="pose-today">Cette semaine</button>
+          <button class="btn btn-primary btn-sm" id="pose-new">${icon('plus', 14)} Planifier une pose</button>
         </div>
       </div>
 
       <div class="cal-legend">
         <span class="muted" style="flex-basis:100%">
           ${nbChantiers ? `<strong>${nbChantiers}</strong> chantier${nbChantiers > 1 ? 's' : ''} cette semaine.` : 'Aucune pose planifiée cette semaine.'}
-          Toucher un bloc pour changer ses dates et ses heures · tirer son bord bas pour l'allonger ·
-          « Voir le projet » ouvre la fiche. Sur ordinateur, glisser un bloc le déplace (jour et heure).
+          <strong>Cliquer une case vide pour planifier une pose</strong> · toucher un bloc pour changer ses dates et ses heures ·
+          tirer son bord bas pour l'allonger · « Voir le projet » ouvre la fiche. Sur ordinateur, glisser un bloc le déplace (jour et heure).
         </span>
       </div>
 
@@ -227,6 +228,13 @@ export function renderPose(app) {
 
     brancherDeplacement(h0, nbHeures);
     brancherEtirement(h0, nbHeures);
+
+    // Clic sur une case vide → planifier une pose (comme un agenda). Le bouton
+    // d'en-tête ouvre la même fenêtre, préremplie sur le lundi de la semaine.
+    document.getElementById('pose-new').onclick = () => ouvrirModaleCreation(toISODate(jours[0]), 8);
+    app.querySelectorAll('.calw-slot').forEach(slot => {
+      slot.addEventListener('click', () => ouvrirModaleCreation(slot.dataset.iso, Number(slot.dataset.h)));
+    });
   }
 
   function decale(jours) {
@@ -418,6 +426,70 @@ export function renderPose(app) {
         'Heure début pose': hD || null,
         'Heure fin pose': hF || null,
       }, 'Pose mise à jour');
+    };
+  }
+
+  // Fenêtre de CRÉATION : on choisit le chantier à planifier (une pose = un
+  // projet daté), le jour et les heures. Préremplie par la case cliquée.
+  function ouvrirModaleCreation(isoPrefill, heurePrefill) {
+    const projets = (state.projets || []).slice()
+      .sort((a, b) => String(a['Référence'] || '').localeCompare(String(b['Référence'] || '')));
+    if (!projets.length) { toast('Aucun chantier à planifier pour le moment.', 'error', 4000); return; }
+    const clientById = new Map((state.clients || []).map(c => [c.id, c]));
+    const label = (p) => {
+      const cl = clientById.get((p.Client || [])[0]);
+      return `${p['Référence'] || 'sans réf.'}${cl && cl.Nom ? ' — ' + cl.Nom : ''}`;
+    };
+    const aPlanifier = projets.filter(p => !p['Date pose prévue']);
+    const planifiees = projets.filter(p => p['Date pose prévue']);
+    const h = Math.max(7, Math.min(18, Number(heurePrefill) || 8));
+    const hDebut = `${String(h).padStart(2, '0')}:00`;
+    const hFin = `${String(h < 17 ? 17 : Math.min(19, h + 1)).padStart(2, '0')}:00`;
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-bg';
+    modal.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true">
+        <h2>Planifier une pose</h2>
+        <p class="muted" style="margin-top:0">Choisis le chantier, le jour et les heures. La pose apparaît aussitôt dans le planning.</p>
+        <label>Chantier
+          <select data-projet>
+            ${aPlanifier.length ? `<optgroup label="À planifier">${aPlanifier.map(p => `<option value="${esc(p.id)}">${esc(label(p))}</option>`).join('')}</optgroup>` : ''}
+            ${planifiees.length ? `<optgroup label="Déjà planifiées (replanifier)">${planifiees.map(p => `<option value="${esc(p.id)}">${esc(label(p))} — le ${esc((p['Date pose prévue'] || '').slice(0, 10))}</option>`).join('')}</optgroup>` : ''}
+          </select></label>
+        <label>Premier jour <input type="date" data-debut value="${esc(isoPrefill || '')}"></label>
+        <label>Dernier jour <span class="muted">(vide = pose d'un jour)</span>
+          <input type="date" data-fin value=""></label>
+        <label>Heure de début <input type="time" data-h-debut value="${hDebut}"></label>
+        <label>Heure de fin <input type="time" data-h-fin value="${hFin}"></label>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" data-annuler>Annuler</button>
+          <button type="button" class="btn btn-primary" data-planifier>Planifier</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    hydrateIcons(modal);
+    const close = () => modal.remove();
+    modal.addEventListener('click', e => { if (e.target === modal) close(); });
+    modal.querySelector('[data-annuler]').onclick = close;
+    modal.querySelector('[data-planifier]').onclick = async () => {
+      const projetId = modal.querySelector('[data-projet]').value;
+      if (!projetId) { toast('Choisis un chantier.', 'error', 4000); return; }
+      const debut = modal.querySelector('[data-debut]').value || null;
+      if (!debut) { toast('Choisis le premier jour.', 'error', 4000); return; }
+      const fin = modal.querySelector('[data-fin]').value || null;
+      const hD = modal.querySelector('[data-h-debut]').value || '';
+      const hF = modal.querySelector('[data-h-fin]').value || '';
+      if (fin && fin < debut) { toast('Le dernier jour est avant le premier.', 'error', 5000); return; }
+      const mD = minutesDeHeure(hD), mF = minutesDeHeure(hF);
+      if (mD !== null && mF !== null && mF <= mD) { toast('L\'heure de fin doit être après l\'heure de début.', 'error', 5000); return; }
+      close();
+      await enregistrer(projetId, {
+        'Date pose prévue': debut,
+        'Date pose fin': fin,
+        'Heure début pose': hD || null,
+        'Heure fin pose': hF || null,
+      }, 'Pose planifiée');
     };
   }
 
