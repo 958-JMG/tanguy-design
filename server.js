@@ -4120,16 +4120,23 @@ app.get('/api/rh/conges', requireAdmin, async (req, res) => {
 // GET /api/rh/alertes — visites médicales à planifier/dépassées + absences à valider.
 app.get('/api/rh/alertes', requireAdmin, async (req, res) => {
   try {
-    const [salariesRaw, absencesRaw] = await Promise.all([
+    const [salariesRaw, absencesRaw, heuresRaw] = await Promise.all([
       atFetchAll(TABLES.salaries.id),
       atFetchAll(TABLES.absences.id),
+      atFetchAll(TABLES['heures-salaries'].id),
     ]);
     const salaries = salariesRaw.map(normSalarie).filter(s => s.actif);
     const visites = alertesVisitesMedicales(salaries, todayISO(), 60);
     const absencesAValider = absencesRaw
       .filter(r => (r.fields['Statut'] || '') === 'Demandée')
       .map(r => ({ id: r.id, libelle: r.fields['Libellé'] || '?', type: r.fields['Type'] || '?', dateDebut: r.fields['Date début'], dateFin: r.fields['Date fin'], jours: r.fields['Jours ouvrés'] }));
-    res.json({ ok: true, visites, absencesAValider });
+    // Relevés d'heures supp non encore validés : tant qu'ils ne le sont pas, ils
+    // ne se convertissent pas en RTT. On ne remonte que ceux qui portent des
+    // heures supp (les semaines à 0 supp n'ont rien à valider pour le RTT).
+    const heuresAValider = heuresRaw
+      .filter(r => !r.fields['Validé'] && (Number(r.fields['Heures supp']) || 0) > 0)
+      .map(r => ({ id: r.id, libelle: r.fields['Libellé'] || '?', semaine: r.fields['Semaine du'] || null, heuresSupp: Number(r.fields['Heures supp']) || 0 }));
+    res.json({ ok: true, visites, absencesAValider, heuresAValider });
   } catch (e) {
     logger.error('[rh/alertes] error:', e.message);
     res.status(500).json({ error: e.message });
@@ -4181,6 +4188,25 @@ app.post('/api/rh/absences/:id/decision', requireAdmin, async (req, res) => {
     res.json({ ok: true, decision });
   } catch (e) {
     logger.error('[rh/absences/decision] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/rh/heures/:id/valider — valide (ou dévalide) un relevé d'heures.
+// Les heures supp ne se convertissent en RTT qu'une fois VALIDÉES, exactement
+// comme les absences ne comptent qu'une fois validées. Sans ce geste, elles
+// restaient « en attente » indéfiniment et aucun RTT n'était crédité depuis le
+// cockpit (il fallait cocher la case à la main dans Airtable).
+app.post('/api/rh/heures/:id/valider', requireAdmin, async (req, res) => {
+  const valide = req.body?.valide === undefined ? true : !!req.body.valide;
+  try {
+    const h = (await atFetchByIds(TABLES['heures-salaries'].id, [req.params.id]))[0];
+    if (!h) return res.status(404).json({ error: 'relevé d\'heures introuvable' });
+    await atPatch(TABLES['heures-salaries'].id, h.id, { 'Validé': valide });
+    logger.info({ heures: h.fields['Libellé'], valide }, '[rh/heures] validation');
+    res.json({ ok: true, valide });
+  } catch (e) {
+    logger.error('[rh/heures/valider] error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

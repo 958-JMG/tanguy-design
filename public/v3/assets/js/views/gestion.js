@@ -597,7 +597,7 @@ async function renderRH(body) {
     const actifs = salaries.filter(s => s['Actif']);
 
     body.innerHTML = `
-      ${alertes.visites.length || alertes.absencesAValider.length ? `
+      ${alertes.visites.length || alertes.absencesAValider.length || (alertes.heuresAValider || []).length ? `
       <div class="card" style="background:var(--accent-lo);margin-bottom:16px">
         <h3 class="card-title">Alertes RH</h3>
         <ul style="padding-left:20px;line-height:1.8">
@@ -605,6 +605,9 @@ async function renderRH(body) {
           ${alertes.absencesAValider.map(a => `<li><strong>${esc(a.libelle)}</strong> (${a.jours || '?'} j) —
             <button class="btn btn-primary btn-sm" data-action="decider-absence" data-id="${esc(a.id)}" data-decision="Validée">Valider</button>
             <button class="btn btn-ghost btn-sm" data-action="decider-absence" data-id="${esc(a.id)}" data-decision="Refusée">Refuser</button></li>`).join('')}
+          ${(alertes.heuresAValider || []).map(h => `<li><strong>${esc(h.libelle)}</strong> — ${h.heuresSupp} h supp à valider
+            <button class="btn btn-primary btn-sm" data-action="valider-heures" data-id="${esc(h.id)}">Valider</button>
+            <span class="muted" title="Une fois validées, ces heures se convertissent en RTT sur la fiche du salarié (si « Heures pour 1 RTT » est réglé)">→ RTT</span></li>`).join('')}
         </ul>
       </div>` : ''}
 
@@ -689,6 +692,13 @@ async function renderRH(body) {
       try {
         const j = await api(`/api/rh/absences/${encodeURIComponent(b.dataset.id)}/decision`, { method: 'POST', body: JSON.stringify({ decision: b.dataset.decision }) });
         toast(`Absence ${j.decision.toLowerCase()} — compteurs de congés remis à jour`, 'success');
+        renderRH(body);
+      } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
+    }));
+    body.querySelectorAll('[data-action="valider-heures"]').forEach(b => b.addEventListener('click', async () => {
+      try {
+        await api(`/api/rh/heures/${encodeURIComponent(b.dataset.id)}/valider`, { method: 'POST', body: JSON.stringify({ valide: true }) });
+        toast('Heures validées — RTT du salarié remis à jour', 'success');
         renderRH(body);
       } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
     }));
