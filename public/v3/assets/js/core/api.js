@@ -141,6 +141,25 @@ export async function createCout(fields) {
 export async function patchCout(id, fields) {
   return api(`/api/data/couts-chantier/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ fields }) });
 }
+// Équipes de pose (onglet Pose) — liste ordonnée pour colorer le planning,
+// renommage/ajout réservé aux admins. Cache session (invalidé après édition).
+let _equipesPose = null;
+export async function fetchPoseEquipes(force = false) {
+  if (_equipesPose && !force) return _equipesPose;
+  try {
+    const d = await api('/api/pose/equipes');
+    _equipesPose = Array.isArray(d.choices) ? d.choices : [];
+  } catch (e) {
+    _equipesPose = []; // planning sans couleurs d'équipe plutôt qu'écran cassé
+  }
+  return _equipesPose;
+}
+export async function patchPoseEquipes(choices) {
+  const d = await api('/api/pose/equipes', { method: 'PATCH', body: JSON.stringify({ choices }) });
+  _equipesPose = Array.isArray(d.choices) ? d.choices : _equipesPose;
+  return _equipesPose;
+}
+
 export async function deleteCout(id) {
   return api(`/api/data/couts-chantier/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

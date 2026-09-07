@@ -575,6 +575,30 @@ async function atPatch(tableId, recordId, fields) {
   return r.json();
 }
 
+// PATCH tolérant aux champs pas encore migrés : si Airtable refuse un champ
+// inconnu (« Unknown field name: "X" »), on retire ce champ et on retente. Sert
+// à déployer du code qui écrit un nouveau champ AVANT que la migration schéma
+// ne soit passée : l'enregistrement réussit sur les champs connus au lieu de
+// tout faire échouer. Retourne aussi la liste des champs ignorés.
+async function atPatchTolerant(tableId, recordId, fields) {
+  let restants = { ...fields };
+  const ignores = [];
+  for (let i = 0; i <= Object.keys(fields).length; i++) {
+    try {
+      const rec = await atPatch(tableId, recordId, restants);
+      return { rec, ignores };
+    } catch (e) {
+      const m = /Unknown field name:\s*"([^"]+)"/i.exec(e.message || '');
+      if (!m || !(m[1] in restants)) throw e;
+      delete restants[m[1]];
+      ignores.push(m[1]);
+    }
+  }
+  // Tous les champs étaient inconnus : dernier essai à vide lèvera l'erreur réelle.
+  const rec = await atPatch(tableId, recordId, restants);
+  return { rec, ignores };
+}
+
 async function atDelete(tableId, recordId) {
   const r = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${tableId}/${recordId}`, {
     method: 'DELETE',
@@ -1078,7 +1102,16 @@ app.patch('/api/data/:table/:id', requireAuth, async (req, res) => {
   const t = await requireTableAccess(req, res, 'PATCH'); if (!t) return;
   try {
     const fields = pickAllowedFields(req.params.table, req.body.fields);
-    const rec = await atPatch(t.id, req.params.id, fields);
+    // Projets : tolérant aux champs pas encore migrés (Équipe pose / Note pose
+    // avant la migration) — on écrit les champs connus plutôt que de tout rater.
+    let rec;
+    if (req.params.table === 'projets') {
+      const out = await atPatchTolerant(t.id, req.params.id, fields);
+      rec = out.rec;
+      if (out.ignores.length) logger.warn(`[projets] champs ignorés (non migrés ?) : ${out.ignores.join(', ')}`);
+    } else {
+      rec = await atPatch(t.id, req.params.id, fields);
+    }
 
     // Sprint v3.6 (revu) — Pas de mutation auto du statut Airtable des échéances
     // quand la tâche passe à "Terminée". Le statut "Envoyé" est déduit côté UI
@@ -1086,6 +1119,73 @@ app.patch('/api/data/:table/:id', requireAuth, async (req, res) => {
     // action manuelle explicite via le bouton "Marquer encaissée" (modale).
 
     res.json({ ok: true, record: rec });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Équipes de pose (onglet Pose, 2026-09-07) ───────────────────────────────
+// Le champ « Équipe pose » (singleSelect sur Projets) porte les équipes ; leur
+// COULEUR à l'écran est calée sur l'ORDRE des options (stable au renommage).
+// Ces deux routes lisent/renomment les options via l'API meta, sans nouvelle table.
+async function fetchEquipePoseField() {
+  const r = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE_ID}/tables`, {
+    headers: { Authorization: `Bearer ${AT_KEY}` }
+  });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error?.message || `schéma ${r.status}`); }
+  const data = await r.json();
+  const projetsTable = (data.tables || []).find(t => t.id === TABLES.projets.id);
+  return projetsTable?.fields.find(f => f.name === 'Équipe pose') || null;
+}
+
+// GET — liste ordonnée des équipes (toute l'équipe : sert à colorer le planning).
+app.get('/api/pose/equipes', requireAuth, async (req, res) => {
+  try {
+    const field = await fetchEquipePoseField();
+    if (!field || field.type !== 'singleSelect') {
+      return res.json({ ok: true, exists: false, choices: [] });
+    }
+    const choices = (field.options?.choices || []).map(c => ({ id: c.id, name: c.name }));
+    res.json({ ok: true, exists: true, choices });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PATCH — renommer / ajouter des équipes (admin). Conserve les id existants pour
+// que les chantiers déjà affectés suivent le nouveau nom (Airtable cascade).
+app.patch('/api/pose/equipes', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const field = await fetchEquipePoseField();
+    if (!field || field.type !== 'singleSelect') {
+      return res.status(400).json({ error: 'Le champ « Équipe pose » n’existe pas encore. Lance scripts/setup-pose-equipe-note.js --apply.' });
+    }
+    const incoming = Array.isArray(req.body?.choices) ? req.body.choices : null;
+    if (!incoming || !incoming.length) return res.status(400).json({ error: 'Aucune équipe fournie.' });
+    if (incoming.length > 8) return res.status(400).json({ error: 'Maximum 8 équipes.' });
+
+    const existingById = new Map((field.options?.choices || []).map(c => [c.id, c]));
+    const noms = new Set();
+    const choices = [];
+    for (const c of incoming) {
+      const name = String(c?.name ?? '').trim();
+      if (!name) return res.status(400).json({ error: 'Le nom d’une équipe ne peut pas être vide.' });
+      if (name.length > 40) return res.status(400).json({ error: `Nom trop long : « ${name} » (40 max).` });
+      const key = name.toLowerCase();
+      if (noms.has(key)) return res.status(400).json({ error: `Deux équipes portent le même nom : « ${name} ».` });
+      noms.add(key);
+      // On garde l'id (renommage en place) quand il existe déjà ; sinon nouvelle option.
+      if (c.id && existingById.has(c.id)) {
+        choices.push({ id: c.id, name, color: existingById.get(c.id).color });
+      } else {
+        choices.push({ name });
+      }
+    }
+    const r = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE_ID}/tables/${TABLES.projets.id}/fields/${field.id}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${AT_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ options: { choices } }),
+    });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error?.message || `maj ${r.status}`); }
+    const updated = await r.json();
+    const out = (updated.options?.choices || []).map(c => ({ id: c.id, name: c.name }));
+    res.json({ ok: true, choices: out });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

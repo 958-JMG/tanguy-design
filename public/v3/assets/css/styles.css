@@ -892,6 +892,37 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   background: rgba(255,255,255,.8);
 }
 
+/* Pose — couleur par équipe (onglet Pose + agenda global). L'ordre de l'équipe
+   dans la liste fixe sa couleur (equipe-0 = 1re équipe), stable au renommage.
+   equipe-none = pas d'équipe (bloc neutre, jamais confondu avec une équipe). */
+.equipe-0 { background: #2f6f9f; }   /* bleu */
+.equipe-1 { background: #C9781F; }   /* ambre */
+.equipe-2 { background: #6b4f9e; }   /* violet */
+.equipe-3 { background: #127a6b; }   /* sarcelle */
+.equipe-4 { background: #b23b3b; }   /* rouge */
+.equipe-5 { background: #4A7C59; }   /* vert */
+.equipe-none { background: #6A7078; } /* neutre — sans équipe */
+/* Spécificité renforcée sur l'agenda global (mêmes couleurs que le motif rtype-*). */
+.cal-event.equipe-0, .calw-band.equipe-0, .calw-ev.equipe-0, .pose-bloc.equipe-0 { background: #2f6f9f; }
+.cal-event.equipe-1, .calw-band.equipe-1, .calw-ev.equipe-1, .pose-bloc.equipe-1 { background: #C9781F; }
+.cal-event.equipe-2, .calw-band.equipe-2, .calw-ev.equipe-2, .pose-bloc.equipe-2 { background: #6b4f9e; }
+.cal-event.equipe-3, .calw-band.equipe-3, .calw-ev.equipe-3, .pose-bloc.equipe-3 { background: #127a6b; }
+.cal-event.equipe-4, .calw-band.equipe-4, .calw-ev.equipe-4, .pose-bloc.equipe-4 { background: #b23b3b; }
+.cal-event.equipe-5, .calw-band.equipe-5, .calw-ev.equipe-5, .pose-bloc.equipe-5 { background: #4A7C59; }
+.cal-event.equipe-none, .calw-band.equipe-none, .calw-ev.equipe-none, .pose-bloc.equipe-none { background: #6A7078; }
+/* legend-dot hérite du background des classes ci-dessus (pas de !important requis). */
+.pose-equipes-legend { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; flex-basis: 100%; }
+.pose-eq-sep { flex-basis: 100%; height: 0; }
+/* Étiquette d'équipe + note dans le bloc de pose */
+.pose-equipe { font-size: 10px; font-weight: 700; opacity: .95; letter-spacing: .01em; }
+.pose-note   { font-size: 9px; font-style: italic; opacity: .9; white-space: normal; line-height: 1.15;
+               display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* Modale « Nommer les équipes » */
+.pose-eq-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.pose-eq-row .legend-dot { flex: 0 0 auto; }
+.pose-eq-row input[type="text"] { flex: 1 1 auto; }
+.pose-eq-row [data-eq-del] { flex: 0 0 auto; padding: 4px 6px; }
+
 /* Agenda v2 — couleurs statiques distinctes par Type de RDV */
 .cal-event.rtype-decouverte         { background: #2f6f9f; }
 .cal-event.rtype-metre              { background: #127a6b; }
