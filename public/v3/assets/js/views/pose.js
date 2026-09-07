@@ -28,6 +28,11 @@ const MOIS_COURT = ['janv.','févr.','mars','avr.','mai','juin','juil.','août',
 function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 }
+// Normalisation pour la recherche : sans accents, minuscule. Rend « Méré » et
+// « mere » équivalents (utile aussi vu la dyslexie côté saisie).
+function norm(s) {
+  return String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
 function toISODate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
@@ -481,12 +486,6 @@ export function renderPose(app) {
       .sort((a, b) => String(a['Référence'] || '').localeCompare(String(b['Référence'] || '')));
     if (!projets.length) { toast('Aucun chantier à planifier pour le moment.', 'error', 4000); return; }
     const clientById = new Map((state.clients || []).map(c => [c.id, c]));
-    const label = (p) => {
-      const cl = clientById.get((p.Client || [])[0]);
-      return `${p['Référence'] || 'sans réf.'}${cl && cl.Nom ? ' — ' + cl.Nom : ''}`;
-    };
-    const aPlanifier = projets.filter(p => !p['Date pose prévue']);
-    const planifiees = projets.filter(p => p['Date pose prévue']);
     const h = Math.max(7, Math.min(18, Number(heurePrefill) || 8));
     const hDebut = `${String(h).padStart(2, '0')}:00`;
     const hFin = `${String(h < 17 ? 17 : Math.min(19, h + 1)).padStart(2, '0')}:00`;
@@ -496,12 +495,13 @@ export function renderPose(app) {
     modal.innerHTML = `
       <div class="modal" role="dialog" aria-modal="true">
         <h2>Planifier une pose</h2>
-        <p class="muted" style="margin-top:0">Choisis le chantier, le jour et les heures. La pose apparaît aussitôt dans le planning.</p>
+        <p class="muted" style="margin-top:0">Cherche le chantier, choisis le jour et les heures. La pose apparaît aussitôt dans le planning.</p>
         <label>Chantier
-          <select data-projet>
-            ${aPlanifier.length ? `<optgroup label="À planifier">${aPlanifier.map(p => `<option value="${esc(p.id)}">${esc(label(p))}</option>`).join('')}</optgroup>` : ''}
-            ${planifiees.length ? `<optgroup label="Déjà planifiées (replanifier)">${planifiees.map(p => `<option value="${esc(p.id)}">${esc(label(p))} — le ${esc((p['Date pose prévue'] || '').slice(0, 10))}</option>`).join('')}</optgroup>` : ''}
-          </select></label>
+          <input type="search" data-recherche placeholder="Rechercher un chantier (client, référence)…" autocomplete="off" enterkeyhint="search">
+        </label>
+        <input type="hidden" data-projet value="">
+        <div class="pose-choisi" data-choisi hidden></div>
+        <div class="pose-recherche" data-resultats></div>
         <label>Équipe <span class="muted">(couleur dans le planning)</span>
           ${selectEquipeHtml('')}</label>
         <label>Premier jour <input type="date" data-debut value="${esc(isoPrefill || '')}"></label>
@@ -521,9 +521,84 @@ export function renderPose(app) {
     const close = () => modal.remove();
     modal.addEventListener('click', e => { if (e.target === modal) close(); });
     modal.querySelector('[data-annuler]').onclick = close;
+
+    // ── Mini moteur de recherche de chantier (remplace la liste déroulante) ──
+    const champ = modal.querySelector('[data-recherche]');
+    const zone = modal.querySelector('[data-resultats]');
+    const hidden = modal.querySelector('[data-projet]');
+    const choisiEl = modal.querySelector('[data-choisi]');
+    // Index de recherche : « référence + client », normalisé une fois.
+    const indexRecherche = projets.map(p => {
+      const cl = clientById.get((p.Client || [])[0]);
+      return { p, hay: norm(`${p['Référence'] || ''} ${cl?.Nom || ''}`), planifiee: !!p['Date pose prévue'] };
+    });
+    const MAX = 30; // on ne noie pas l'écran ; le compteur dit s'il y en a plus
+
+    function filtrer(q) {
+      const toks = norm(q).split(/\s+/).filter(Boolean);
+      let liste = indexRecherche;
+      if (toks.length) liste = liste.filter(x => toks.every(t => x.hay.includes(t)));
+      // À planifier d'abord, déjà planifiées ensuite (chacune déjà triée par réf.).
+      return [...liste.filter(x => !x.planifiee), ...liste.filter(x => x.planifiee)];
+    }
+
+    function rendreResultats() {
+      const q = champ.value;
+      const res = filtrer(q);
+      const selId = hidden.value;
+      if (!res.length) {
+        zone.innerHTML = `<p class="muted pose-recherche-vide">Aucun chantier ne correspond à « ${esc(q.trim())} ».</p>`;
+        return;
+      }
+      const rows = res.slice(0, MAX).map(({ p, planifiee }) => {
+        const cl = clientById.get((p.Client || [])[0]);
+        const badge = planifiee
+          ? `<span class="pose-res-badge">déjà le ${esc((p['Date pose prévue'] || '').slice(0, 10))}</span>` : '';
+        return `
+          <button type="button" class="pose-res-row ${p.id === selId ? 'is-selected' : ''}" data-pick="${esc(p.id)}">
+            <span class="pose-res-ref">${esc(p['Référence'] || 'sans référence')}</span>
+            <span class="pose-res-client">${esc(cl?.Nom || 'client inconnu')}</span>
+            ${badge}
+          </button>`;
+      }).join('');
+      const reste = res.length > MAX
+        ? `<p class="muted pose-recherche-plus">+ ${res.length - MAX} autre${res.length - MAX > 1 ? 's' : ''} — affine la recherche.</p>` : '';
+      zone.innerHTML = rows + reste;
+    }
+
+    function choisir(id) {
+      hidden.value = id;
+      const x = indexRecherche.find(v => v.p.id === id);
+      const cl = x && clientById.get((x.p.Client || [])[0]);
+      // On NE réécrit PAS le champ de recherche (sinon le libellé casserait le
+      // filtre) : on affiche une ligne « choisi » et on garde la liste surlignée.
+      if (x) {
+        choisiEl.hidden = false;
+        choisiEl.innerHTML = `${icon('check', 13)} Chantier choisi : <strong>${esc(x.p['Référence'] || 'sans réf.')}</strong>${cl?.Nom ? ' — ' + esc(cl.Nom) : ''}`;
+        hydrateIcons(choisiEl);
+        if (x.planifiee) toast(`« ${x.p['Référence'] || 'ce chantier'} » a déjà une pose le ${(x.p['Date pose prévue'] || '').slice(0, 10)} — tu la replanifies.`, 'info', 4500);
+      }
+      rendreResultats();
+      zone.querySelector('.is-selected')?.scrollIntoView({ block: 'nearest' });
+    }
+
+    zone.addEventListener('click', e => {
+      const b = e.target.closest('[data-pick]');
+      if (b) choisir(b.dataset.pick);
+    });
+    champ.addEventListener('input', () => { hidden.value = ''; choisiEl.hidden = true; choisiEl.innerHTML = ''; rendreResultats(); });
+    champ.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const first = zone.querySelector('[data-pick]');
+      if (first) choisir(first.dataset.pick);
+    });
+    rendreResultats();
+    setTimeout(() => champ.focus(), 50);
+
     modal.querySelector('[data-planifier]').onclick = async () => {
-      const projetId = modal.querySelector('[data-projet]').value;
-      if (!projetId) { toast('Choisis un chantier.', 'error', 4000); return; }
+      const projetId = hidden.value;
+      if (!projetId) { toast('Cherche et choisis un chantier.', 'error', 4000); return; }
       const debut = modal.querySelector('[data-debut]').value || null;
       if (!debut) { toast('Choisis le premier jour.', 'error', 4000); return; }
       const fin = modal.querySelector('[data-fin]').value || null;
