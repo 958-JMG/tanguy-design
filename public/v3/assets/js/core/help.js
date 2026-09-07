@@ -33,6 +33,7 @@ export const PAGE_META = {
   clients:          { title: 'Clients',         icon: 'users' },
   pipeline:         { title: 'Pipeline',        icon: 'chart' },
   calendar:         { title: 'Calendar',        icon: 'calendar' },
+  pose:             { title: 'Pose',            icon: 'hammer' },
   projet:           { title: 'Fiche projet',    icon: 'compass' },
   devis:            { title: 'Devis',           icon: 'file' },
   commande:         { title: 'Bon de commande', icon: 'building' },
@@ -101,17 +102,40 @@ export const FALLBACK = {
     ],
   },
   calendar: {
-    intro: 'Le planning des poses de chantier, mois par mois.',
+    intro: 'L’agenda global : poses, rendez-vous et réceptions, en vue mois ou semaine. Les poses reprennent la couleur de leur équipe (comme l’onglet Pose).',
     items: [
       { q: 'Déplacer une pose', steps: [
-        'Attrape la barre verte d’un chantier et glisse-la sur le nouveau jour.',
+        'Attrape le bloc de pose d’un chantier et glisse-le sur le nouveau jour.',
         'Confirme : les dates du projet sont mises à jour automatiquement.',
       ]},
       { q: 'Ouvrir le projet d’une pose', steps: [
-        'Clique la barre verte (sans la déplacer).',
+        'Clique le bloc de pose (sans le déplacer) : la fenêtre propose d’ouvrir le projet ou de retirer la pose.',
       ]},
-      { q: 'Changer de mois', steps: [
-        'Utilise les flèches à gauche et à droite du titre, ou « Aujourd’hui » pour revenir au mois en cours.',
+      { q: 'Changer de mois ou de semaine', steps: [
+        'Bascule « Mois » / « Semaine » en haut, puis les flèches, ou « Aujourd’hui » pour revenir à la période en cours.',
+      ]},
+    ],
+  },
+  pose: {
+    intro: 'Le planning des poses de la semaine : qui pose quoi, quand, et avec quelle équipe. Une couleur par équipe pour voir d’un coup d’œil où est chacun.',
+    items: [
+      { q: 'Planifier une pose', steps: [
+        'Clique une case vide au bon jour et à la bonne heure (ou le bouton « Planifier une pose »).',
+        'Choisis le chantier, l’équipe, les heures, et une note si besoin, puis « Planifier ».',
+      ]},
+      { q: 'Donner une couleur à une équipe', steps: [
+        'Chaque équipe a sa couleur : choisis l’équipe en planifiant, ou en ouvrant un bloc.',
+        'Pour renommer les équipes (admin) : bouton « Nommer les équipes » sous la légende.',
+      ]},
+      { q: 'Déplacer ou allonger une pose', steps: [
+        'Sur ordinateur : glisse un bloc sur un autre jour ou une autre heure.',
+        'Tire le bord bas d’un bloc pour l’allonger. Au doigt : ouvre le bloc et change les dates et heures à la main.',
+      ]},
+      { q: 'Écrire une note pour l’équipe', steps: [
+        'À la création ou en ouvrant un bloc, remplis « Note pour l’équipe » (accès, consignes, contact) : elle s’affiche sur le bloc et dans l’agenda global.',
+      ]},
+      { q: 'Retirer une pose du planning', steps: [
+        'Ouvre le bloc puis « Retirer du planning » : ça vide les dates de pose (réversible).',
       ]},
     ],
   },

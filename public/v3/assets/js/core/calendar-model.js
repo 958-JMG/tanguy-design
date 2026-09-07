@@ -177,6 +177,36 @@ export function disposerEnColonnes(creneaux) {
   return items;
 }
 
+// ───────────────────── Équipes de pose (couleur par équipe) ────────────────
+// Sébastien colore le planning par équipe. La couleur est calée sur l'ORDRE de
+// l'équipe dans la liste (1re équipe = 1re couleur), stable au renommage. On
+// tourne sur NB_COULEURS_EQUIPE couleurs distinctes ; au-delà, on recycle.
+
+export const NB_COULEURS_EQUIPE = 6;
+
+/** Map nom d'équipe → index (position dans la liste). `choices` = [{name}, …]. */
+export function indexEquipes(choices) {
+  const m = new Map();
+  (choices || []).forEach((c, i) => {
+    const nom = String((c && c.name) || '').trim();
+    if (nom && !m.has(nom)) m.set(nom, i);
+  });
+  return m;
+}
+
+/**
+ * Classe CSS de couleur d'une pose selon son équipe.
+ *   'equipe-none'  → pas d'équipe, ou équipe inconnue de la liste (bloc neutre)
+ *   'equipe-<i>'   → i = position de l'équipe modulo NB_COULEURS_EQUIPE
+ * Le silence est proscrit : une équipe absente de la liste ne prend PAS une
+ * couleur au hasard, elle retombe sur le neutre (et l'écran peut le signaler).
+ */
+export function classeEquipe(nomEquipe, indexParNom) {
+  const nom = String(nomEquipe || '').trim();
+  if (!nom || !indexParNom || !indexParNom.has(nom)) return 'equipe-none';
+  return `equipe-${indexParNom.get(nom) % NB_COULEURS_EQUIPE}`;
+}
+
 // ───────────────────── Créneaux de pose (onglet Pose) ─────────────────────
 
 // Journée de pose par défaut, quand les heures ne sont pas saisies sur le projet.

@@ -24,10 +24,12 @@ const {
   lundiDeLaSemaine, joursDeLaSemaine, minutesDeIso, heureCourte,
   disposerEnColonnes, amplitudeHoraire, jourDeValeurDate,
   plagePose, minutesDeHeure, heureDeMinutes, deplacerPlage, redimensionnerPlage,
+  indexEquipes, classeEquipe, NB_COULEURS_EQUIPE,
 } = new Function(`${code}; return { indexProjetsParId, indexProjetsParClient, resoudreProjet,
   lundiDeLaSemaine, joursDeLaSemaine, minutesDeIso, heureCourte,
   disposerEnColonnes, amplitudeHoraire, jourDeValeurDate,
-  plagePose, minutesDeHeure, heureDeMinutes, deplacerPlage, redimensionnerPlage };`)();
+  plagePose, minutesDeHeure, heureDeMinutes, deplacerPlage, redimensionnerPlage,
+  indexEquipes, classeEquipe, NB_COULEURS_EQUIPE };`)();
 
 // Projets tels qu'ils arrivent de /api/data/projets : { id, ...fields }
 const PROJETS = [
@@ -366,5 +368,43 @@ describe('amplitudeHoraire()', () => {
   });
   test('créneaux nuls ignorés', () => {
     assert.deepEqual(amplitudeHoraire([null, { debut: NaN, fin: 1 }]), { debut: 8, fin: 19 });
+  });
+});
+
+describe('équipes de pose — couleur par équipe', () => {
+  const choices = [{ id: 'o1', name: 'Kévin & Tom' }, { id: 'o2', name: 'Équipe 2' }, { id: 'o3', name: 'Sous-traitant' }];
+  test('la couleur suit l\'ordre de l\'équipe dans la liste', () => {
+    const idx = indexEquipes(choices);
+    assert.equal(classeEquipe('Kévin & Tom', idx), 'equipe-0');
+    assert.equal(classeEquipe('Équipe 2', idx), 'equipe-1');
+    assert.equal(classeEquipe('Sous-traitant', idx), 'equipe-2');
+  });
+  test('renommer une équipe ne change pas la couleur des autres (l\'ordre tient)', () => {
+    const renomme = [{ id: 'o1', name: 'Léo' }, { id: 'o2', name: 'Équipe 2' }, { id: 'o3', name: 'Sous-traitant' }];
+    assert.equal(classeEquipe('Léo', indexEquipes(renomme)), 'equipe-0');
+    assert.equal(classeEquipe('Sous-traitant', indexEquipes(renomme)), 'equipe-2');
+  });
+  test('pas d\'équipe → neutre, jamais une couleur au hasard', () => {
+    const idx = indexEquipes(choices);
+    assert.equal(classeEquipe('', idx), 'equipe-none');
+    assert.equal(classeEquipe(null, idx), 'equipe-none');
+    assert.equal(classeEquipe('   ', idx), 'equipe-none');
+  });
+  test('équipe absente de la liste (option supprimée) → neutre', () => {
+    assert.equal(classeEquipe('Équipe fantôme', indexEquipes(choices)), 'equipe-none');
+  });
+  test('au-delà de NB_COULEURS_EQUIPE, les couleurs se recyclent', () => {
+    const grande = Array.from({ length: NB_COULEURS_EQUIPE + 1 }, (_, i) => ({ id: 'x' + i, name: 'E' + i }));
+    const idx = indexEquipes(grande);
+    assert.equal(classeEquipe('E0', idx), 'equipe-0');
+    assert.equal(classeEquipe('E' + NB_COULEURS_EQUIPE, idx), 'equipe-0'); // recyclage
+  });
+  test('liste vide / nulle ne casse pas', () => {
+    assert.equal(indexEquipes(null).size, 0);
+    assert.equal(classeEquipe('E1', indexEquipes([])), 'equipe-none');
+  });
+  test('noms avec espaces parasites : indexEquipes trim, match sur le nom réel', () => {
+    const idx = indexEquipes([{ id: 'a', name: '  Duo A  ' }]);
+    assert.equal(classeEquipe('Duo A', idx), 'equipe-0');
   });
 });

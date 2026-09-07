@@ -12,13 +12,14 @@
 import { state } from '../core/state.js';
 import { navigateTo } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
-import { patchProjet } from '../core/api.js';
+import { patchProjet, fetchPoseEquipes, patchPoseEquipes } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 import { isoWeek } from '../core/rdv.js';
 import {
   joursDeLaSemaine, lundiDeLaSemaine, disposerEnColonnes, amplitudeHoraire,
   jourDeValeurDate, plagePose, deplacerPlage, redimensionnerPlage,
   heureDeMinutes, minutesDeHeure, POSE_DEFAUT,
+  indexEquipes, classeEquipe,
 } from '../core/calendar-model.js';
 
 const JOURS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
@@ -69,6 +70,8 @@ function creneauxDeLaSemaine(jours) {
         client: client ? (client.Nom || '').trim() : '',
         reference: String(p['Référence'] || '').trim(),
         statutChantier: p['Statut chantier'] || '',
+        equipe: String(p['Équipe pose'] || '').trim(),
+        note: String(p['Note pose'] || '').trim(),
         debut: plage.debut,
         fin: plage.fin,
         parDefaut: plage.parDefaut,
@@ -82,6 +85,12 @@ function creneauxDeLaSemaine(jours) {
 export function renderPose(app) {
   const today = new Date();
   let ancre = lundiDeLaSemaine(today);
+
+  // Équipes de pose : liste ordonnée (nom + id) → couleur par position.
+  // Chargée une fois, avant le premier dessin (le planning s'affiche même si
+  // l'appel échoue : blocs neutres plutôt qu'écran vide).
+  let equipes = [];
+  let idxEquipes = new Map();
 
   function draw() {
     const jours = joursDeLaSemaine(ancre);
@@ -116,9 +125,11 @@ export function renderPose(app) {
       </div>
 
       <div class="cal-legend">
+        <span class="pose-equipes-legend">${legendeEquipes()}</span>
         <span class="muted" style="flex-basis:100%">
           ${nbChantiers ? `<strong>${nbChantiers}</strong> chantier${nbChantiers > 1 ? 's' : ''} cette semaine.` : 'Aucune pose planifiée cette semaine.'}
-          <strong>Cliquer une case vide pour planifier une pose</strong> · toucher un bloc pour changer ses dates et ses heures ·
+          Le planning des poses de la semaine, une équipe = une couleur.
+          <strong>Cliquer une case vide pour planifier une pose</strong> · toucher un bloc pour changer l'équipe, les dates, les heures et la note ·
           tirer son bord bas pour l'allonger · « Voir le projet » ouvre la fiche. Sur ordinateur, glisser un bloc le déplace (jour et heure).
         </span>
       </div>
@@ -168,30 +179,54 @@ export function renderPose(app) {
     brancher(jours, h0, nbHeures);
   }
 
+  // Pastilles de couleur des équipes + « Sans équipe » + bouton admin de nommage.
+  // Le silence est proscrit : si aucune équipe n'est configurée, on le dit et on
+  // propose (aux admins) de les nommer.
+  function legendeEquipes() {
+    const puces = equipes.map((e, i) =>
+      `<span class="legend-dot equipe-${i % 6}"></span> ${esc(e.name)}`).join('<span class="pose-eq-sep"></span>');
+    const sans = `<span class="legend-dot equipe-none"></span> Sans équipe`;
+    const boutonNommer = state.isAdmin
+      ? `<button type="button" class="btn btn-ghost btn-sm" id="pose-eq-nommer">${icon('pencil', 13)} Nommer les équipes</button>`
+      : '';
+    if (!equipes.length) {
+      return `<span class="muted">Aucune équipe configurée. ${state.isAdmin ? '' : 'Un admin peut les nommer.'}</span> ${sans} ${boutonNommer}`;
+    }
+    return `${puces}<span class="pose-eq-sep"></span>${sans} ${boutonNommer}`;
+  }
+
   function blocPose(p, h0, nbHeures) {
     const top = ((p.debut - h0 * 60) / (nbHeures * 60)) * 100;
     const haut = ((p.fin - p.debut) / (nbHeures * 60)) * 100;
     const largeur = 100 / p.nbCols;
+    const clEquipe = classeEquipe(p.equipe, idxEquipes);
+    // Équipe renseignée mais absente de la liste chargée (option supprimée) : on
+    // ne devine pas de couleur, mais on garde le nom en clair dans le bloc.
+    const equipeConnue = clEquipe !== 'equipe-none';
     const titre = [
       p.client || '(client inconnu)',
       p.reference || '(projet sans référence)',
+      p.equipe ? `Équipe : ${p.equipe}` : 'Sans équipe',
       `${heureDeMinutes(p.debut)}–${heureDeMinutes(p.fin)}`,
       p.total > 1 ? `jour ${p.rang} sur ${p.total} (${p.debutPose} → ${p.finPose})` : 'pose d’un jour',
+      p.note ? `Note : ${p.note}` : '',
       p.incoherente ? 'heures incohérentes — journée standard affichée'
         : (p.parDefaut ? 'heures non saisies — journée standard affichée' : ''),
     ].filter(Boolean).join(' · ');
     return `
-      <div class="pose-bloc ${p.parDefaut ? 'is-defaut' : ''}"
+      <div class="pose-bloc ${clEquipe} ${p.parDefaut ? 'is-defaut' : ''}"
            style="top:${top.toFixed(3)}%; height:${haut.toFixed(3)}%; left:${(p.col * largeur).toFixed(3)}%; width:calc(${largeur.toFixed(3)}% - 3px);"
            draggable="true"
            data-projet="${p.projetId}" data-jour="${p.jour}"
            data-debut-pose="${p.debutPose}" data-fin-pose="${p.finPose}"
            data-h-debut="${p.debut}" data-h-fin="${p.fin}"
            title="${esc(titre)}">
-        <button class="pose-bloc-corps" data-action="ouvrir" title="Modifier les dates et les heures">
+        <button class="pose-bloc-corps" data-action="ouvrir" title="Modifier l'équipe, les dates, les heures et la note">
           <span class="pose-h">${heureDeMinutes(p.debut)}–${heureDeMinutes(p.fin)}${p.total > 1 ? ` · J${p.rang}/${p.total}` : ''}</span>
           <span class="pose-client">${esc(p.client || '(client inconnu)')}</span>
           <span class="pose-ref">${esc(p.reference || '(sans référence)')}</span>
+          ${p.equipe ? `<span class="pose-equipe">${equipeConnue ? '' : '⚠ '}${esc(p.equipe)}</span>` : ''}
+          ${p.note ? `<span class="pose-note">${esc(p.note)}</span>` : ''}
           ${p.parDefaut ? `<span class="pose-defaut">${p.incoherente ? 'heures incohérentes' : 'heures non saisies'}</span>` : ''}
         </button>
         <button class="pose-cta" data-action="projet" title="Ouvrir la fiche projet">Voir le projet ${icon('arrowRight', 10)}</button>
@@ -210,6 +245,8 @@ export function renderPose(app) {
     document.getElementById('pose-prev').onclick = () => { ancre = decale(-7); draw(); };
     document.getElementById('pose-next').onclick = () => { ancre = decale(+7); draw(); };
     document.getElementById('pose-today').onclick = () => { ancre = lundiDeLaSemaine(today); draw(); };
+    const btnNommer = document.getElementById('pose-eq-nommer');
+    if (btnNommer) btnNommer.onclick = ouvrirModaleEquipes;
 
     app.querySelectorAll('[data-action="projet"]').forEach(b => {
       b.addEventListener('click', e => {
@@ -380,11 +417,15 @@ export function renderPose(app) {
           ${plage.parDefaut
             ? `<strong>Heures non saisies</strong> : le planning affiche la journée standard ${POSE_DEFAUT.debut}–${POSE_DEFAUT.fin}${plage.incoherente ? ' (les heures enregistrées sont incohérentes)' : ''}.`
             : 'Les heures s\'appliquent à chaque jour du chantier.'}</p>
+        <label>Équipe <span class="muted">(couleur dans le planning)</span>
+          ${selectEquipeHtml(p['Équipe pose'] || '')}</label>
         <label>Premier jour <input type="date" data-debut value="${esc((p['Date pose prévue'] || '').slice(0, 10))}"></label>
         <label>Dernier jour <span class="muted">(vide = pose d'un jour)</span>
           <input type="date" data-fin value="${esc((p['Date pose fin'] || '').slice(0, 10))}"></label>
         <label>Heure de début <input type="time" data-h-debut value="${esc(p['Heure début pose'] || POSE_DEFAUT.debut)}"></label>
         <label>Heure de fin <input type="time" data-h-fin value="${esc(p['Heure fin pose'] || POSE_DEFAUT.fin)}"></label>
+        <label>Note pour l'équipe <span class="muted">(accès, consignes, contact… — visible sur le bloc)</span>
+          <textarea data-note rows="2" placeholder="Ex : code portail 1234, se garer côté cour, prévenir M. Martin à l'arrivée.">${esc(p['Note pose'] || '')}</textarea></label>
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" data-annuler>Annuler</button>
           <button type="button" class="btn btn-ghost" data-retirer style="color:var(--accent)">${icon('trash', 14)} Retirer du planning</button>
@@ -415,6 +456,8 @@ export function renderPose(app) {
       const fin = modal.querySelector('[data-fin]').value || null;
       const hD = modal.querySelector('[data-h-debut]').value || '';
       const hF = modal.querySelector('[data-h-fin]').value || '';
+      const equipe = modal.querySelector('[data-equipe]').value || '';
+      const note = modal.querySelector('[data-note]').value.trim();
       if (fin && debut && fin < debut) { toast('Le dernier jour est avant le premier.', 'error', 5000); return; }
       const mD = minutesDeHeure(hD), mF = minutesDeHeure(hF);
       if (hD && hF && (mD === null || mF === null)) { toast('Heures illisibles (format attendu HH:MM).', 'error', 5000); return; }
@@ -425,6 +468,8 @@ export function renderPose(app) {
         'Date pose fin': fin,
         'Heure début pose': hD || null,
         'Heure fin pose': hF || null,
+        'Équipe pose': equipe || null,
+        'Note pose': note || null,
       }, 'Pose mise à jour');
     };
   }
@@ -457,11 +502,15 @@ export function renderPose(app) {
             ${aPlanifier.length ? `<optgroup label="À planifier">${aPlanifier.map(p => `<option value="${esc(p.id)}">${esc(label(p))}</option>`).join('')}</optgroup>` : ''}
             ${planifiees.length ? `<optgroup label="Déjà planifiées (replanifier)">${planifiees.map(p => `<option value="${esc(p.id)}">${esc(label(p))} — le ${esc((p['Date pose prévue'] || '').slice(0, 10))}</option>`).join('')}</optgroup>` : ''}
           </select></label>
+        <label>Équipe <span class="muted">(couleur dans le planning)</span>
+          ${selectEquipeHtml('')}</label>
         <label>Premier jour <input type="date" data-debut value="${esc(isoPrefill || '')}"></label>
         <label>Dernier jour <span class="muted">(vide = pose d'un jour)</span>
           <input type="date" data-fin value=""></label>
         <label>Heure de début <input type="time" data-h-debut value="${hDebut}"></label>
         <label>Heure de fin <input type="time" data-h-fin value="${hFin}"></label>
+        <label>Note pour l'équipe <span class="muted">(accès, consignes, contact…)</span>
+          <textarea data-note rows="2" placeholder="Ex : code portail 1234, se garer côté cour, prévenir M. Martin à l'arrivée."></textarea></label>
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" data-annuler>Annuler</button>
           <button type="button" class="btn btn-primary" data-planifier>Planifier</button>
@@ -480,6 +529,8 @@ export function renderPose(app) {
       const fin = modal.querySelector('[data-fin]').value || null;
       const hD = modal.querySelector('[data-h-debut]').value || '';
       const hF = modal.querySelector('[data-h-fin]').value || '';
+      const equipe = modal.querySelector('[data-equipe]').value || '';
+      const note = modal.querySelector('[data-note]').value.trim();
       if (fin && fin < debut) { toast('Le dernier jour est avant le premier.', 'error', 5000); return; }
       const mD = minutesDeHeure(hD), mF = minutesDeHeure(hF);
       if (mD !== null && mF !== null && mF <= mD) { toast('L\'heure de fin doit être après l\'heure de début.', 'error', 5000); return; }
@@ -489,9 +540,102 @@ export function renderPose(app) {
         'Date pose fin': fin,
         'Heure début pose': hD || null,
         'Heure fin pose': hF || null,
+        'Équipe pose': equipe || null,
+        'Note pose': note || null,
       }, 'Pose planifiée');
     };
   }
 
-  draw();
+  // <select> des équipes pour les modales. Option vide = « Sans équipe ». Si la
+  // pose porte une équipe absente de la liste (option supprimée côté Airtable),
+  // on l'ajoute quand même en tête, sélectionnée, pour ne pas l'effacer par erreur.
+  function selectEquipeHtml(current) {
+    const cur = String(current || '').trim();
+    const connue = !cur || equipes.some(e => e.name === cur);
+    const opts = [`<option value="">Sans équipe</option>`];
+    if (!connue) opts.push(`<option value="${esc(cur)}" selected>${esc(cur)} (équipe supprimée)</option>`);
+    for (const e of equipes) {
+      opts.push(`<option value="${esc(e.name)}" ${e.name === cur ? 'selected' : ''}>${esc(e.name)}</option>`);
+    }
+    return `<select data-equipe>${opts.join('')}</select>`;
+  }
+
+  // Modale admin : renommer les équipes et en ajouter (max 8). Les couleurs
+  // suivent l'ordre ; renommer conserve la couleur et l'affectation des chantiers.
+  function ouvrirModaleEquipes() {
+    if (!state.isAdmin) return;
+    const modal = document.createElement('div');
+    modal.className = 'modal-bg';
+    const ligne = (e, i) => `
+      <div class="pose-eq-row" data-eq-row>
+        <span class="legend-dot equipe-${i % 6}"></span>
+        <input type="text" data-eq-name value="${esc(e ? e.name : '')}" data-eq-id="${esc(e ? e.id : '')}" maxlength="40" placeholder="Nom de l'équipe">
+        <button type="button" class="btn btn-ghost btn-sm" data-eq-del title="Retirer cette équipe">${icon('x', 14)}</button>
+      </div>`;
+    modal.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true">
+        <h2>Nommer les équipes</h2>
+        <p class="muted" style="margin-top:0">Chaque équipe a une couleur (dans l'ordre). Renommer une équipe garde sa couleur
+          et les chantiers qui lui sont déjà affectés. Retirer une équipe ne supprime pas les chantiers, ils repassent « sans équipe ».</p>
+        <div data-eq-list>${(equipes.length ? equipes : [null]).map((e, i) => ligne(e, i)).join('')}</div>
+        <button type="button" class="btn btn-ghost btn-sm" data-eq-add>${icon('plus', 14)} Ajouter une équipe</button>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" data-annuler>Annuler</button>
+          <button type="button" class="btn btn-primary" data-enregistrer>Enregistrer</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    hydrateIcons(modal);
+    const close = () => modal.remove();
+    modal.addEventListener('click', e => { if (e.target === modal) close(); });
+    modal.querySelector('[data-annuler]').onclick = close;
+
+    const liste = modal.querySelector('[data-eq-list]');
+    const recolorier = () => liste.querySelectorAll('[data-eq-row] .legend-dot').forEach((d, i) => { d.className = `legend-dot equipe-${i % 6}`; });
+    liste.addEventListener('click', e => {
+      const del = e.target.closest('[data-eq-del]');
+      if (!del) return;
+      if (liste.querySelectorAll('[data-eq-row]').length <= 1) { toast('Il faut au moins une équipe.', 'error', 4000); return; }
+      del.closest('[data-eq-row]').remove();
+      recolorier();
+    });
+    modal.querySelector('[data-eq-add]').onclick = () => {
+      if (liste.querySelectorAll('[data-eq-row]').length >= 8) { toast('Maximum 8 équipes.', 'error', 4000); return; }
+      liste.insertAdjacentHTML('beforeend', ligne(null, liste.querySelectorAll('[data-eq-row]').length));
+      hydrateIcons(liste.lastElementChild);
+      recolorier();
+      liste.lastElementChild.querySelector('[data-eq-name]').focus();
+    };
+
+    modal.querySelector('[data-enregistrer]').onclick = async () => {
+      const choices = [];
+      const vus = new Set();
+      for (const row of liste.querySelectorAll('[data-eq-row]')) {
+        const name = row.querySelector('[data-eq-name]').value.trim();
+        const id = row.querySelector('[data-eq-name]').dataset.eqId || '';
+        if (!name) continue;                                   // ligne vide ignorée
+        const key = name.toLowerCase();
+        if (vus.has(key)) { toast(`Deux équipes portent le même nom : « ${name} ».`, 'error', 5000); return; }
+        vus.add(key);
+        choices.push(id ? { id, name } : { name });
+      }
+      if (!choices.length) { toast('Donne un nom à au moins une équipe.', 'error', 4000); return; }
+      try {
+        equipes = await patchPoseEquipes(choices);
+        idxEquipes = indexEquipes(equipes);
+        close();
+        draw();
+        toast('Équipes mises à jour', 'success');
+      } catch (err) { toast('Erreur : ' + err.message, 'error', 6000); }
+    };
+  }
+
+  // Chargement des équipes AVANT le premier dessin (planning coloré d'emblée).
+  (async () => {
+    try {
+      equipes = await fetchPoseEquipes();
+      idxEquipes = indexEquipes(equipes);
+    } catch (e) { /* planning en couleurs neutres si l'appel échoue */ }
+    draw();
+  })();
 }

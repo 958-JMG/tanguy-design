@@ -12,14 +12,18 @@
 import { state } from '../core/state.js';
 import { navigateTo } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
-import { patchProjet, fetchRendezVous, patchRendezVous, fetchCommandes, fetchSav } from '../core/api.js';
+import { patchProjet, fetchRendezVous, patchRendezVous, fetchCommandes, fetchSav, fetchPoseEquipes } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 import { openModalRdv, rdvTypeSlug, isAllDay, isoWeek } from '../core/rdv.js';
 import {
   indexProjetsParId, indexProjetsParClient, resoudreProjet,
   joursDeLaSemaine, lundiDeLaSemaine, minutesDeIso, heureCourte, jourDeValeurDate,
-  disposerEnColonnes, amplitudeHoraire,
+  disposerEnColonnes, amplitudeHoraire, indexEquipes, classeEquipe,
 } from '../core/calendar-model.js';
+
+// Équipes de pose (couleur par équipe) — partagé par buildEvents, chargé au
+// montage de la vue. Vide au premier rendu : poses en neutre puis recolorées.
+let idxEquipesCal = new Map();
 
 const MOIS_NOMS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 const JOURS = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
@@ -82,15 +86,19 @@ function buildEvents(debut, fin) {
     if (dEnd < debut || dStart > fin) continue;
     // La pose EST le projet : son nom va en 2e ligne comme partout ailleurs,
     // et la 1re ligne dit qui + quoi (« Dupont · Pose ») sans le répéter.
+    const equipe = String(p['Équipe pose'] || '').trim();
     events.push({
       type: 'pose',
       id: p.id,
-      label: prefixe(clientNom(p.Client), 'Pose'),
+      label: prefixe(clientNom(p.Client), equipe ? `Pose · ${equipe}` : 'Pose'),
       projet: { nom: String(p['Référence'] || '').trim() || null, origine: 'lien' },
       start: dStart,
       end: dEnd,
       allDay: true,
-      colorClass: 'color-accent',
+      // Couleur par équipe (comme l'onglet Pose) ; sans équipe → neutre.
+      colorClass: classeEquipe(equipe, idxEquipesCal),
+      equipe,
+      note: String(p['Note pose'] || '').trim(),
       draggable: true,
     });
   }
@@ -184,8 +192,10 @@ function titreComplet(ev) {
   else if (p.origine === 'ambigu') bouts.push('Projet indéterminé : ce client a plusieurs projets');
   else if (ev.type === 'rdv') bouts.push('Aucun projet rattaché — cliquer pour en choisir un');
   else if (p.origine === 'aucun') bouts.push('Aucun projet rattaché');
+  if (ev.type === 'pose') bouts.push(ev.equipe ? `Équipe : ${ev.equipe}` : 'Sans équipe');
   if (ev.type !== 'rdv') bouts.push(`${toISODate(ev.start)} → ${toISODate(ev.end)}`);
   else if (!ev.allDay) bouts.push(heureCourte(ev.iso));
+  if (ev.type === 'pose' && ev.note) bouts.push(`Note : ${ev.note}`);
   return bouts.join(' · ');
 }
 
@@ -272,7 +282,7 @@ export function renderCalendar(app) {
       </div>
 
       <div class="cal-legend">
-        <span class="legend-dot color-accent" style="background:var(--accent)"></span> Pose chantier
+        <span class="legend-dot equipe-none"></span> Pose (couleur = équipe)
         <span class="legend-dot rtype-decouverte" style="background:#2f6f9f;margin-left:10px"></span> Découverte
         <span class="legend-dot rtype-metre" style="background:#127a6b;margin-left:10px"></span> Métré
         <span class="legend-dot rtype-presentation-devis" style="background:var(--gold);margin-left:10px"></span> Présentation
@@ -660,6 +670,10 @@ export function renderCalendar(app) {
   }
 
   draw();
+  // Charge les équipes de pose (couleurs) puis redessine.
+  (async () => {
+    try { idxEquipesCal = indexEquipes(await fetchPoseEquipes()); draw(); } catch (e) { /* poses en neutre si échec */ }
+  })();
   // Charge les rendez-vous puis redessine (les poses s'affichent immédiatement).
   (async () => {
     try { state.rendezVous = await fetchRendezVous(); draw(); } catch (e) { /* poses seules si échec */ }
