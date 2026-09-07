@@ -1123,46 +1123,87 @@ app.patch('/api/data/:table/:id', requireAuth, async (req, res) => {
 });
 
 // ── Équipes de pose (onglet Pose, 2026-09-07) ───────────────────────────────
-// Le champ « Équipe pose » (singleSelect sur Projets) porte les équipes ; leur
-// COULEUR à l'écran est calée sur l'ORDRE des options (stable au renommage).
-// Ces deux routes lisent/renomment les options via l'API meta, sans nouvelle table.
-async function fetchEquipePoseField() {
+// La liste des équipes (nom + ordre = couleur) vit dans la table « Équipes pose »
+// (une ligne = une équipe), source de vérité éditable. Le projet porte le NOM de
+// son équipe dans son singleSelect « Équipe pose » : l'affichage/le coloriage ne
+// changent pas. Renommer une équipe = mettre à jour sa ligne PUIS cascader le
+// nouveau nom sur les chantiers concernés (API records, `typecast` crée l'option
+// au passage). On ne touche JAMAIS aux options du champ via l'API meta : cet
+// endpoint refuse toute écriture d'`options` (« Changing a field's type or number
+// precision is not currently supported »), ce qui rendait le renommage impossible.
+const EQUIPES_POSE_TABLE = 'Équipes pose';
+let _equipesPoseTableId = null;
+async function fetchEquipesPoseTableId() {
+  if (_equipesPoseTableId) return _equipesPoseTableId;
   const r = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE_ID}/tables`, {
     headers: { Authorization: `Bearer ${AT_KEY}` }
   });
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error?.message || `schéma ${r.status}`); }
   const data = await r.json();
+  const t = (data.tables || []).find(t => t.name === EQUIPES_POSE_TABLE);
+  _equipesPoseTableId = t?.id || null;
+  return _equipesPoseTableId;
+}
+
+// Repli lecture seule : options du singleSelect « Équipe pose » (ordre = couleur).
+// Sert UNIQUEMENT tant que la table « Équipes pose » n'a pas été créée (fenêtre
+// entre le déploiement du code et la migration), pour que le planning reste
+// coloré au lieu de perdre ses équipes en silence. Le renommage reste indispo
+// (PATCH renvoie alors une consigne claire) jusqu'à la migration.
+async function fallbackEquipesFromField() {
+  const r = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE_ID}/tables`, {
+    headers: { Authorization: `Bearer ${AT_KEY}` }
+  });
+  if (!r.ok) return [];
+  const data = await r.json();
   const projetsTable = (data.tables || []).find(t => t.id === TABLES.projets.id);
-  return projetsTable?.fields.find(f => f.name === 'Équipe pose') || null;
+  const field = projetsTable?.fields.find(f => f.name === 'Équipe pose');
+  if (!field || field.type !== 'singleSelect') return [];
+  return (field.options?.choices || []).map(c => ({ id: c.id, name: c.name }));
+}
+
+// Liste ordonnée [{ id, name }] depuis la table (tri par Ordre puis nom).
+async function listEquipesPose(tableId) {
+  const recs = await atFetchAll(tableId);
+  return recs
+    .map(r => ({ id: r.id, name: String(r.fields?.Nom || '').trim(), ordre: Number(r.fields?.Ordre ?? 9999) }))
+    .filter(e => e.name)
+    .sort((a, b) => (a.ordre - b.ordre) || a.name.localeCompare(b.name, 'fr'))
+    .map(e => ({ id: e.id, name: e.name }));
 }
 
 // GET — liste ordonnée des équipes (toute l'équipe : sert à colorer le planning).
 app.get('/api/pose/equipes', requireAuth, async (req, res) => {
   try {
-    const field = await fetchEquipePoseField();
-    if (!field || field.type !== 'singleSelect') {
-      return res.json({ ok: true, exists: false, choices: [] });
+    const tableId = await fetchEquipesPoseTableId();
+    if (!tableId) {
+      // Table pas encore créée : repli sur les options du singleSelect (couleurs OK).
+      const choices = await fallbackEquipesFromField();
+      return res.json({ ok: true, exists: choices.length > 0, choices });
     }
-    const choices = (field.options?.choices || []).map(c => ({ id: c.id, name: c.name }));
-    res.json({ ok: true, exists: true, choices });
+    res.json({ ok: true, exists: true, choices: await listEquipesPose(tableId) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// PATCH — renommer / ajouter des équipes (admin). Conserve les id existants pour
-// que les chantiers déjà affectés suivent le nouveau nom (Airtable cascade).
+// PATCH — renommer / ajouter / retirer des équipes (admin).
+// Corps : { choices: [{ id?, name }, …] } dans l'ordre voulu (ordre = couleur).
+//  - id connu + nom changé  → renomme la ligne + cascade le nom sur les chantiers
+//  - id absent              → nouvelle équipe
+//  - ligne existante absente de la liste → retirée ; ses chantiers repassent
+//    « sans équipe » (contrat annoncé dans la modale, jamais en silence)
 app.patch('/api/pose/equipes', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const field = await fetchEquipePoseField();
-    if (!field || field.type !== 'singleSelect') {
-      return res.status(400).json({ error: 'Le champ « Équipe pose » n’existe pas encore. Lance scripts/setup-pose-equipe-note.js --apply.' });
+    const tableId = await fetchEquipesPoseTableId();
+    if (!tableId) {
+      return res.status(400).json({ error: 'La table « Équipes pose » n’existe pas encore. Lance scripts/setup-equipes-pose-table.js --apply.' });
     }
     const incoming = Array.isArray(req.body?.choices) ? req.body.choices : null;
     if (!incoming || !incoming.length) return res.status(400).json({ error: 'Aucune équipe fournie.' });
     if (incoming.length > 8) return res.status(400).json({ error: 'Maximum 8 équipes.' });
 
-    const existingById = new Map((field.options?.choices || []).map(c => [c.id, c]));
+    // Validation + normalisation.
     const noms = new Set();
-    const choices = [];
+    const items = [];
     for (const c of incoming) {
       const name = String(c?.name ?? '').trim();
       if (!name) return res.status(400).json({ error: 'Le nom d’une équipe ne peut pas être vide.' });
@@ -1170,22 +1211,55 @@ app.patch('/api/pose/equipes', requireAuth, requireAdmin, async (req, res) => {
       const key = name.toLowerCase();
       if (noms.has(key)) return res.status(400).json({ error: `Deux équipes portent le même nom : « ${name} ».` });
       noms.add(key);
-      // On garde l'id (renommage en place) quand il existe déjà ; sinon nouvelle option.
-      if (c.id && existingById.has(c.id)) {
-        choices.push({ id: c.id, name, color: existingById.get(c.id).color });
-      } else {
-        choices.push({ name });
-      }
+      items.push({ id: (c.id && String(c.id)) || null, name });
     }
-    const r = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE_ID}/tables/${TABLES.projets.id}/fields/${field.id}`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${AT_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ options: { choices } }),
+
+    // État courant de la table + des chantiers (une seule lecture, filtrage JS
+    // pour éviter tout souci d'apostrophe/quote dans un filterByFormula).
+    const currentRecs = await atFetchAll(tableId);
+    const currentById = new Map(currentRecs.map(r => [r.id, String(r.fields?.Nom || '').trim()]));
+    const projets = await atFetchAll(TABLES.projets.id);
+    const equipeDuProjet = p => String(p.fields?.['Équipe pose'] || '').trim();
+
+    const keepIds = new Set();
+    const renames = [];         // { oldName, newName }
+    const patches = [];         // lignes à mettre à jour  { id, fields }
+    const creations = [];       // lignes à créer          { Nom, Ordre }
+    items.forEach((it, i) => {
+      if (it.id && currentById.has(it.id)) {
+        keepIds.add(it.id);
+        const oldName = currentById.get(it.id);
+        if (oldName !== it.name) renames.push({ oldName, newName: it.name });
+        patches.push({ id: it.id, fields: { Nom: it.name, Ordre: i } });
+      } else {
+        creations.push({ Nom: it.name, Ordre: i });
+      }
     });
-    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error?.message || `maj ${r.status}`); }
-    const updated = await r.json();
-    const out = (updated.options?.choices || []).map(c => ({ id: c.id, name: c.name }));
-    res.json({ ok: true, choices: out });
+    const removals = currentRecs.filter(r => !keepIds.has(r.id));
+
+    // 1) Mises à jour (nom + ordre) des lignes conservées.
+    for (const p of patches) await atPatch(tableId, p.id, p.fields);
+    // 2) Créations des nouvelles équipes.
+    if (creations.length) await atCreateBatch(tableId, creations);
+    // 3) Suppressions des équipes retirées.
+    for (const r of removals) await atDelete(tableId, r.id);
+
+    // 4) Cascade des renommages sur les chantiers (typecast crée l'option).
+    for (const { oldName, newName } of renames) {
+      const cibles = projets.filter(p => equipeDuProjet(p) === oldName);
+      for (const p of cibles) await atPatch(TABLES.projets.id, p.id, { 'Équipe pose': newName });
+    }
+    // 5) Équipes retirées : les chantiers qui les portaient repassent sans équipe.
+    for (const r of removals) {
+      const nm = String(r.fields?.Nom || '').trim();
+      if (!nm) continue;
+      // exclut les noms réattribués par un renommage (déjà migrés à l'étape 4)
+      if (renames.some(x => x.oldName === nm)) continue;
+      const cibles = projets.filter(p => equipeDuProjet(p) === nm);
+      for (const p of cibles) await atPatch(TABLES.projets.id, p.id, { 'Équipe pose': null });
+    }
+
+    res.json({ ok: true, choices: await listEquipesPose(tableId) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
