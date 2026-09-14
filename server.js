@@ -1762,6 +1762,59 @@ app.post('/api/devis/:id/echeances-factures', requireAuth, async (req, res) => {
   }
 });
 
+// UNE échéance → sa facture BROUILLON Pennylane (bouton par échéance dans la
+// fiche projet : acompte, à la livraison, SOLDE… au moment voulu). Réutilise le
+// mapping au prorata TVA. Idempotent (n'en refait pas une sans `force`).
+// Le devisId vient du front (l'échéance appartient au devis signé affiché).
+app.post('/api/devis/:devisId/echeances/:echId/facture-pennylane', requireAuth, async (req, res) => {
+  const { devisId, echId } = req.params;
+  const body = req.body || {};
+  try {
+    if (!process.env.PENNYLANE_API_KEY) return res.status(500).json({ error: 'PENNYLANE_API_KEY non configurée' });
+    const dr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.devis.id}/${devisId}`, { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!dr.ok) return res.status(404).json({ error: 'Devis introuvable' });
+    const f = (await dr.json()).fields || {};
+    const [ech] = await atFetchByIds(TABLES['echeances-devis'].id, [echId]);
+    if (!ech) return res.status(404).json({ error: 'Échéance introuvable' });
+    const ef = ech.fields || {};
+    const libelle = ef['Libellé'] || 'Échéance';
+
+    // Idempotence : brouillon déjà là → on renvoie le lien, pas de doublon.
+    if (ef[PL_ECH_FIELD] && !body.force) {
+      return res.json({ ok: true, already: true, invoiceId: ef[PL_ECH_FIELD], libelle,
+        openUrl: pennylaneInvoiceUrl(ef[PL_ECH_FIELD]), pdfUrl: `/api/echeances/${echId}/pennylane/pdf` });
+    }
+
+    const clientId = (f['Client'] || [])[0];
+    if (!clientId) return res.status(422).json({ error: 'Devis sans client lié' });
+    const resolved = await resolvePennylaneCustomer(clientId, body);
+    if (resolved.needsCustomerConfirmation) return res.json({ ok: false, ...resolved });
+    const { customerId, customerCreated } = resolved;
+
+    const descDevis = await descriptionDevisPourPennylane(f);
+    const { lines, reconciliation, warnings } = pennylane.buildEcheanceInvoiceLines(f, ef['Montant prévu'], libelle, { description: descDevis });
+    if (!lines.length) return res.status(422).json({ error: 'Échéance sans montant exploitable', warnings });
+
+    const iso = d => d.toISOString().slice(0, 10);
+    const today = iso(new Date());
+    const dueRaw = ef['Date prévue'] || today;
+    const dueDate = dueRaw < today ? today : dueRaw;   // Pennylane refuse une échéance passée
+    const inv = await pennylane.createDraftInvoice({
+      customer_id: customerId, date: today, deadline: dueDate, lines,
+      external_reference: `${f['Numéro devis'] || ''} · ${libelle}`.trim(),
+    });
+    await atPatch(TABLES['echeances-devis'].id, echId, { [PL_ECH_FIELD]: String(inv.id) });
+
+    logger.info({ devisId, echId, invoiceId: inv.id, libelle, customerCreated, reconOk: reconciliation.ok }, 'facture échéance Pennylane générée (bouton unitaire)');
+    res.json({ ok: true, invoiceId: inv.id, number: inv.number, libelle,
+      openUrl: pennylaneInvoiceUrl(inv.id), pdfUrl: `/api/echeances/${echId}/pennylane/pdf`,
+      customerId, customerCreated, reconciliation, warnings });
+  } catch (e) {
+    logger.error({ err: e.message, devisId, echId }, 'échec facture échéance Pennylane (unitaire)');
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // PDF d'une facture d'échéance Pennylane (par id d'échéance Airtable).
 app.get('/api/echeances/:id/pennylane/pdf', requireAuth, async (req, res) => {
   const echId = req.params.id;
