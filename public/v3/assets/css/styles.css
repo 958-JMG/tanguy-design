@@ -1707,7 +1707,9 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   display: flex;
   flex-direction: column;
   gap: 6px;
-  height: 150px; /* Sprint v3.17 — réduit (label sur 1 ligne suffit, pas besoin de 170) */
+  min-height: 150px; /* min- et non height fixe : la carte grandit avec ses boutons
+                        (acompte Pennylane + tâche) sans déborder ni chevaucher le total.
+                        align-items:stretch de la grille garde les cartes égales par ligne. */
   min-width: 0;
   transition: border-color 100ms ease-out, box-shadow 100ms ease-out;
 }

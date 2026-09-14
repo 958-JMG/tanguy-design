@@ -686,7 +686,7 @@ function renderAnalysis(container, data) {
 // des commandes à la signature du devis (services/fournisseur-grille.js). Un
 // fournisseur peut couvrir plusieurs familles (ex. Bradano/Franke = Évier +
 // Robinetterie). Source de vérité des 6 familles : CATEGORIES_GRILLE côté serveur.
-const CATEGORIES_GRILLE = ['Meuble', 'Plan de travail', 'Électroménager', 'Évier', 'Robinetterie', 'Crédence'];
+const CATEGORIES_GRILLE = ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence'];
 
 async function loadGrilleFournisseurs() {
   const out = document.getElementById('grille-fourn-output');

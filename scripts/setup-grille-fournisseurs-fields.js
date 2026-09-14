@@ -32,7 +32,7 @@ if (!BASE_ID || !AT_KEY) { console.error('AIRTABLE_BASE_ID + AIRTABLE_KEY requis
 const APPLY = process.argv.includes('--apply');
 const FOURNISSEURS_TABLE = 'tblz1AZIKkn9VCbkR';
 // Doit rester aligné sur CATEGORIES_GRILLE (services/fournisseur-grille.js).
-const CATEGORIES = ['Meuble', 'Plan de travail', 'Électroménager', 'Évier', 'Robinetterie', 'Crédence'];
+const CATEGORIES = ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence'];
 
 async function fetchSchema() {
   const r = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE_ID}/tables`, { headers: { Authorization: `Bearer ${AT_KEY}` } });
@@ -46,35 +46,27 @@ async function createField(tableId, body) {
   if (!r.ok) throw new Error(`create ${body.name}: ${r.status} ${(await r.json().catch(() => ({}))).error?.message || ''}`);
   return r.json();
 }
-async function patchField(tableId, fieldId, body) {
-  const r = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE_ID}/tables/${tableId}/fields/${fieldId}`, {
-    method: 'PATCH', headers: { Authorization: `Bearer ${AT_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error(`patch ${fieldId}: ${r.status} ${(await r.json().catch(() => ({}))).error?.message || ''}`);
-  return r.json();
-}
-
 (async () => {
   console.log(APPLY ? '🚀 APPLY — modifications réelles' : '🔍 DRY-RUN — relance avec --apply');
   const schema = await fetchSchema();
   const table = schema.tables.find(t => t.id === FOURNISSEURS_TABLE);
   if (!table) throw new Error('Table Fournisseurs introuvable');
   const champ = table.fields.find(f => f.name === 'Catégories');
-  const choices = CATEGORIES.map(name => ({ name }));
 
   if (!champ) {
-    console.log('  → Création "Catégories" (multipleSelects) avec 6 options');
-    if (APPLY) { const c = await createField(FOURNISSEURS_TABLE, { name: 'Catégories', type: 'multipleSelects', description: 'Familles de produits couvertes (routage des commandes à la signature).', options: { choices } }); console.log(`    créé → ${c.id}`); }
+    console.log(`  → Création "Catégories" (multipleSelects) : ${CATEGORIES.join(', ')}`);
+    if (APPLY) { const c = await createField(FOURNISSEURS_TABLE, { name: 'Catégories', type: 'multipleSelects', description: 'Familles de produits couvertes (routage des commandes à la signature).', options: { choices: CATEGORIES.map(name => ({ name })) } }); console.log(`    créé → ${c.id}`); }
   } else {
+    // Le champ existe déjà. L'API Airtable REFUSE de mettre à jour les options d'un
+    // multi-select existant (422 « Changing a field's type... »). Ce n'est pas
+    // bloquant : le seed écrit avec `typecast: true`, ce qui CRÉE automatiquement les
+    // nouvelles options (Luminaire, « Plan de travail & crédence ») et retague les
+    // fiches. Les anciennes options (Meuble/Plan de travail/Évier/…) restent définies
+    // mais deviennent inutilisées (le cockpit n'affiche que les 4 familles voulues).
     const present = new Set((champ.options?.choices || []).map(c => c.name));
     const manquantes = CATEGORIES.filter(c => !present.has(c));
-    if (!manquantes.length) { console.log('  ✓ "Catégories" existe avec les 6 options'); }
-    else {
-      console.log(`  → Complète les options manquantes : ${manquantes.join(', ')}`);
-      // PATCH options : on renvoie les choix EXISTANTS (avec leur id) + les nouveaux.
-      const merged = [...(champ.options?.choices || []).map(c => ({ id: c.id, name: c.name })), ...manquantes.map(name => ({ name }))];
-      if (APPLY) { await patchField(FOURNISSEURS_TABLE, champ.id, { options: { choices: merged } }); console.log('    options complétées'); }
-    }
+    if (!manquantes.length) console.log('  ✓ "Catégories" contient déjà les familles voulues');
+    else console.log(`  ℹ️ options à créer par le seed (typecast) : ${manquantes.join(', ')}`);
   }
   console.log(APPLY ? '✅ Terminé' : '(dry-run terminé)');
 })().catch(e => { console.error('❌', e.message); process.exit(1); });

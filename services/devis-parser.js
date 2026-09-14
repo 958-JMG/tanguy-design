@@ -65,7 +65,7 @@ Analyse ce PDF de devis et retourne UNIQUEMENT un objet JSON valide, sans aucun 
       "position": "1",
       "position_parent": "",
       "zone_nom": "COTE EVIER ET ARMOIRES",
-      "categorie": "Meubles | Panneaux de recouvrement | Plan de travail | Électroménager | Évier | Robinetterie | Eviers et robinetterie | Crédence | Produits de vente | Sanitaires | Dépose | Divers",
+      "categorie": "Meubles | Panneaux de recouvrement | Plan de travail | Électroménager | Luminaire | Évier | Robinetterie | Eviers et robinetterie | Crédence | Produits de vente | Sanitaires | Dépose | Divers",
       "code_produit": "ZPL22A",
       "designation": "description complète multi-lignes",
       "largeur_mm": 600,
@@ -122,7 +122,7 @@ RÈGLES STRICTES :
 - Toutes les lignes d'articles doivent être extraites, y compris les sous-lignes numérotées (ex: 2.1, 2.2) qui référencent la ligne parent via "position_parent": "2".
 - Les sous-lignes n'ont généralement pas de zone (zone_nom = "").
 - Les positions numériques peuvent aller jusqu'à 507 ou plus (lignes de finition, gorges, socles en fin de devis).
-- La catégorie décrit la FAMILLE FOURNISSEUR de l'article, alignée sur les familles de Tanguy : Meubles (caissons, façades, panneaux de recouvrement), Plan de travail, Électroménager, Évier, Robinetterie, Crédence, Produits de vente, Dépose, Divers. Déduis-la du titre de section ET du contenu de la ligne : dans une section « Eviers et robinetterie », une ligne de robinet/mitigeur → « Robinetterie », une ligne d'évier/cuve → « Évier ». Si la section ne se laisse pas trancher, garde son titre exact (ex. « Eviers et robinetterie »). Ne DEVINE JAMAIS une famille : si tu ne sais pas, reprends le titre de section tel quel plutôt que d'inventer.
+- La catégorie décrit la FAMILLE FOURNISSEUR de l'article, alignée sur les familles de Tanguy : Meubles (caissons, façades, panneaux de recouvrement), Plan de travail, Électroménager, Luminaire (spots, appliques, suspensions), Évier, Robinetterie, Crédence, Produits de vente, Dépose, Divers. Déduis-la du titre de section ET du contenu de la ligne : dans une section « Eviers et robinetterie », une ligne de robinet/mitigeur → « Robinetterie », une ligne d'évier/cuve → « Évier ». Si la section ne se laisse pas trancher, garde son titre exact (ex. « Eviers et robinetterie »). Ne DEVINE JAMAIS une famille : si tu ne sais pas, reprends le titre de section tel quel plutôt que d'inventer.
 - Les montants sont en euros, toujours en nombre (pas de chaîne), avec point décimal. Ne mets jamais de séparateur de milliers.
 - Les dates au format ISO YYYY-MM-DD. Si absente, mets null.
 - Les dimensions en millimètres, en nombre entier. Si non mentionnées, null.

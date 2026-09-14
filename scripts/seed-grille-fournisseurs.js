@@ -31,15 +31,13 @@ if (!BASE_ID || !AT_KEY) { console.error('AIRTABLE_BASE_ID + AIRTABLE_KEY requis
 const APPLY = process.argv.includes('--apply');
 const FOURNISSEURS_TABLE = 'tblz1AZIKkn9VCbkR';
 
-// Grille JMG : famille → fournisseurs. Un fournisseur peut apparaître dans
-// plusieurs familles (Bradano/Franke = Évier ET Robinetterie).
+// Grille JMG (refonte 2026-09-14) : 4 familles. « Plan de travail & crédence »
+// regroupe plan de travail + évier + robinetterie + crédence. Luminaire reste
+// vide (aucun fournisseur fourni) → Virginie la remplira.
 const GRILLE = {
-  'Meuble': ['Modulnova', 'Nova Mobili', 'Nova Cuisina', 'Binova', 'Lago', 'Cinquante 3', 'ADL'],
-  'Plan de travail': ['Fidelem', 'Granit Evolution', 'La Morlésienne'],
+  'Mobilier': ['Modulnova', 'Nova Mobili', 'Nova Cuisina', 'Binova', 'Lago', 'Cinquante 3', 'ADL'],
   'Électroménager': ['Findis', 'Bora'],
-  'Évier': ['Bradano', 'Franke'],
-  'Robinetterie': ['Bradano', 'Franke', 'Gessi'],
-  'Crédence': ['Goode Glass'],
+  'Plan de travail & crédence': ['Fidelem', 'Granit Evolution', 'La Morlésienne', 'Bradano', 'Franke', 'Gessi', 'Goode Glass'],
 };
 
 // Clé de rapprochement : minuscule, sans accents, sans espaces/ponctuation.
@@ -93,19 +91,6 @@ async function patchRecord(tableId, id, fields) {
   return r.json();
 }
 
-// Union des catégories (sur clé normalisée) pour ne pas écraser un choix voulu.
-function unionCats(existantes, voulues) {
-  const out = [];
-  const seen = new Set();
-  for (const c of [...(existantes || []), ...voulues]) {
-    const k = key(c);
-    if (!seen.has(k)) { seen.add(k); out.push(c); }
-  }
-  // Normalise les libellés vers ceux de la grille quand la clé correspond.
-  const canon = new Map(Object.keys(GRILLE).map(c => [key(c), c]));
-  return out.map(c => canon.get(key(c)) || c);
-}
-
 (async () => {
   console.log(APPLY ? '🚀 APPLY — écritures réelles' : '🔍 DRY-RUN — relance avec --apply');
   const existants = await fetchAll(FOURNISSEURS_TABLE);
@@ -118,12 +103,14 @@ function unionCats(existantes, voulues) {
     let found = null;
     for (const k of candidateKeys(nom)) { if (parCle.has(k)) { found = parCle.get(k); break; } }
     if (found) {
+      // REMPLACEMENT (refonte 2026-09-14) : on POSE exactement les familles voulues,
+      // ce qui fait tomber les anciennes (Plan de travail / Évier / Robinetterie /
+      // Crédence) au profit de « Plan de travail & crédence ». Idempotent.
       const actuelles = Array.isArray(found.fields?.['Catégories']) ? found.fields['Catégories'] : [];
-      const merged = unionCats(actuelles, voulues);
-      const change = merged.length !== actuelles.length || merged.some(c => !actuelles.includes(c));
-      if (!change) { console.log(`  ✓ ${found.fields.Nom} — déjà ${JSON.stringify(actuelles)}`); inchanges++; continue; }
-      console.log(`  ~ ${found.fields.Nom} : ${JSON.stringify(actuelles)} → ${JSON.stringify(merged)}`);
-      if (APPLY) await patchRecord(FOURNISSEURS_TABLE, found.id, { 'Catégories': merged });
+      const sameSet = actuelles.length === voulues.length && voulues.every(c => actuelles.includes(c));
+      if (sameSet) { console.log(`  ✓ ${found.fields.Nom} — déjà ${JSON.stringify(actuelles)}`); inchanges++; continue; }
+      console.log(`  ~ ${found.fields.Nom} : ${JSON.stringify(actuelles)} → ${JSON.stringify(voulues)}`);
+      if (APPLY) await patchRecord(FOURNISSEURS_TABLE, found.id, { 'Catégories': voulues });
       maj++;
     } else {
       console.log(`  + ${nom} (nouveau) → ${JSON.stringify(voulues)}`);

@@ -2458,7 +2458,7 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     const fournisseursGrille = await atFetchAll(TABLES.fournisseurs.id).catch(() => []);
     // `forcer` : toujours un BC « Plan de travail » (JMG 2026-05-21), même sans ligne PT
     // (le PT est mesuré sur chantier après pose meubles, BC complété à la main par Virginie).
-    const groupes = routeCommandesGrille(lignes, fournisseursGrille, { forcer: ['Plan de travail'] });
+    const groupes = routeCommandesGrille(lignes, fournisseursGrille, { forcer: ['Plan de travail & crédence'] });
 
     // 4. Création des commandes fournisseurs (Sprint v3.1 — BC structurés et modifiables)
     // Pour chaque groupe, on peuple les champs structurés (Contremarque, Contact Tanguy,
@@ -2507,13 +2507,13 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       if (!g.commande) { sansCommande.push({ type: g.canon, montant, lignes: g.lignes.length }); continue; }
       // On crée le BC dès qu'il y a des lignes, ou pour le « Plan de travail » (BC vide
       // à compléter sur chantier), ou pour un groupe « À classer » (lignes à router).
-      if (montant <= 0 && type !== 'Plan de travail' && g.lignes.length === 0) continue;
+      if (montant <= 0 && g.canon !== 'Plan de travail & crédence' && g.lignes.length === 0) continue;
       const numCmd = clientNom
         ? `${clientNom} · ${type.toUpperCase()} · ${numero}-${idx}`
         : `${numero}-${type.slice(0,3).toUpperCase()}-${idx}`;
       const lignesType = g.lignes;
       const { texte: tableauTexte } = buildBcTableau(lignesType);
-      const isPlanTravailVide = type === 'Plan de travail' && lignesType.length === 0;
+      const isPlanTravailVide = g.canon === 'Plan de travail & crédence' && lignesType.length === 0;
       // Lignes structurées JSON pour édition future (front v3)
       const lignesStructured = lignesType.map(l => {
         const f = l.fields || {};
@@ -2555,7 +2555,7 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
         // Rattachement fournisseur AUTOMATIQUE depuis la grille, quand il est certain.
         ...(g.fournisseurId ? { 'Fournisseur': [g.fournisseurId] } : {}),
         // Modèle choisi + détails uniquement pour les commandes Meubles (utile sur le BC)
-        ...(type === 'Meubles' ? { 'Modèle choisi': modeleHeader, 'Détails modèle': detailsModele } : {}),
+        ...(g.canon === 'Mobilier' ? { 'Modèle choisi': modeleHeader, 'Détails modèle': detailsModele } : {}),
         // Rétro-planning : date envoi = date pose - 3,5 mois (cf. demande JMG 2026-05-21).
         // Si pas de date pose connue, le champ reste vide et Virginie le remplira manuellement.
         ...(dateEnvoiCommande ? { 'Date envoi': dateEnvoiCommande } : {}),
