@@ -263,7 +263,7 @@ function openNewFournisseurModal(onCreated) {
         <fieldset style="border:1px solid var(--line);border-radius:var(--r-sm);padding:8px;margin:6px 0">
           <legend style="font-size:12px;padding:0 4px" class="muted">Familles (grille) — route les commandes automatiquement</legend>
           <div style="display:flex;flex-wrap:wrap;gap:8px 14px">
-            ${['Meuble', 'Plan de travail', 'Électroménager', 'Évier', 'Robinetterie', 'Crédence']
+            ${['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence']
               .map(c => `<label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:400"><input type="checkbox" class="nf-cat" value="${c}"> ${c}</label>`).join('')}
           </div>
         </fieldset>

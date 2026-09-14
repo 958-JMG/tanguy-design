@@ -16,20 +16,20 @@
 // en couvrir plusieurs (ex. Bradano/Franke = Évier + Robinetterie).
 // ────────────────────────────────────────────────────────────────────────────
 
-// Les 6 catégories de la grille (dimensions du champ Fournisseurs.Catégories).
-const CATEGORIES_GRILLE = ['Meuble', 'Plan de travail', 'Électroménager', 'Évier', 'Robinetterie', 'Crédence'];
+// Les catégories de la grille (dimensions du champ Fournisseurs.Catégories).
+// Refonte JMG 2026-09-14 : « Plan de travail & crédence » regroupe plan de
+// travail + évier + robinetterie + crédence ; « Meuble » devient « Mobilier » ;
+// ajout de « Luminaire ». Virginie tague chaque fournisseur sur ces 4 familles.
+const CATEGORIES_GRILLE = ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence'];
 
 // Type de bon de commande + référence courte (code fournisseur sur le BC) par
-// catégorie canonique. `type` reste compatible avec l'existant (Meubles au
-// pluriel, etc.) pour ne rien casser en aval de la signature.
+// catégorie canonique.
 const CANON_BC = {
-  'Meuble':          { type: 'Meubles',         ref: 'NOVA_CUC' },
-  'Plan de travail': { type: 'Plan de travail', ref: 'PLAN_TRAV' },
-  'Électroménager':  { type: 'Électroménager',  ref: 'ELECTRO' },
-  'Évier':           { type: 'Évier',           ref: 'EVIER' },
-  'Robinetterie':    { type: 'Robinetterie',    ref: 'ROBI' },
-  'Crédence':        { type: 'Crédence',        ref: 'CREDENCE' },
-  'Accessoires':     { type: 'Accessoires',     ref: 'ACCESS' },
+  'Mobilier':                   { type: 'Mobilier',                   ref: 'MOBILIER' },
+  'Électroménager':             { type: 'Électroménager',             ref: 'ELECTRO' },
+  'Luminaire':                  { type: 'Luminaire',                  ref: 'LUMIN' },
+  'Plan de travail & crédence': { type: 'Plan de travail & crédence', ref: 'PLAN_CRED' },
+  'Accessoires':                { type: 'Accessoires',                ref: 'ACCESS' },
 };
 
 // Normalise pour comparer sans se faire piéger par accents/casse/ponctuation.
@@ -56,24 +56,17 @@ function classifierCategorie(raw) {
   if (!n) return { canon: null, commande: true, grille: false, raison: 'Catégorie absente sur la ligne' };
   const has = (...subs) => subs.some(x => n.includes(x));
 
-  // Ordre volontaire : « plan de travail » avant « meuble » ; robinetterie/évier
-  // testés ensemble car souvent regroupés (« Eviers et robinetterie »).
-  if (n.includes('plan') && n.includes('travail')) return grille('Plan de travail');
-  if (has('credence', 'pied vert')) return grille('Crédence');
+  // Refonte JMG 2026-09-14 : plan de travail, évier, robinetterie, crédence et
+  // sanitaire tombent tous dans « Plan de travail & crédence ».
+  const PTC = 'Plan de travail & crédence';
+  if (n.includes('plan') && n.includes('travail')) return grille(PTC);
+  if (has('credence', 'pied vert')) return grille(PTC);
+  if (has('evier', 'robinet', 'sanitaire', 'mitigeur')) return grille(PTC);
+
+  if (has('luminaire', 'eclairage', 'lumiere', 'applique', 'suspension', 'lampe', 'spot')) return grille('Luminaire');
   if (has('electromenager', 'electro')) return grille('Électroménager');
 
-  const evier = has('evier');
-  const robin = has('robinet');
-  const sanit = has('sanitaire');
-  if (evier || robin || sanit) {
-    // Section purement robinetterie → Robinetterie ; sinon (évier seul, sanitaire
-    // générique, ou combiné évier+robinetterie) → Évier, couvert par les
-    // fournisseurs évier qui assurent aussi la robinetterie.
-    if (robin && !evier && !sanit) return grille('Robinetterie');
-    return grille('Évier');
-  }
-
-  if (has('meuble', 'panneaux de recouvrement', 'caisson')) return grille('Meuble');
+  if (has('meuble', 'mobilier', 'panneaux de recouvrement', 'caisson')) return grille('Mobilier');
   if (has('produits de vente', 'accessoire')) return { canon: 'Accessoires', commande: true, grille: false };
   if (has('depose')) return { canon: 'Dépose', commande: false, grille: false, raison: 'Dépose : pas de commande fournisseur' };
   if (has('divers')) return { canon: 'Divers', commande: false, grille: false, raison: 'Divers : pas de commande fournisseur' };
