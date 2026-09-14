@@ -1663,7 +1663,9 @@ async function descriptionDevisPourPennylane(devisFields) {
     const zoneIds = Array.isArray(devisFields['Zones devis']) ? devisFields['Zones devis'] : [];
     if (!zoneIds.length) return '';
     const zones = await atFetchByIds(TABLES['zones-devis'].id, zoneIds);
-    return descriptionDevis(zones).texte;
+    // toutesZones : la facture reprend TOUS les ensembles signés (multi-zones), pas
+    // seulement le premier (demande JMG 2026-09-14).
+    return descriptionDevis(zones, { toutesZones: true }).texte;
   } catch (e) {
     logger.warn({ err: e.message }, '[pennylane] descriptif du devis non lu');
     return '';

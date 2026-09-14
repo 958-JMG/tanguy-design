@@ -34,6 +34,27 @@ describe('descriptionDevis()', () => {
     assert.equal(d.vide, false);
   });
 
+  test('toutesZones : multi-zones → tous les ensembles signés apparaissent', () => {
+    const zones = [
+      { id: 'a', fields: { Ordre: 1, 'Nom zone': 'CUISINE', Marque: 'Modulnova', 'Modèle': 'MH6', 'Exécution façade': 'Miltech', 'Coloris façade': 'C90', 'Type de gorge': 'gorge' } },
+      { id: 'b', fields: { Ordre: 2, 'Nom zone': 'LIVING', 'Exécution façade': 'Miltech', 'Coloris façade': 'D60 Bronze' } },
+      { id: 'c', fields: { Ordre: 3, 'Nom zone': 'VITRINES', 'Coloris façade': 'DRF' } },
+    ];
+    const d = descriptionDevis(zones, { toutesZones: true });
+    assert.match(d.texte, /Ensembles \(3\)/);
+    assert.match(d.texte, /CUISINE : Miltech C90/);
+    assert.match(d.texte, /LIVING : Miltech D60 Bronze/);
+    assert.match(d.texte, /VITRINES : DRF/);
+    assert.match(d.texte, /Type de gorge : gorge/);   // détails techniques de la zone principale conservés
+  });
+
+  test('toutesZones : mono-zone → identique au comportement d\'origine', () => {
+    const sans = descriptionDevis(ZONES).texte;
+    const avec = descriptionDevis([ZONES[1]], { toutesZones: true }).texte;
+    assert.equal(avec, sans);   // une seule zone → pas de bloc « Ensembles »
+    assert.doesNotMatch(avec, /Ensembles/);
+  });
+
   test('les champs vides ou absents sont ignorés', () => {
     const d = descriptionDevis([{ Ordre: 1, Marque: 'Novamobili', 'Coloris façade': '   ', 'Modularité': null }]);
     assert.deepEqual(d.details, []);
