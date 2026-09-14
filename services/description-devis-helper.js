@@ -61,11 +61,29 @@ function detailsZone(z) {
  *          `vide` = aucun descriptif exploitable → l'appelant doit le DIRE
  *          plutôt que d'envoyer une description blanche sans prévenir.
  */
-function descriptionDevis(zones, { separateur = '\n', maxLongueur = null } = {}) {
-  const z = zonePrincipale(zones);
+function descriptionDevis(zones, { separateur = '\n', maxLongueur = null, toutesZones = false } = {}) {
+  const list = (zones || []).map(z => (z && z.fields) ? { ...z.fields, _id: z.id } : z)
+    .filter(Boolean).sort((a, b) => (a.Ordre ?? 999) - (b.Ordre ?? 999));
+  const z = list[0] || null;
   const titre = titreZone(z);
   const details = detailsZone(z);
-  let texte = [titre, ...details].filter(Boolean).join(separateur);
+
+  // Multi-zones (JMG 2026-09-14) : un devis à plusieurs ensembles (cuisine, living,
+  // dressing…) doit apparaître EN ENTIER sur la facture, pas seulement la 1re zone.
+  // On récapitule chaque ensemble avec sa finition, puis les détails techniques
+  // communs (gorges, profondeur, socle) portés par la zone principale.
+  let texte;
+  if (toutesZones && list.length > 1) {
+    const pieces = list.map(zz => {
+      const nom = (zz['Nom zone'] && String(zz['Nom zone']).trim()) || titreZone(zz) || 'Ensemble';
+      const fin = [zz['Exécution façade'], zz['Coloris façade']].map(v => v && String(v).trim()).filter(Boolean).join(' ');
+      return fin ? `• ${nom} : ${fin}` : `• ${nom}`;
+    });
+    texte = [titre, `Ensembles (${list.length}) :`, ...pieces, ...details].filter(Boolean).join(separateur);
+  } else {
+    texte = [titre, ...details].filter(Boolean).join(separateur);
+  }
+
   if (maxLongueur && texte.length > maxLongueur) {
     texte = texte.slice(0, Math.max(0, maxLongueur - 1)).trimEnd() + '…';
   }
