@@ -187,6 +187,31 @@ function natureLabel(pct) {
   return pct >= 20 ? LIBELLE_PRODUIT() : `${LIBELLE_PRODUIT()} — pose et prestations`;
 }
 
+// ── Acompte à pourcentage libre ────────────────────────────────────────────
+// À partir du Total TTC du devis et d'un pourcentage saisi (Virginie a la main),
+// calcule le montant TTC de l'acompte + un libellé normalisé. PUR et testable.
+// Ne CRÉE rien : l'appelant passe le montant à buildEcheanceInvoiceLines() pour
+// obtenir des lignes réparties au prorata des taux de TVA du devis (même TVA que
+// le devis, somme = acompte au centime). Le pourcentage est borné ]0 ; 100].
+function calcAcompte(devisFields = {}, pct) {
+  const warnings = [];
+  const totalTtc = round2(num(devisFields['Total TTC']));
+  const p = num(pct);
+  if (!(p > 0) || p > 100) {
+    return { ok: false, pct: p, montant: 0, totalTtc, libelle: null,
+      error: 'Pourcentage d\'acompte invalide (attendu entre 0 et 100)' };
+  }
+  if (!(totalTtc > 0)) {
+    return { ok: false, pct: p, montant: 0, totalTtc, libelle: null,
+      error: 'Devis sans Total TTC exploitable — acompte impossible' };
+  }
+  // Pourcentage propre à l'affichage/libellé : entier si rond, sinon 1 décimale.
+  const pctLisible = Number.isInteger(p) ? String(p) : String(round2(p));
+  const montant = round2((p / 100) * totalTtc);
+  if (p >= 100) warnings.push('Acompte à 100 % : c\'est la facture totale, pas un acompte');
+  return { ok: true, pct: p, montant, totalTtc, libelle: `Acompte ${pctLisible} %`, warnings };
+}
+
 // ── Mapping PUR : une ÉCHÉANCE (acompte/livraison/solde) → lignes de facture ──
 // Le montant d'échéance est TTC. On le répartit AU PRORATA des bases TVA du devis
 // (même taux, même proportion) → la facture d'échéance porte la bonne TVA, et la
@@ -372,7 +397,7 @@ async function fetchInvoicePdf(invoiceId) {
 module.exports = {
   detailErreur,
   // purs (testables sans réseau)
-  buildInvoiceLines, buildEcheanceInvoiceLines, normalizeName, vatEnum,
+  buildInvoiceLines, buildEcheanceInvoiceLines, calcAcompte, normalizeName, vatEnum,
   // réseau
   findCustomerByName, createCustomer, createDraftQuote, createDraftInvoice,
   fetchQuotePdf, fetchInvoicePdf, listAllCustomers,

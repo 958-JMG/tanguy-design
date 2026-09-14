@@ -260,6 +260,13 @@ function openNewFournisseurModal(onCreated) {
       <form id="form-new-fourn">
         <label>Nom <input name="Nom" required placeholder="Ex : Transports Le Goff"></label>
         <label>Famille <input name="Famille" placeholder="Ex : Transport, Électroménager, Plan de travail…"></label>
+        <fieldset style="border:1px solid var(--line);border-radius:var(--r-sm);padding:8px;margin:6px 0">
+          <legend style="font-size:12px;padding:0 4px" class="muted">Familles (grille) — route les commandes automatiquement</legend>
+          <div style="display:flex;flex-wrap:wrap;gap:8px 14px">
+            ${['Meuble', 'Plan de travail', 'Électroménager', 'Évier', 'Robinetterie', 'Crédence']
+              .map(c => `<label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:400"><input type="checkbox" class="nf-cat" value="${c}"> ${c}</label>`).join('')}
+          </div>
+        </fieldset>
         <label>Email <input name="Email" type="email" placeholder="contact@…"></label>
         <label>Téléphone <input name="Téléphone" placeholder="02 …"></label>
         <label>Adresse <input name="Adresse"></label>
@@ -279,6 +286,9 @@ function openNewFournisseurModal(onCreated) {
     const fd = new FormData(e.target);
     const fields = {};
     for (const [k, v] of fd.entries()) { const val = String(v || '').trim(); if (val) fields[k] = val; }
+    // Familles cochées (multi-sélection Airtable) — collectées à part des inputs texte.
+    const cats = [...e.target.querySelectorAll('.nf-cat:checked')].map(c => c.value);
+    if (cats.length) fields['Catégories'] = cats;
     if (!fields['Nom']) { toast('Le nom est obligatoire', 'error'); return; }
     try {
       const r = await api('/api/data/fournisseurs', { method: 'POST', body: JSON.stringify({ fields }) });

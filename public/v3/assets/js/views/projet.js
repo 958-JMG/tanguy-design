@@ -12,6 +12,7 @@ import {
   importDevisArtisan, parsePlaud, patchDevisArtisan, deleteDevisArtisan,
   genererTacheFacturation, marquerEncaisse, createClient, createArtisan, fetchRendezVous,
   patchEcheance, createCout, patchCout, deleteCout,
+  genererFactureAcompte,
 } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 import { openModalRdv, renderRdvList, bindRdvList } from '../core/rdv.js';
@@ -900,6 +901,15 @@ function renderFiche(app, data) {
         router();
       } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
     });
+
+    // ── Facture d'acompte % libre → brouillon Pennylane (JMG 2026-09-14) ──
+    const btnAcPl = app.querySelector('[data-action="acompte-pennylane"]');
+    if (btnAcPl) btnAcPl.addEventListener('click', () => {
+      const pctRaw = app.querySelector('#acompte-pct')?.value;
+      const pct = Number(String(pctRaw ?? '').replace(',', '.'));
+      if (!(pct > 0) || pct > 100) { toast('Pourcentage d\'acompte invalide (1 à 100)', 'error'); return; }
+      factureAcompteFlow(btnAcPl.dataset.devis, pct);
+    });
   }
 
   // Sprint v3.8 — Suppression d'une entrée journal individuelle
@@ -1584,6 +1594,95 @@ function openModalPlanningArtisans(projet, client, artisans) {
 //   Tâche créée : ambre/info, attente Virginie
 //   Envoyé      : jaune, tâche terminée mais pas encore payée, bouton "Marquer encaissée"
 //   Encaissé    : vert, paiement reçu
+// Flux de génération d'une facture d'acompte % libre dans Pennylane. Gère la
+// confirmation anti-doublon client (homonyme), la relance forcée si un acompte
+// existe déjà, et remonte les avertissements (écart TVA, champ manquant…).
+async function factureAcompteFlow(devisId, pct, opts = {}) {
+  const btn = document.querySelector('[data-action="acompte-pennylane"]');
+  const label = btn ? btn.innerHTML : '';
+  const busy = () => { if (btn) { btn.disabled = true; btn.innerHTML = 'Création du brouillon…'; } };
+  const restore = () => { if (btn) { btn.disabled = false; btn.innerHTML = label; } };
+  busy();
+  try {
+    const r = await genererFactureAcompte(devisId, { pct, ...opts });
+
+    // Homonyme sans correspondance exacte → Virginie tranche (jamais de doublon auto).
+    if (r && r.needsCustomerConfirmation) {
+      restore();
+      const choice = await chooseCustomerModalProjet(r.clientNom, r.candidates);
+      if (!choice) return;
+      return factureAcompteFlow(devisId, pct, choice === '__new__' ? { ...opts, create_customer: true } : { ...opts, pennylane_customer_id: choice });
+    }
+
+    // Un acompte est déjà présent → on ne double pas en silence : on demande.
+    if (r && r.already) {
+      restore();
+      const again = await confirmModal(`${r.warning || 'Un brouillon d\'acompte existe déjà pour ce devis.'}\n\nEn générer un nouveau à ${pct} % quand même ?`, { okLabel: 'Générer un nouveau', danger: true });
+      if (!again) return;
+      return factureAcompteFlow(devisId, pct, { ...opts, force: true });
+    }
+
+    toast(`Acompte ${r.pct} % créé (${euros(r.montant)}) en brouillon Pennylane${r.customerCreated ? ' · client créé' : ''}`, 'success', 7000);
+    if (r.reconciliation && r.reconciliation.ok === false) toast(`⚠️ Écart TVA ${r.reconciliation.diff} € — vérifie la facture dans Pennylane avant envoi`, 'error', 9000);
+    (r.warnings || []).forEach(w => toast('⚠️ ' + w, 'error', 8000));
+    router();
+  } catch (err) {
+    toast('Erreur acompte Pennylane : ' + err.message, 'error', 8000);
+    restore();
+  }
+}
+
+// Choix du client Pennylane en cas d'homonyme (id client, '__new__', ou null).
+function chooseCustomerModalProjet(nom, candidates) {
+  return new Promise(resolve => {
+    const modal = document.createElement('div');
+    modal.className = 'modal-bg';
+    modal.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true">
+        <h2>Client dans Pennylane</h2>
+        <p class="muted" style="margin-top:0">Aucune correspondance exacte pour <strong>${esc(nom)}</strong>. Choisis le bon client Pennylane pour éviter un doublon, ou crée-le.</p>
+        <div style="display:flex;flex-direction:column;gap:8px;margin:12px 0">
+          ${(candidates || []).map(c => `<button type="button" class="btn btn-ghost" data-id="${esc(c.id)}" style="justify-content:flex-start">${esc(c.name)}</button>`).join('')}
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="plp-cancel">Annuler</button>
+          <button type="button" class="btn btn-primary" id="plp-new">Créer « ${esc(nom)} » dans Pennylane</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    const done = v => { modal.remove(); resolve(v); };
+    modal.addEventListener('click', e => { if (e.target === modal) done(null); });
+    modal.querySelectorAll('button[data-id]').forEach(b => b.onclick = () => done(b.dataset.id));
+    modal.querySelector('#plp-cancel').onclick = () => done(null);
+    modal.querySelector('#plp-new').onclick = () => done('__new__');
+    hydrateIcons(modal);
+  });
+}
+
+// Outil « Facture d'acompte Pennylane » (demande JMG 2026-09-14) : % libre saisi
+// par Virginie → 1 brouillon d'acompte dans Pennylane. Indépendant des échéances
+// (le % libre n'en a pas besoin) : s'affiche dès qu'un devis signé a un TTC.
+function renderAcomptePennylaneTool(devisSigne, caTTC) {
+  if (!devisSigne || !(caTTC > 0)) return '';
+  const f = devisSigne.fields || {};
+  const dejaId = f['Pennylane acompte ID'];
+  const dejaPct = f['Pennylane acompte %'];
+  return `
+    <div class="acompte-pennylane" style="border:1px solid var(--line);border-radius:var(--r-sm);padding:10px;margin:0 0 10px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-weight:600">${icon('file', 13)} Facture d'acompte Pennylane</span>
+        <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px">
+          <input type="number" id="acompte-pct" value="${dejaPct != null ? esc(String(dejaPct)) : '30'}" min="1" max="100" step="1" inputmode="decimal" aria-label="Pourcentage d'acompte" style="width:62px;padding:3px 6px;text-align:right"> %
+        </label>
+        <button class="btn btn-primary btn-sm" data-action="acompte-pennylane" data-devis="${esc(devisSigne.id)}">${icon('plus', 12)} Générer le brouillon</button>
+        <span class="muted" style="font-size:12px">de ${euros(caTTC)} TTC · brouillon, jamais envoyé automatiquement</span>
+      </div>
+      ${dejaId ? `<div class="muted" style="font-size:12px;margin-top:6px">Acompte déjà généré${dejaPct != null ? ` (${esc(String(dejaPct))} %)` : ''} :
+        <a href="/api/devis/${esc(devisSigne.id)}/facture-acompte/pdf" target="_blank" rel="noopener">télécharger le PDF</a>
+        · <a href="https://app.pennylane.com/app#/invoices/${esc(String(dejaId))}" target="_blank" rel="noopener">ouvrir dans Pennylane</a></div>` : ''}
+    </div>`;
+}
+
 function renderFacturationSection(echeances, taches, devis) {
   const devisSigne = devis.find(d => d.fields?.Statut === 'Signé');
   const caHT = devisSigne?.fields?.['Total HT final']
@@ -1600,6 +1699,7 @@ function renderFacturationSection(echeances, taches, devis) {
         <div class="projet-section-header">
           <h2>Facturation client</h2>
         </div>
+        ${renderAcomptePennylaneTool(devisSigne, caTTC)}
         <div class="compact-empty"><span>Échéances générées à l'import du devis Winner</span></div>
       </section>`;
   }
@@ -1612,6 +1712,7 @@ function renderFacturationSection(echeances, taches, devis) {
         <h3><span aria-hidden="true">${icon('mail', 14)}</span> <span>Facturation client</span></h3>
         ${caHT > 0 || caTTC > 0 ? `<div class="facturation-ca">${caHT > 0 ? 'HT <strong>' + euros(caHT) + '</strong>' : ''}${caTTC > 0 ? ` · TTC <strong>${euros(caTTC)}</strong>` : ''}</div>` : ''}
       </header>
+      ${renderAcomptePennylaneTool(devisSigne, caTTC)}
       ${ordered.length >= 2 && caTTC > 0 ? `
       <div class="facturation-tools" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px">
         <button class="btn btn-ghost btn-sm" data-action="acompte-30" title="Pose l'acompte à 30 % du total TTC et ajuste le solde">Acompte 30 %</button>

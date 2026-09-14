@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { buildInvoiceLines, buildEcheanceInvoiceLines, normalizeName, vatEnum, detailErreur } = require('./pennylane');
+const { buildInvoiceLines, buildEcheanceInvoiceLines, calcAcompte, normalizeName, vatEnum, detailErreur } = require('./pennylane');
 
 test('vatEnum — pourcentages courants + fractions + défaut', () => {
   assert.strictEqual(vatEnum(20), 'FR_200');
@@ -97,6 +97,50 @@ test('buildEcheanceInvoiceLines — acompte 30 % : prorata 2 taux + réconcilie'
   assert.strictEqual(reconciliation.ok, true);
   assert.ok(Math.abs(reconciliation.diff) <= 1);
   assert.deepStrictEqual(warnings, ['Aucun descriptif de devis : les lignes partent sans description']);
+});
+
+// ── Acompte à pourcentage libre (calcAcompte) ──────────────────────────────
+test('calcAcompte — 30 % du TTC : montant, libellé, ok', () => {
+  const r = calcAcompte(DEVIS_2TAUX, 30);
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.pct, 30);
+  assert.strictEqual(r.montant, 10587.32);   // 30 % de 35291.08
+  assert.strictEqual(r.libelle, 'Acompte 30 %');
+});
+
+test('calcAcompte — % décimal : libellé propre + montant arrondi', () => {
+  const r = calcAcompte(DEVIS_2TAUX, 33.5);
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.libelle, 'Acompte 33.5 %');
+  assert.strictEqual(r.montant, 11822.51);   // round2(0.335 * 35291.08)
+});
+
+test('calcAcompte — feeds buildEcheanceInvoiceLines et réconcilie', () => {
+  const r = calcAcompte(DEVIS_2TAUX, 40);
+  const { reconciliation } = buildEcheanceInvoiceLines(DEVIS_2TAUX, r.montant, r.libelle);
+  assert.strictEqual(reconciliation.ok, true);
+  assert.ok(Math.abs(reconciliation.diff) <= 1);
+});
+
+test('calcAcompte — % hors bornes → refus explicite (0, négatif, > 100)', () => {
+  for (const p of [0, -5, 120, null, undefined, 'abc']) {
+    const r = calcAcompte(DEVIS_2TAUX, p);
+    assert.strictEqual(r.ok, false, `pct=${p} doit être refusé`);
+    assert.match(r.error, /invalide/);
+  }
+});
+
+test('calcAcompte — devis sans Total TTC → refus explicite', () => {
+  const r = calcAcompte({ 'TVA taux 1 base': 1000 }, 30);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.error, /Total TTC/);
+});
+
+test('calcAcompte — 100 % : accepté mais averti (c\'est la facture totale)', () => {
+  const r = calcAcompte(DEVIS_2TAUX, 100);
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.montant, 35291.08);
+  assert.ok(r.warnings.some(w => /100 %/.test(w)));
 });
 
 test('buildEcheanceInvoiceLines — somme des 3 échéances = Total TTC du devis', () => {

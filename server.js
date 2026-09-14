@@ -15,6 +15,7 @@ const { generateBcPdf } = require('./services/bc-pdf-generator');
 const { enrichEcheancesAvecDates } = require('./services/echeances-helper');
 const { parseFactureFournisseurPdf } = require('./services/facture-fournisseur-parser');
 const { parseDevisFournisseurPdf } = require('./services/devis-fournisseur-parser');
+const { routeCommandes: routeCommandesGrille } = require('./services/fournisseur-grille');
 const { buildPlanTresorerie, echeancesFacturees, mondayOf, addDays, toCsv } = require('./services/tresorerie-helper');
 const { recapPaieMois, alertesVisitesMedicales, joursOuvres } = require('./services/rh-helper');
 const { compteursEquipe: compteursCongesEquipe } = require('./services/conges-helper');
@@ -1779,6 +1780,117 @@ app.get('/api/echeances/:id/pennylane/pdf', requireAuth, async (req, res) => {
   }
 });
 
+// ──────────────────────────────────────────────────────────────────────────
+// FACTURE D'ACOMPTE À POURCENTAGE LIBRE → BROUILLON PENNYLANE
+// Demande JMG 2026-09-14 : depuis la fiche projet, Virginie saisit un % (défaut
+// 30) et génère UNE facture d'acompte BROUILLON dans Pennylane pour ce % du
+// Total TTC du devis signé. Client repris/anti-doublon, TVA au prorata des taux
+// du devis, réconciliation. Jamais finalisée ni envoyée : elle relit et envoie
+// dans Pennylane. Idempotent : un acompte déjà généré n'est pas dupliqué sans
+// `force` explicite (on renvoie le lien existant + un avertissement).
+// ──────────────────────────────────────────────────────────────────────────
+const PL_ACOMPTE_FIELD = 'Pennylane acompte ID';
+const PL_ACOMPTE_PCT_FIELD = 'Pennylane acompte %';
+function pennylaneInvoiceUrl(id) {
+  return id ? `https://app.pennylane.com/app#/invoices/${id}` : 'https://app.pennylane.com';
+}
+
+app.post('/api/devis/:id/facture-acompte', requireAuth, async (req, res) => {
+  const devisId = req.params.id;
+  const body = req.body || {};
+  try {
+    if (!process.env.PENNYLANE_API_KEY) return res.status(500).json({ error: 'PENNYLANE_API_KEY non configurée' });
+
+    const dr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.devis.id}/${devisId}`,
+      { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!dr.ok) return res.status(404).json({ error: 'Devis introuvable' });
+    const devis = await dr.json();
+    const f = devis.fields || {};
+
+    // 1) Montant d'acompte (pur, borné) — la saisie de Virginie a la main.
+    const pct = body.pct != null ? body.pct : 30;
+    const ac = pennylane.calcAcompte(f, pct);
+    if (!ac.ok) return res.status(422).json({ error: ac.error });
+
+    // 2) Idempotence : un acompte déjà généré n'est pas redoublé sans `force`.
+    //    Regénérer à un % différent est légitime, mais crée un 2e brouillon dans
+    //    Pennylane (l'API n'efface pas un brouillon) → on l'annonce, pas de silence.
+    if (f[PL_ACOMPTE_FIELD] && !body.force) {
+      return res.json({
+        ok: true, already: true, invoiceId: f[PL_ACOMPTE_FIELD],
+        pct: f[PL_ACOMPTE_PCT_FIELD] != null ? f[PL_ACOMPTE_PCT_FIELD] : null,
+        openUrl: pennylaneInvoiceUrl(f[PL_ACOMPTE_FIELD]),
+        pdfUrl: `/api/devis/${devisId}/facture-acompte/pdf`,
+        warning: `Un brouillon d'acompte existe déjà${f[PL_ACOMPTE_PCT_FIELD] != null ? ` (${f[PL_ACOMPTE_PCT_FIELD]} %)` : ''}. En générer un autre créera un second brouillon dans Pennylane.`,
+      });
+    }
+
+    // 3) Lignes de facture (prorata TVA du devis) + descriptif repris du devis.
+    const descDevis = await descriptionDevisPourPennylane(f);
+    const { lines, reconciliation, warnings } = pennylane.buildEcheanceInvoiceLines(f, ac.montant, ac.libelle, { description: descDevis });
+    if (!lines.length) return res.status(422).json({ error: 'Acompte sans montant exploitable — rien à facturer', warnings });
+
+    // 4) Client Pennylane (id stocké > match exact > homonyme à trancher > création)
+    const clientId = (f['Client'] || [])[0];
+    if (!clientId) return res.status(422).json({ error: 'Devis sans client lié' });
+    const resolved = await resolvePennylaneCustomer(clientId, body);
+    if (resolved.needsCustomerConfirmation) return res.json({ ok: false, ...resolved });
+    const { customerId, customerCreated } = resolved;
+
+    // 5) Facture d'acompte brouillon (échéance à +30 j, jamais dans le passé)
+    const iso = d => d.toISOString().slice(0, 10);
+    const today = iso(new Date());
+    const deadline = iso(new Date(Date.now() + 30 * 86400000));
+    const inv = await pennylane.createDraftInvoice({
+      customer_id: customerId, date: today, deadline, lines,
+      external_reference: `${f['Numéro devis'] || ''} · ${ac.libelle}`.trim(),
+    });
+
+    // 6) Persiste l'id + le % sur le devis (idempotence + PDF par devis).
+    //    Patch isolé : un champ Airtable absent ne doit pas faire perdre la facture
+    //    déjà créée dans Pennylane (cf. règle « un champ inconnu rejette tout le PATCH »).
+    try {
+      await atPatch(TABLES.devis.id, devisId, { [PL_ACOMPTE_FIELD]: String(inv.id), [PL_ACOMPTE_PCT_FIELD]: ac.pct });
+    } catch (e) {
+      logger.warn({ err: e.message, devisId, invoiceId: inv.id }, '[facture-acompte] persist id échouée (facture créée dans Pennylane malgré tout)');
+      warnings.push('Facture créée dans Pennylane mais son identifiant n\'a pas pu être mémorisé (champ Airtable manquant ?) — lance scripts/setup-facture-acompte-fields.js');
+    }
+
+    logger.info({ devisId, invoiceId: inv.id, pct: ac.pct, montant: ac.montant, customerCreated, reconOk: reconciliation.ok }, 'facture acompte Pennylane générée');
+    res.json({
+      ok: true, invoiceId: inv.id, number: inv.number, status: inv.status,
+      pct: ac.pct, montant: ac.montant, totalTtc: ac.totalTtc,
+      openUrl: pennylaneInvoiceUrl(inv.id), pdfUrl: `/api/devis/${devisId}/facture-acompte/pdf`,
+      customerId, customerCreated, reconciliation, warnings,
+    });
+  } catch (e) {
+    logger.error({ err: e.message, devisId }, 'échec facture acompte Pennylane');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PDF de la facture d'acompte Pennylane du devis (bouton « télécharger »).
+app.get('/api/devis/:id/facture-acompte/pdf', requireAuth, async (req, res) => {
+  const devisId = req.params.id;
+  try {
+    if (!process.env.PENNYLANE_API_KEY) return res.status(500).json({ error: 'PENNYLANE_API_KEY non configurée' });
+    const dr = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLES.devis.id}/${devisId}`,
+      { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!dr.ok) return res.status(404).json({ error: 'Devis introuvable' });
+    const f = (await dr.json()).fields || {};
+    const invoiceId = f[PL_ACOMPTE_FIELD];
+    if (!invoiceId) return res.status(409).json({ error: 'Ce devis n\'a pas encore de facture d\'acompte Pennylane' });
+    const pdf = await pennylane.fetchInvoicePdf(invoiceId);
+    const fname = `acompte-${(f['Numéro devis'] || invoiceId).toString().replace(/[^\w.-]+/g, '_')}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+    res.send(pdf);
+  } catch (e) {
+    logger.error({ err: e.message, devisId }, 'échec PDF facture acompte');
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // --- DEVIS : import PDF + parsing Claude + création complète ---
 // Param `type` (optionnel) : "Principal" (défaut) ou "Additif".
 // En mode Additif : projetId requis, pas de création auto client/projet.
@@ -2175,18 +2287,8 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
 });
 
 // --- DEVIS : signature → génération commandes fournisseurs + tâches ---
-// Mapping catégorie devis → Type fournisseur (Sprint 2 : + Plan de travail)
-const CAT_TO_FOURNISSEUR_TYPE = {
-  'Meubles': 'Meubles',
-  'Panneaux de recouvrement': 'Meubles',
-  'Electroménager': 'Électroménager',
-  'Eviers et robinetterie': 'Sanitaire',
-  'Sanitaires': 'Sanitaire',
-  'Produits de vente': 'Accessoires',
-  'Plan de travail': 'Plan de travail',
-  'Plans de travail': 'Plan de travail',
-  // Dépose et Divers : pas de commande fournisseur auto
-};
+// Le routage catégorie → fournisseur vit désormais dans services/fournisseur-grille.js
+// (grille éditable + « jamais de silence »), remplaçant l'ancien mapping figé.
 
 // Sprint 2 — Format BC en tableau structuré (Pos | Code | Description | SENS | Cote | Qté)
 // SANS MONTANTS, à la demande JMG. Retour : string ASCII alignée + version HTML pour mail.
@@ -2296,28 +2398,21 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     const ligneIds = dv['Lignes devis'] || [];
     const lignes = await atFetchByIds(TABLES['lignes-devis'].id, ligneIds);
 
-    // 3. Groupement par catégorie mappée + collecte des LIGNES ENTIÈRES par type (Sprint 2 : tableau BC)
-    const totauxParCat = {};
-    const lignesParType = {};
-    for (const l of lignes) {
-      const cat = l.fields['Catégorie'];
-      const type = CAT_TO_FOURNISSEUR_TYPE[cat];
-      if (!type) continue;
-      totauxParCat[type] = (totauxParCat[type] || 0) + (parseFloat(l.fields['Montant HT']) || 0);
-      (lignesParType[type] = lignesParType[type] || []).push(l);
-    }
+    // 3. Routage des lignes vers des commandes fournisseurs via la GRILLE (JMG 2026-09-14).
+    // Règle 9·58 : AUCUNE ligne n'est jetée en silence. Une ligne dont la catégorie
+    // n'est pas reconnue part dans une commande « À classer » VISIBLE (avec la raison) ;
+    // le rattachement fournisseur n'est posé que s'il est certain (un seul candidat).
+    const fournisseursGrille = await atFetchAll(TABLES.fournisseurs.id).catch(() => []);
+    // `forcer` : toujours un BC « Plan de travail » (JMG 2026-05-21), même sans ligne PT
+    // (le PT est mesuré sur chantier après pose meubles, BC complété à la main par Virginie).
+    const groupes = routeCommandesGrille(lignes, fournisseursGrille, { forcer: ['Plan de travail'] });
 
     // 4. Création des commandes fournisseurs (Sprint v3.1 — BC structurés et modifiables)
-    // Pour chaque type, on populer les champs structurés (Contremarque, Contact Tanguy,
-    // Référence courte, Lignes BC JSON) en + des Notes texte ASCII pour rétrocompatibilité.
-    const TYPE_TO_REFERENCE_COURTE = {
-      'Meubles': 'NOVA_CUC',
-      'Électroménager': 'ELECTRO',
-      'Sanitaire': 'SANIT',
-      'Accessoires': 'ACCESS',
-      'Plan de travail': 'PLAN_TRAV',
-    };
+    // Pour chaque groupe, on peuple les champs structurés (Contremarque, Contact Tanguy,
+    // Référence courte, Lignes BC JSON) + les Notes texte ASCII pour rétrocompatibilité.
     const commandesCreees = [];
+    const aClasserCreees = [];   // groupes non reconnus → à router à la main (jamais tus)
+    const sansCommande = [];     // Dépose / Divers : reportés, sans BC fournisseur
     let idx = 1;
     // Pour meubles : extraire infos modèle depuis la 1re zone du devis (NOVA_CUC = singulier).
     // Fix 2026-06-07 (grand nettoyage) : ce bloc référençait `parsed.zones` (variable du
@@ -2352,20 +2447,18 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       }
     } catch (e) { /* best effort — la signature ne doit jamais bloquer sur ces métadonnées */ }
 
-    // Workflow JMG 2026-05-21 : il faut TOUJOURS prévoir un 4ème BC "Plan de travail"
-    // même si le devis Winner n'a aucune ligne plan de travail (le PT est mesuré
-    // sur chantier après pose meubles, le BC est complété manuellement par Virginie).
-    if (!totauxParCat['Plan de travail']) {
-      totauxParCat['Plan de travail'] = 0; // sentinel pour forcer la création
-    }
-
-    for (const [type, montant] of Object.entries(totauxParCat)) {
-      // On accepte montant=0 uniquement pour "Plan de travail" (BC vide à compléter sur chantier)
-      if (montant <= 0 && type !== 'Plan de travail') continue;
+    for (const g of groupes) {
+      const type = g.type;
+      const montant = g.montant;
+      // Dépose / Divers : pas de commande fournisseur, mais on les REPORTE (jamais tu).
+      if (!g.commande) { sansCommande.push({ type: g.canon, montant, lignes: g.lignes.length }); continue; }
+      // On crée le BC dès qu'il y a des lignes, ou pour le « Plan de travail » (BC vide
+      // à compléter sur chantier), ou pour un groupe « À classer » (lignes à router).
+      if (montant <= 0 && type !== 'Plan de travail' && g.lignes.length === 0) continue;
       const numCmd = clientNom
         ? `${clientNom} · ${type.toUpperCase()} · ${numero}-${idx}`
         : `${numero}-${type.slice(0,3).toUpperCase()}-${idx}`;
-      const lignesType = lignesParType[type] || [];
+      const lignesType = g.lignes;
       const { texte: tableauTexte } = buildBcTableau(lignesType);
       const isPlanTravailVide = type === 'Plan de travail' && lignesType.length === 0;
       // Lignes structurées JSON pour édition future (front v3)
@@ -2385,9 +2478,16 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
           notes: String(f.Notes || ''),
         };
       });
-      const notesPrefill = isPlanTravailVide
+      // En-tête de note : jamais de silence. On dit explicitement à Virginie le
+      // fournisseur retenu, OU pourquoi il n'a pas pu l'être (À classer, ambiguïté,
+      // absent de la grille) — pour qu'elle route à la main en connaissance de cause.
+      const enteteNote = [];
+      if (g.aClasser) enteteNote.push(`⚠️ À CLASSER — catégorie « ${g.categorieBrute || '—'} » non reconnue. Rattacher au bon fournisseur / BC à la main.`);
+      else if (g.fournisseurNom) enteteNote.push(`Fournisseur (grille) : ${g.fournisseurNom}.`);
+      else if (g.grille && g.raison) enteteNote.push(`⚠️ Fournisseur à choisir — ${g.raison}.`);
+      const notesPrefill = (enteteNote.length ? enteteNote.join('\n') + '\n\n' : '') + (isPlanTravailVide
         ? `[Auto-généré depuis devis ${numero} signé le ${new Date().toLocaleDateString('fr-FR')}]\n\nBC à compléter APRÈS prise de mesures sur chantier :\n• Matériau / Coloris / Finition / Épaisseur\n• Dimensions exactes (longueur, largeur, profondeur, découpes évier/plaque)\n• Fournisseur final (Inalco, Compac, Silestone, Caesarstone, etc.)\n• Délai de livraison\n\nUne fois mesures prises, mettre à jour ce BC puis l'envoyer au fournisseur.`
-        : `[Auto-généré depuis devis ${numero} signé le ${new Date().toLocaleDateString('fr-FR')}]\n\nContenu prévisionnel (à valider/ajuster avant envoi au fournisseur, SANS MONTANTS) :\n\n${tableauTexte}`;
+        : `[Auto-généré depuis devis ${numero} signé le ${new Date().toLocaleDateString('fr-FR')}]\n\nContenu prévisionnel (à valider/ajuster avant envoi au fournisseur, SANS MONTANTS) :\n\n${tableauTexte}`);
       const cf = {
         'Numéro': numCmd,
         // "À compléter" pas dans le singleSelect Statut (PATCH choices 422), on garde
@@ -2398,7 +2498,9 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
         'Notes': notesPrefill,
         'Contremarque': clientNom || '',
         'Contact Tanguy': 'Solène',
-        'Référence courte': TYPE_TO_REFERENCE_COURTE[type] || type.toUpperCase(),
+        'Référence courte': g.ref || type.toUpperCase(),
+        // Rattachement fournisseur AUTOMATIQUE depuis la grille, quand il est certain.
+        ...(g.fournisseurId ? { 'Fournisseur': [g.fournisseurId] } : {}),
         // Modèle choisi + détails uniquement pour les commandes Meubles (utile sur le BC)
         ...(type === 'Meubles' ? { 'Modèle choisi': modeleHeader, 'Détails modèle': detailsModele } : {}),
         // Rétro-planning : date envoi = date pose - 3,5 mois (cf. demande JMG 2026-05-21).
@@ -2410,7 +2512,8 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       // Nettoyage : retirer les champs vides
       Object.keys(cf).forEach(k => { if (cf[k] === '' || cf[k] == null) delete cf[k]; });
       const c = await atCreate(TABLES.commandes.id, cf);
-      commandesCreees.push({ id: c.id, type, montant, numero: numCmd });
+      commandesCreees.push({ id: c.id, type, montant, numero: numCmd, fournisseur: g.fournisseurNom || null, aClasser: !!g.aClasser });
+      if (g.aClasser) aClasserCreees.push({ id: c.id, numero: numCmd, categorie: g.categorieBrute, lignes: lignesType.length });
       idx++;
     }
 
@@ -2431,6 +2534,15 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       // Rappel planification chantier auto à J+60 — workflow découverte → signature → ... → planning à 2 mois.
       { 'Titre': `Planifier chantier — devis ${numero}`, 'Assignée à': 'Sébastien', 'Priorité': 'Moyenne', 'Statut': 'À faire', 'Échéance': plus60, 'Description': `Définir le planning exact du chantier (équipe + dates intervention) pour le BC ${numero}. Recontacter les artisans contractuels pour caler leurs créneaux.` },
     ];
+    // Jamais de silence : si des lignes n'ont pas pu être classées, on ouvre une
+    // tâche explicite pour que Virginie les route (plutôt que de les perdre).
+    if (aClasserCreees.length) {
+      tachesFields.push({
+        'Titre': `Router ${aClasserCreees.length} commande(s) « À classer » — ${numero}`,
+        'Assignée à': 'Virginie', 'Priorité': 'Haute', 'Statut': 'À faire', 'Échéance': today,
+        'Description': `Des lignes du devis ${numero} n'ont pas pu être classées automatiquement (catégorie non reconnue). BC créés « À classer » : ${aClasserCreees.map(a => `${a.numero} (${a.categorie || '—'}, ${a.lignes} ligne(s))`).join(' ; ')}. Rattache chacun au bon fournisseur / BC.`,
+      });
+    }
     if (projetId) tachesFields.forEach(t => t['Projet'] = [projetId]);
     await atCreateBatch(TABLES.taches.id, tachesFields);
 
@@ -2470,6 +2582,8 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       commandes_creees: commandesCreees.length,
       taches_creees: tachesFields.length,
       detail: commandesCreees,
+      a_classer: aClasserCreees.length,          // lignes non reconnues → BC « À classer » (jamais perdues)
+      sans_commande: sansCommande,               // Dépose / Divers : reportés, sans BC fournisseur
       factures_echeances: facturesEcheances,
     });
   } catch (e) {
