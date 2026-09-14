@@ -381,6 +381,12 @@ export function factureAcomptePdfUrl(devisId) {
   return `/api/devis/${devisId}/facture-acompte/pdf`;
 }
 
+// Génère le brouillon Pennylane d'UNE échéance (acompte / à la livraison / solde),
+// au moment voulu. Même gestion de confirmation client que les autres appels.
+export async function genererFactureEcheance(devisId, echId, opts = {}) {
+  return api(`/api/devis/${devisId}/echeances/${echId}/facture-pennylane`, { method: 'POST', body: JSON.stringify(opts) });
+}
+
 // Devis express (P-H4) : crée le devis client à partir du chiffrage.
 // Rattachement à un projet existant, ou à un client dont le projet est créé.
 export async function creerDevisClientExpress(payload) {

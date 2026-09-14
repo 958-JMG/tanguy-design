@@ -12,7 +12,7 @@ import {
   importDevisArtisan, parsePlaud, patchDevisArtisan, deleteDevisArtisan,
   genererTacheFacturation, marquerEncaisse, createClient, createArtisan, fetchRendezVous,
   patchEcheance, createCout, patchCout, deleteCout,
-  genererFactureAcompte,
+  genererFactureAcompte, genererFactureEcheance,
 } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 import { openModalRdv, renderRdvList, bindRdvList } from '../core/rdv.js';
@@ -910,6 +910,11 @@ function renderFiche(app, data) {
       if (!(pct > 0) || pct > 100) { toast('Pourcentage d\'acompte invalide (1 à 100)', 'error'); return; }
       factureAcompteFlow(btnAcPl.dataset.devis, pct);
     });
+
+    // Facture d'UNE échéance (acompte / à la livraison / solde) → brouillon Pennylane.
+    app.querySelectorAll('[data-action="echeance-pennylane"]').forEach(btn => {
+      btn.addEventListener('click', () => factureEcheanceFlow(btn.dataset.devis, btn.dataset.echeance, btn));
+    });
   }
 
   // Sprint v3.8 — Suppression d'une entrée journal individuelle
@@ -1632,6 +1637,32 @@ async function factureAcompteFlow(devisId, pct, opts = {}) {
   }
 }
 
+// Génère le brouillon Pennylane d'UNE échéance (acompte / à la livraison / solde).
+// Même gestion homonyme client + doublon que l'acompte.
+async function factureEcheanceFlow(devisId, echId, btn, opts = {}) {
+  const label = btn ? btn.innerHTML : '';
+  const busy = () => { if (btn) { btn.disabled = true; btn.innerHTML = 'Création du brouillon…'; } };
+  const restore = () => { if (btn) { btn.disabled = false; btn.innerHTML = label; } };
+  busy();
+  try {
+    const r = await genererFactureEcheance(devisId, echId, opts);
+    if (r && r.needsCustomerConfirmation) {
+      restore();
+      const choice = await chooseCustomerModalProjet(r.clientNom, r.candidates);
+      if (!choice) return;
+      return factureEcheanceFlow(devisId, echId, btn, choice === '__new__' ? { ...opts, create_customer: true } : { ...opts, pennylane_customer_id: choice });
+    }
+    if (r && r.already) { toast(`« ${r.libelle} » a déjà son brouillon Pennylane`, 'info', 5000); router(); return; }
+    toast(`« ${r.libelle} » : brouillon Pennylane créé${r.customerCreated ? ' · client créé' : ''}`, 'success', 6000);
+    if (r.reconciliation && r.reconciliation.ok === false) toast(`⚠️ Écart TVA ${r.reconciliation.diff} € — vérifie dans Pennylane`, 'error', 9000);
+    (r.warnings || []).forEach(w => toast('⚠️ ' + w, 'error', 8000));
+    router();
+  } catch (err) {
+    toast('Erreur facture Pennylane : ' + err.message, 'error', 8000);
+    restore();
+  }
+}
+
 // Choix du client Pennylane en cas d'homonyme (id client, '__new__', ou null).
 function chooseCustomerModalProjet(nom, candidates) {
   return new Promise(resolve => {
@@ -1729,6 +1760,17 @@ function renderFacturationSection(echeances, taches, devis) {
           // Le pourcentage est relatif au total TTC des échéances pour totaliser 100%.
           const montantTTC = ef['Montant prévu'] || 0;
           const pct = totalPrevu > 0 ? Math.round((montantTTC / totalPrevu) * 100) : null;
+          // Brouillon Pennylane de CETTE échéance (acompte / à la livraison / solde).
+          const plId = ef['Pennylane invoice ID'];
+          const pennylaneRow = plId
+            ? `<div class="facturation-item-meta" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                 <span style="color:var(--green,#2e7d32)">${icon('check', 11)} Brouillon Pennylane prêt</span>
+                 <a href="/api/echeances/${esc(e.id)}/pennylane/pdf" target="_blank" rel="noopener">PDF</a>
+                 <a href="https://app.pennylane.com/app#/invoices/${esc(String(plId))}" target="_blank" rel="noopener">ouvrir dans Pennylane</a>
+               </div>`
+            : (!isEncaisse && devisSigne
+                ? `<button class="btn btn-primary btn-sm facturation-action" data-action="echeance-pennylane" data-echeance="${esc(e.id)}" data-devis="${esc(devisSigne.id)}">${icon('file', 12)} Générer le brouillon Pennylane</button>`
+                : '');
 
           let stateCls, badge, meta, action = '';
           if (isEncaisse) {
@@ -1748,7 +1790,7 @@ function renderFacturationSection(echeances, taches, devis) {
             stateCls = 'is-pending';
             badge = `<span class="facturation-badge fb-pending">À encaisser</span>`;
             meta = ef['Date prévue'] ? `Prévue le ${esc(ef['Date prévue'])}` : '';
-            action = `<button class="btn btn-primary btn-sm facturation-action" data-action="facturer" data-echeance="${esc(e.id)}">${icon('plus', 12)} Créer la tâche pour Virginie</button>`;
+            action = `<button class="btn btn-ghost btn-sm facturation-action" data-action="facturer" data-echeance="${esc(e.id)}">${icon('plus', 12)} Créer la tâche pour Virginie</button>`;
           }
 
           return `
@@ -1763,6 +1805,7 @@ function renderFacturationSection(echeances, taches, devis) {
                 ${!isEncaisse ? `<button class="btn btn-ghost btn-sm" data-action="edit-echeance" data-echeance="${esc(e.id)}" data-montant="${montantTTC}" title="Modifier le montant" style="padding:2px 6px;margin-left:6px">${icon('pencil', 12)}</button>` : ''}
               </div>
               ${meta ? `<div class="facturation-item-meta">${meta}</div>` : ''}
+              ${pennylaneRow}
               ${action}
             </li>`;
         }).join('')}
