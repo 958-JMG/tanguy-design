@@ -69,6 +69,15 @@ export function renderAdmin(app) {
       <div class="card"><p class="muted">${icon('clock', 14)} Chargement…</p></div>
     </div>
 
+    <!-- Grille fournisseurs (JMG 2026-09-14) — quel fournisseur pour quelle famille -->
+    <div class="section-header" style="margin-top:32px">
+      <h2 class="section-title">Grille fournisseurs</h2>
+      <button class="btn btn-primary btn-sm" id="btn-add-grille-fourn">${icon('plus', 14)} Ajouter un fournisseur</button>
+    </div>
+    <div id="grille-fourn-output">
+      <div class="card"><p class="muted">${icon('clock', 14)} Chargement…</p></div>
+    </div>
+
   `;
 
   hydrateIcons(app);
@@ -77,9 +86,11 @@ export function renderAdmin(app) {
   document.getElementById('btn-new-user').addEventListener('click', () => openModalNouveauUser());
   document.getElementById('btn-add-ecopart').addEventListener('click', addEcopart);
   document.getElementById('btn-add-marge').addEventListener('click', addMarge);
+  document.getElementById('btn-add-grille-fourn').addEventListener('click', addGrilleFournisseur);
   loadUsers();
   loadEcopart();
   loadMargesFournisseurs();
+  loadGrilleFournisseurs();
 }
 
 // === Devis express (P-H1) — grille éco-participation =========================
@@ -668,4 +679,90 @@ function renderAnalysis(container, data) {
     </div>
   `;
   hydrateIcons(container);
+}
+
+// === Grille fournisseurs (JMG 2026-09-14) ====================================
+// Quel fournisseur couvre quelle famille de produits. Sert au routage AUTOMATIQUE
+// des commandes à la signature du devis (services/fournisseur-grille.js). Un
+// fournisseur peut couvrir plusieurs familles (ex. Bradano/Franke = Évier +
+// Robinetterie). Source de vérité des 6 familles : CATEGORIES_GRILLE côté serveur.
+const CATEGORIES_GRILLE = ['Meuble', 'Plan de travail', 'Électroménager', 'Évier', 'Robinetterie', 'Crédence'];
+
+async function loadGrilleFournisseurs() {
+  const out = document.getElementById('grille-fourn-output');
+  if (!out) return;
+  try {
+    const r = await fetch('/api/data/fournisseurs', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+    const d = await r.json();
+    renderGrilleFournisseurs(out, d.records || []);
+  } catch (e) {
+    out.innerHTML = `<div class="card"><p class="muted">Grille indisponible (${esc(e.message)}). Le champ « Catégories » n'est peut-être pas encore créé sur la table Fournisseurs (scripts/setup-grille-fournisseurs-fields.js).</p></div>`;
+  }
+}
+
+function renderGrilleFournisseurs(out, records) {
+  const rows = records.slice().sort((a, b) =>
+    String(a.fields?.Nom || '').localeCompare(String(b.fields?.Nom || ''), 'fr'));
+  const cols = CATEGORIES_GRILLE.map(c => `<th class="num" style="font-weight:600">${esc(c)}</th>`).join('');
+  const cellChecks = f => CATEGORIES_GRILLE.map(c => {
+    const on = Array.isArray(f['Catégories']) && f['Catégories'].includes(c);
+    return `<td class="num"><input type="checkbox" class="gf-cat" data-cat="${esc(c)}" ${on ? 'checked' : ''}></td>`;
+  }).join('');
+  out.innerHTML = `
+    <div class="card">
+      <p class="muted" style="margin-bottom:10px">Coche les familles que couvre chaque fournisseur. À la signature d'un devis, chaque ligne part vers le fournisseur de sa famille ; une ligne dont la famille n'est reconnue par personne n'est <strong>jamais perdue</strong> (commande « À classer »).</p>
+      <div style="overflow-x:auto">
+      <table class="pipeline-table">
+        <thead><tr><th>Fournisseur</th>${cols}<th></th></tr></thead>
+        <tbody>
+          ${rows.length === 0 ? `<tr><td colspan="${CATEGORIES_GRILLE.length + 2}" class="muted">Aucun fournisseur. Ajoutes-en un.</td></tr>` : rows.map(rec => {
+            const f = rec.fields || {};
+            return `
+            <tr data-id="${esc(rec.id)}">
+              <td><input class="gf-nom" value="${esc(f.Nom || '')}" style="width:100%;min-width:150px"></td>
+              ${cellChecks(f)}
+              <td><button class="btn btn-ghost btn-sm" data-action="gf-save" data-id="${esc(rec.id)}">${icon('check', 12)} Enregistrer</button></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>`;
+  hydrateIcons(out);
+  out.querySelectorAll('[data-action="gf-save"]').forEach(b => b.addEventListener('click', () => saveGrilleRow(b.dataset.id)));
+}
+
+function lireCategoriesLigne(tr) {
+  return [...tr.querySelectorAll('.gf-cat')].filter(c => c.checked).map(c => c.dataset.cat);
+}
+
+async function saveGrilleRow(id) {
+  const tr = document.querySelector(`#grille-fourn-output tr[data-id="${id}"]`);
+  if (!tr) return;
+  const nom = tr.querySelector('.gf-nom').value.trim();
+  if (!nom) { toast('Le nom du fournisseur est obligatoire', 'error'); return; }
+  const fields = { 'Nom': nom, 'Catégories': lireCategoriesLigne(tr) };
+  try {
+    const r = await fetch(`/api/data/fournisseurs/${encodeURIComponent(id)}`, {
+      method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields }),
+    });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || r.statusText); }
+    toast('Grille enregistrée pour ' + nom, 'success');
+  } catch (e) { toast('Erreur : ' + e.message, 'error', 5000); }
+}
+
+async function addGrilleFournisseur() {
+  const nom = (prompt('Nom du nouveau fournisseur ?') || '').trim();
+  if (!nom) return;
+  try {
+    const r = await fetch('/api/data/fournisseurs', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: { 'Nom': nom } }),
+    });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || r.statusText); }
+    toast('Fournisseur « ' + nom + ' » créé — coche ses familles puis Enregistrer', 'success', 6000);
+    loadGrilleFournisseurs();
+  } catch (e) { toast('Erreur : ' + e.message, 'error', 5000); }
 }

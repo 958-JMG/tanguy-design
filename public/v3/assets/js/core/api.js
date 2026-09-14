@@ -368,6 +368,19 @@ export function echeancePdfUrl(echeanceId) {
   return `/api/echeances/${echeanceId}/pennylane/pdf`;
 }
 
+// Génère UNE facture d'acompte BROUILLON dans Pennylane pour pct % du Total TTC
+// du devis signé (Virginie a la main sur le %). Même gestion de confirmation
+// client que les autres appels Pennylane. opts : { pct, force?, create_customer?,
+// pennylane_customer_id? }. Réponses : { ok:true, invoiceId, openUrl, pdfUrl, ... }
+//   | { ok:true, already:true, ... } | { ok:false, needsCustomerConfirmation, candidates }.
+export async function genererFactureAcompte(devisId, opts = {}) {
+  return api(`/api/devis/${devisId}/facture-acompte`, { method: 'POST', body: JSON.stringify(opts) });
+}
+// URL de téléchargement du PDF de la facture d'acompte d'un devis.
+export function factureAcomptePdfUrl(devisId) {
+  return `/api/devis/${devisId}/facture-acompte/pdf`;
+}
+
 // Devis express (P-H4) : crée le devis client à partir du chiffrage.
 // Rattachement à un projet existant, ou à un client dont le projet est créé.
 export async function creerDevisClientExpress(payload) {
