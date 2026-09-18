@@ -16,6 +16,7 @@ import {
 } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 import { openModalRdv, renderRdvList, bindRdvList } from '../core/rdv.js';
+import { buildFacturationGroups } from './facturation-groups.js';
 
 // === Stepper 12 étapes (porté v2) ===
 const STEPS = [
@@ -238,6 +239,9 @@ function renderFiche(app, data) {
   const archName = archId ? ((state.clients || []).find(c => c.id === archId)?.Nom || '') : '';
   const stepper = computeParcours(projet, taches, devis, commandes, echeances);
 
+  // Facturation regroupée par devis signé (Principal + additifs) — un bloc chacun.
+  const facturationGroups = buildFacturationGroups(devis, echeances);
+
   // L'endpoint /api/projets/:id renvoie TOUS les artisans de la base (utile pour le mapping ID → nom
   // depuis devisArtisans.Artisan[0]). Pour la section "Artisans affectés", on filtre par projet.Artisans.
   const projetArtisanIds = Array.isArray(pf.Artisans) ? pf.Artisans : [];
@@ -395,15 +399,7 @@ function renderFiche(app, data) {
     </section>` : ''}
 
     <!-- Sprint v3.17 — Facturation client en pleine largeur (vs col droite étroite avant) -->
-    ${renderFacturationSection(
-      (() => {
-        const dSigne = devis.find(d => d.fields?.Statut === 'Signé');
-        if (!dSigne) return echeances;
-        const ids = new Set(dSigne.fields?.['Échéances devis'] || []);
-        return ids.size ? echeances.filter(e => ids.has(e.id)) : echeances;
-      })(),
-      taches, devis
-    )}
+    ${renderFacturationSection(facturationGroups, taches)}
 
     <!-- Grid 2 colonnes : opérationnel à gauche, références à droite -->
     <div class="projet-grid">
@@ -844,19 +840,21 @@ function renderFiche(app, data) {
   });
 
   // ── P-D (2026-06-24) — acomptes paramétrables : édition montant + recalcul ──
+  // P-E (2026-09-18) — les recalculs (acompte 30 %, rééquilibrage) sont désormais
+  // scopés PAR devis signé (Principal + additifs) via data-devis, pour que chaque
+  // bloc facturation agisse sur SES propres échéances et SON propre total.
   {
     const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
-    const dSigne = devis.find(d => d.fields?.Statut === 'Signé');
-    const caTTC = dSigne?.fields?.['Total TTC'] || 0;
-    const factEch = (() => {
-      if (!dSigne) return echeances;
-      const ids = new Set(dSigne.fields?.['Échéances devis'] || []);
-      return ids.size ? echeances.filter(e => ids.has(e.id)) : echeances;
-    })();
-    const ordered = factEch.slice().sort((a, b) => (a.fields?.Ordre || 0) - (b.fields?.Ordre || 0));
-    const acompteEch = ordered.find(e => /acompte|commande|signat/i.test(e.fields?.['Libellé'] || '')) || ordered[0];
-    const soldeEch = [...ordered].reverse().find(e => /solde|fin de pose|r[ée]ception/i.test(e.fields?.['Libellé'] || '')) || ordered[ordered.length - 1];
     const encaisse = e => e?.fields?.Statut === 'Encaissé';
+    // Retrouve le groupe (devis + ses échéances triées) d'un bouton porteur de data-devis.
+    const groupFor = devisId => {
+      const g = facturationGroups.find(x => x.devis?.id === devisId) || facturationGroups[0];
+      const caTTC = g?.devis?.fields?.['Total TTC'] || 0;
+      const ordered = (g?.echeances || []).slice().sort((a, b) => (a.fields?.Ordre || 0) - (b.fields?.Ordre || 0));
+      const acompteEch = ordered.find(e => /acompte|commande|signat/i.test(e.fields?.['Libellé'] || '')) || ordered[0];
+      const soldeEch = [...ordered].reverse().find(e => /solde|fin de pose|r[ée]ception/i.test(e.fields?.['Libellé'] || '')) || ordered[ordered.length - 1];
+      return { caTTC, ordered, acompteEch, soldeEch };
+    };
 
     // Édition libre du montant d'une échéance
     app.querySelectorAll('[data-action="edit-echeance"]').forEach(btn => {
@@ -866,9 +864,9 @@ function renderFiche(app, data) {
       });
     });
 
-    // Acompte 30 % du TTC + rééquilibrage du solde
-    const btn30 = app.querySelector('[data-action="acompte-30"]');
-    if (btn30) btn30.addEventListener('click', async () => {
+    // Acompte 30 % du TTC + rééquilibrage du solde (un bouton par devis signé)
+    app.querySelectorAll('[data-action="acompte-30"]').forEach(btn30 => btn30.addEventListener('click', async () => {
+      const { caTTC, ordered, acompteEch, soldeEch } = groupFor(btn30.dataset.devis);
       if (!acompteEch || !soldeEch || acompteEch.id === soldeEch.id) { toast('Il faut au moins 2 échéances distinctes', 'error'); return; }
       if (encaisse(acompteEch) || encaisse(soldeEch)) { toast('Acompte ou solde déjà encaissé — modification bloquée', 'error', 5000); return; }
       const newAcompte = round2(0.30 * caTTC);
@@ -883,11 +881,11 @@ function renderFiche(app, data) {
         toast('Acompte 30 % appliqué', 'success');
         router();
       } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
-    });
+    }));
 
-    // Rééquilibrer le solde = total devis − somme des autres échéances
-    const btnReq = app.querySelector('[data-action="reequilibrer-solde"]');
-    if (btnReq) btnReq.addEventListener('click', async () => {
+    // Rééquilibrer le solde = total devis − somme des autres échéances (par devis signé)
+    app.querySelectorAll('[data-action="reequilibrer-solde"]').forEach(btnReq => btnReq.addEventListener('click', async () => {
+      const { caTTC, ordered, soldeEch } = groupFor(btnReq.dataset.devis);
       if (!soldeEch) { toast('Aucune échéance de solde', 'error'); return; }
       if (encaisse(soldeEch)) { toast('Solde déjà encaissé — modification bloquée', 'error', 5000); return; }
       const others = ordered.filter(e => e.id !== soldeEch.id).reduce((s, e) => s + (e.fields?.['Montant prévu'] || 0), 0);
@@ -900,16 +898,16 @@ function renderFiche(app, data) {
         toast('Solde rééquilibré', 'success');
         router();
       } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
-    });
+    }));
 
     // ── Facture d'acompte % libre → brouillon Pennylane (JMG 2026-09-14) ──
-    const btnAcPl = app.querySelector('[data-action="acompte-pennylane"]');
-    if (btnAcPl) btnAcPl.addEventListener('click', () => {
-      const pctRaw = app.querySelector('#acompte-pct')?.value;
+    // Un outil par devis signé : on lit le % dans le conteneur du bouton cliqué.
+    app.querySelectorAll('[data-action="acompte-pennylane"]').forEach(btnAcPl => btnAcPl.addEventListener('click', () => {
+      const pctRaw = btnAcPl.closest('.acompte-pennylane')?.querySelector('.acompte-pct')?.value;
       const pct = Number(String(pctRaw ?? '').replace(',', '.'));
       if (!(pct > 0) || pct > 100) { toast('Pourcentage d\'acompte invalide (1 à 100)', 'error'); return; }
       factureAcompteFlow(btnAcPl.dataset.devis, pct);
-    });
+    }));
 
     // Facture d'UNE échéance (acompte / à la livraison / solde) → brouillon Pennylane.
     app.querySelectorAll('[data-action="echeance-pennylane"]').forEach(btn => {
@@ -1703,7 +1701,7 @@ function renderAcomptePennylaneTool(devisSigne, caTTC) {
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span style="font-weight:600">${icon('file', 13)} Facture d'acompte Pennylane</span>
         <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px">
-          <input type="number" id="acompte-pct" value="${dejaPct != null ? esc(String(dejaPct)) : '30'}" min="1" max="100" step="1" inputmode="decimal" aria-label="Pourcentage d'acompte" style="width:62px;padding:3px 6px;text-align:right"> %
+          <input type="number" class="acompte-pct" value="${dejaPct != null ? esc(String(dejaPct)) : '30'}" min="1" max="100" step="1" inputmode="decimal" aria-label="Pourcentage d'acompte" style="width:62px;padding:3px 6px;text-align:right"> %
         </label>
         <button class="btn btn-primary btn-sm" data-action="acompte-pennylane" data-devis="${esc(devisSigne.id)}">${icon('plus', 12)} Générer le brouillon</button>
         <span class="muted" style="font-size:12px">de ${euros(caTTC)} TTC · brouillon, jamais envoyé automatiquement</span>
@@ -1714,13 +1712,30 @@ function renderAcomptePennylaneTool(devisSigne, caTTC) {
     </div>`;
 }
 
-function renderFacturationSection(echeances, taches, devis) {
-  const devisSigne = devis.find(d => d.fields?.Statut === 'Signé');
+// buildFacturationGroups : regroupe la facturation par devis signé (Principal +
+// additifs). Fonction pure extraite dans ./facturation-groups.js (testée).
+function renderFacturationSection(groups, taches) {
+  const multi = (groups || []).length > 1;
+  return (groups || []).map(g => renderFacturationBlock(g.devis, g.echeances, taches, multi)).join('');
+}
+
+// Libellé d'un devis signé pour l'en-tête d'un bloc facturation (utile quand il
+// y a plusieurs blocs : Principal vs Additif « Compléments »).
+function facturationDevisLabel(devisSigne) {
+  if (!devisSigne) return '';
+  const f = devisSigne.fields || {};
+  const type = f['Type devis'] || 'Principal';
+  const num = f['Numéro devis'] || f['Numéro'] || '';
+  return `${type}${num ? ' · ' + num : ''}`;
+}
+
+function renderFacturationBlock(devisSigne, echeances, taches, multi) {
   const caHT = devisSigne?.fields?.['Total HT final']
     || devisSigne?.fields?.['Total HT après remise']
     || devisSigne?.fields?.['Total HT articles']
     || 0;
   const caTTC = devisSigne?.fields?.['Total TTC'] || 0;
+  const devisLabel = multi ? facturationDevisLabel(devisSigne) : '';
 
   const ordered = (echeances || []).slice().sort((a,b) => (a.fields?.Ordre||0) - (b.fields?.Ordre||0));
 
@@ -1728,7 +1743,7 @@ function renderFacturationSection(echeances, taches, devis) {
     return `
       <section class="projet-section" aria-label="Facturation client" data-section="facturation">
         <div class="projet-section-header">
-          <h2>Facturation client</h2>
+          <h2>Facturation client${devisLabel ? ` <span class="muted" style="font-weight:400;font-size:14px">— ${esc(devisLabel)}</span>` : ''}</h2>
         </div>
         ${renderAcomptePennylaneTool(devisSigne, caTTC)}
         <div class="compact-empty"><span>Échéances générées à l'import du devis Winner</span></div>
@@ -1740,14 +1755,14 @@ function renderFacturationSection(echeances, taches, devis) {
   return `
     <section class="facturation-card-block" aria-label="Facturation client" data-section="facturation">
       <header class="facturation-header">
-        <h3><span aria-hidden="true">${icon('mail', 14)}</span> <span>Facturation client</span></h3>
+        <h3><span aria-hidden="true">${icon('mail', 14)}</span> <span>Facturation client${devisLabel ? ` — ${esc(devisLabel)}` : ''}</span></h3>
         ${caHT > 0 || caTTC > 0 ? `<div class="facturation-ca">${caHT > 0 ? 'HT <strong>' + euros(caHT) + '</strong>' : ''}${caTTC > 0 ? ` · TTC <strong>${euros(caTTC)}</strong>` : ''}</div>` : ''}
       </header>
       ${renderAcomptePennylaneTool(devisSigne, caTTC)}
-      ${ordered.length >= 2 && caTTC > 0 ? `
+      ${ordered.length >= 2 && caTTC > 0 && devisSigne ? `
       <div class="facturation-tools" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px">
-        <button class="btn btn-ghost btn-sm" data-action="acompte-30" title="Pose l'acompte à 30 % du total TTC et ajuste le solde">Acompte 30 %</button>
-        <button class="btn btn-ghost btn-sm" data-action="reequilibrer-solde" title="Ajuste le solde pour que le total des échéances = total du devis">${icon('check', 12)} Rééquilibrer le solde</button>
+        <button class="btn btn-ghost btn-sm" data-action="acompte-30" data-devis="${esc(devisSigne.id)}" title="Pose l'acompte à 30 % du total TTC et ajuste le solde">Acompte 30 %</button>
+        <button class="btn btn-ghost btn-sm" data-action="reequilibrer-solde" data-devis="${esc(devisSigne.id)}" title="Ajuste le solde pour que le total des échéances = total du devis">${icon('check', 12)} Rééquilibrer le solde</button>
       </div>` : ''}
       <ul class="facturation-grid" role="list">
         ${ordered.map(e => {
