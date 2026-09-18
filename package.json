@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "hash": "node scripts/hash-password.js",
-    "test": "node --test services/*.test.js",
-    "test:watch": "node --test --watch services/*.test.js",
+    "test": "node --test services/*.test.js public/v3/assets/js/views/*.test.mjs",
+    "test:watch": "node --test --watch services/*.test.js public/v3/assets/js/views/*.test.mjs",
     "smoke": "node --check server.js && echo '✅ syntax OK'"
   },
   "dependencies": {
