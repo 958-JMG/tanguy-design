@@ -36,7 +36,10 @@ async function apiGet(path) {
     await throttle();
     const r = await fetch(BASE + path, { headers: headers() });
     if (r.status === 429) { await sleep(1200 * (attempt + 1)); continue; }
-    if (!r.ok) throw new Error(`Pennylane GET ${path.split('?')[0]} → HTTP ${r.status}`);
+    if (!r.ok) {
+      const d = detailErreur(await r.json().catch(() => ({})));
+      throw new Error(`Pennylane GET ${path.split('?')[0]} → HTTP ${r.status}${d ? ' : ' + d : ''}`);
+    }
     return r.json();
   }
   throw new Error(`Pennylane GET ${path.split('?')[0]} → 429 (limite de débit)`);
@@ -49,13 +52,26 @@ async function apiGet(path) {
 function detailErreur(j) {
   if (!j || typeof j !== 'object') return '';
   if (typeof j.message === 'string' && j.message) return j.message;
-  const e = j.errors;
-  if (Array.isArray(e)) return e.join('; ');
-  if (e && typeof e === 'object') {
-    return Object.entries(e)
-      .map(([champ, raisons]) => `${champ}: ${Array.isArray(raisons) ? raisons.join(', ') : raisons}`)
-      .join('; ');
+  if (typeof j.error === 'string' && j.error) return j.error;      // Pennylane renvoie parfois { error: "..." }
+  const e = j.errors || j.error;                                    // errors: [] | {champ:[...]} ; error: {}
+  if (Array.isArray(e)) {
+    const parts = e.map(x => typeof x === 'string' ? x : (x && (x.message || x.detail || x.title || JSON.stringify(x)))).filter(Boolean);
+    if (parts.length) return parts.join('; ');
   }
+  if (e && typeof e === 'object') {
+    const parts = Object.entries(e)
+      .map(([champ, raisons]) => `${champ}: ${Array.isArray(raisons) ? raisons.join(', ') : (raisons && typeof raisons === 'object' ? JSON.stringify(raisons) : raisons)}`);
+    if (parts.length) return parts.join('; ');
+  }
+  // Dernier recours : un extrait du corps brut, pour ne JAMAIS rester aveugle sur un
+  // 422 dont la forme est inconnue. On ne le fait que s'il y a un contenu réel (pas
+  // une enveloppe vide {} ou { errors: {} }), pour ne pas polluer le message.
+  const aDuContenu = Object.values(j).some(v =>
+    (typeof v === 'string' && v.trim()) ||
+    (typeof v === 'number') ||
+    (Array.isArray(v) && v.length) ||
+    (v && typeof v === 'object' && Object.keys(v).length));
+  if (aDuContenu) { try { return JSON.stringify(j).slice(0, 400); } catch (_) {} }
   return '';
 }
 
@@ -65,7 +81,10 @@ async function apiPost(path, body) {
     const r = await fetch(BASE + path, { method: 'POST', headers: headers({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) });
     if (r.status === 429) { await sleep(1200 * (attempt + 1)); continue; }
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(detailErreur(j) || `Pennylane POST ${path} → HTTP ${r.status}`);
+    if (!r.ok) {
+      const d = detailErreur(j);
+      throw new Error(`Pennylane POST ${path} → HTTP ${r.status}${d ? ' : ' + d : ''}`);
+    }
     return j;
   }
   throw new Error(`Pennylane POST ${path} → 429 (limite de débit)`);
