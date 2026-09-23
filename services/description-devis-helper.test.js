@@ -79,32 +79,40 @@ describe('descriptionDevis()', () => {
   });
 });
 
-describe('lignesDevisTexte() — lignes du devis pour la description Pennylane', () => {
+describe('lignesDevisTexte() — liste d\'articles propre pour la description Pennylane', () => {
   const ZONES = [
-    { id: 'z1', fields: { Ordre: 1, 'Nom zone': 'Cuisine', Marque: 'Schmidt' } },
+    { id: 'z1', fields: { Ordre: 1, 'Nom zone': 'ZONE 1', Marque: 'LAGO' } },
     { id: 'z2', fields: { Ordre: 2, 'Nom zone': 'Cellier' } },
   ];
   const LIGNES = [
-    { id: 'l3', fields: { Position: '10', 'Code produit': 'C1', Désignation: 'Caisson bas 60', Quantité: 2, Unité: 'u', Zone: ['z1'] } },
-    { id: 'l1', fields: { Position: '2',  'Code produit': 'P1', Désignation: 'Plan de travail', Quantité: 1, Zone: ['z1'] } },
+    { id: 'l3', fields: { Position: '10', 'Code produit': 'C1', Désignation: 'CAISSON BAS 60', Quantité: 2, Zone: ['z1'] } },
+    { id: 'l1', fields: { Position: '2',  'Code produit': 'P1', Désignation: 'PLAN DE TRAVAIL', Quantité: 1, Zone: ['z1'] } },
     { id: 'l2', fields: { Position: '5',  Désignation: 'Étagère', Zone: ['z2'] } },
-    { id: 'l4', fields: { Position: '9',  'Code produit': 'X9', Désignation: 'Divers' } }, // hors zone
+    { id: 'l4', fields: { Position: '9',  'Code produit': 'X9', Désignation: 'DIVERS' } }, // hors zone
   ];
 
-  test('groupe par zone (ordre zone), trie par Position, hors-zone en dernier', () => {
+  test('groupe par zone, trie par Position, titres en casse phrase, hors-zone en dernier', () => {
     const { texte, total, tronque } = lignesDevisTexte(LIGNES, ZONES);
     assert.equal(total, 4);
     assert.equal(tronque, false);
-    const lignes = texte.split('\n');
-    assert.deepEqual(lignes, [
-      '[Cuisine]',
-      '- P1 Plan de travail (×1)',   // Position 2 avant 10
-      '- C1 Caisson bas 60 (×2 u)',
-      '[Cellier]',
-      '- Étagère',                    // sans code ni quantité
-      '[Hors ensemble]',
-      '- X9 Divers',
+    assert.deepEqual(texte.split('\n'), [
+      'Zone 1',
+      '• P1 Plan de travail',        // Position 2 avant 10, casse phrase, qté 1 → pas de ×
+      '• C1 Caisson bas 60 ×2',      // qté > 1 → ×2
+      '',                            // ligne vide entre zones
+      'Cellier',
+      '• Étagère',                   // sans code
+      '',
+      'Hors ensemble',
+      '• X9 Divers',
     ]);
+  });
+
+  test('nettoie la désignation Winner : marque seule + FINITION/FITTING jetées, code non répété, cotes compactées', () => {
+    const ligne = [{ Position: '1', 'Code produit': 'GA3610', Quantité: 1, Zone: ['z1'],
+      Désignation: 'LAGO\nGA3610 COLONNE NOW BATTANTE ASYMÉTRIQUE 1125 x 2270 x 610\nFINITION DOS MÉLAMINÉ MANDORLA\nFITTING TROUS PERÇAGE CONTINU ENTRAXE 96' }];
+    const { texte } = lignesDevisTexte(ligne, ZONES);
+    assert.equal(texte.split('\n')[1], '• GA3610 Colonne now battante asymétrique 1125×2270×610');
   });
 
   test('tronque proprement et ANNONCE le reste (jamais de coupe muette)', () => {
@@ -113,7 +121,7 @@ describe('lignesDevisTexte() — lignes du devis pour la description Pennylane',
     assert.equal(total, 40);
     assert.equal(tronque, true);
     assert.ok(inclus < total);
-    assert.match(texte, new RegExp(`\\+${total - inclus} lignes`));
+    assert.match(texte, new RegExp(`\\+${total - inclus} articles`));
     assert.ok(texte.length <= 200);
   });
 
@@ -124,6 +132,6 @@ describe('lignesDevisTexte() — lignes du devis pour la description Pennylane',
   test('accepte des fields nus (sans wrapper .fields)', () => {
     const { texte } = lignesDevisTexte(
       [{ Position: '1', Désignation: 'Direct', Zone: ['z1'] }], ZONES);
-    assert.match(texte, /\[Cuisine\]\n- Direct/);
+    assert.match(texte, /Zone 1\n• Direct/);
   });
 });
