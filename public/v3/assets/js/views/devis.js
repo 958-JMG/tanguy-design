@@ -95,7 +95,8 @@ function renderFiche(app, data) {
         <button class="btn btn-ghost btn-sm" id="btn-reimport-devis">${icon('plus', 14)} Re-importer PDF</button>
         ${plQuote
           ? `<a class="btn btn-ghost btn-sm" href="${esc(pennylanePdfUrl(devis.id))}">${icon('download', 14)} Télécharger PDF</a>
-             <a class="btn btn-ghost btn-sm" href="https://app.pennylane.com" target="_blank" rel="noopener">${icon('external-link', 14)} Ouvrir dans Pennylane</a>`
+             <a class="btn btn-ghost btn-sm" href="https://app.pennylane.com" target="_blank" rel="noopener">${icon('external-link', 14)} Ouvrir dans Pennylane</a>
+             <button class="btn btn-ghost btn-sm" id="btn-pennylane-regen">${icon('file-text', 14)} Régénérer</button>`
           : `<button class="btn btn-ghost btn-sm" id="btn-pennylane">${icon('file-text', 14)} Générer le brouillon Pennylane</button>`}
         ${echeances.length ? `<button class="btn btn-ghost btn-sm" id="btn-pennylane-echeances">${icon('file-text', 14)} Factures d'échéance (brouillon)</button>` : ''}
         ${!isSigned ? `<button class="btn btn-primary btn-sm" id="btn-sign-devis">${icon('check', 14)} Signer ce devis</button>` : ''}
@@ -175,6 +176,14 @@ function renderFiche(app, data) {
   document.getElementById('btn-reimport-devis')?.addEventListener('click', () => openReimportDevis(devis, projet));
   document.getElementById('btn-sign-devis')?.addEventListener('click', () => signFlow(devis, projet));
   document.getElementById('btn-pennylane')?.addEventListener('click', () => pennylaneFlow(devis));
+  // Régénérer : recrée le brouillon avec la description à jour. L'API Pennylane ne
+  // sait pas supprimer un devis → on prévient que l'ancien brouillon reste à supprimer à la main.
+  document.getElementById('btn-pennylane-regen')?.addEventListener('click', async () => {
+    const ok = await confirmModal(
+      'Régénérer le brouillon Pennylane ?\n\nCela crée un NOUVEAU brouillon (avec la description à jour). L\'ancien n\'est pas supprimé automatiquement : pense à le supprimer dans Pennylane pour éviter un doublon.',
+      { okLabel: 'Régénérer', danger: true });
+    if (ok) pennylaneFlow(devis, { force: true });
+  });
   document.getElementById('btn-pennylane-echeances')?.addEventListener('click', () => pennylaneEcheancesFlow(devis));
 }
 
