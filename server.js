@@ -1570,43 +1570,15 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
     const { lines, reconciliation, warnings } = pennylane.buildInvoiceLines(f, { description: descDevis });
     if (!lines.length) return res.status(422).json({ error: 'Devis sans montant exploitable — rien à pousser', warnings });
 
-    // 4) Résolution client (anti-doublon)
-    const clientId = (f['Client'] || [])[0];
+    // 4) Résolution client (anti-doublon) — depuis le PROJET (source de vérité), pas
+    //    le lien Client du devis qui peut pointer un contact importé sans adresse.
+    const clientId = await clientIdPourDevis(f);
     if (!clientId) return res.status(422).json({ error: 'Devis sans client lié' });
-    const [client] = await atFetchByIds(TABLES.clients.id, [clientId]);
-    const cf = (client && client.fields) || {};
-    const nom = cf['Nom'] || '';
-    let customerId = cf[PL_CUST_FIELD] || body.pennylane_customer_id || null;
-    let customerCreated = false;
-
-    if (!customerId) {
-      const match = await pennylane.findCustomerByName(nom);
-      if (match.exact) {
-        customerId = match.exact.id;
-      } else if (match.candidates.length && !body.create_customer) {
-        // Pas de correspondance exacte mais des homonymes → Virginie tranche.
-        return res.json({ ok: false, needsCustomerConfirmation: true, clientNom: nom, candidates: match.candidates });
-      } else {
-        const adresse = String(cf['Adresse'] || '').split('\n');
-        const cpVille = (adresse[1] || '').trim().match(/^(\d{5})\s+(.*)$/);
-        const created = await pennylane.createCustomer({
-          name: nom,
-          isCompany: !!(cf['Type'] && cf['Type'] !== 'Particulier'),
-          contact: cf['Contact'] || '',
-          email: cf['Email'] || undefined,
-          address: (adresse[0] || '').trim() || undefined,
-          postal_code: cpVille ? cpVille[1] : undefined,
-          city: cpVille ? cpVille[2] : undefined,
-        });
-        customerId = created.id; customerCreated = true;
-      }
-    }
+    const resolved = await resolvePennylaneCustomer(clientId, body);
+    if (resolved.needsCustomerConfirmation) return res.json({ ok: false, ...resolved });
+    if (resolved.error) return res.status(422).json({ error: resolved.error });
+    const { customerId, customerCreated } = resolved;
     if (!customerId) return res.status(422).json({ error: 'Client Pennylane non résolu' });
-
-    // Persiste l'id client si nouveau/résolu (évite de rechercher au prochain devis).
-    if (clientId && cf[PL_CUST_FIELD] !== String(customerId)) {
-      await atPatch(TABLES.clients.id, clientId, { [PL_CUST_FIELD]: String(customerId) });
-    }
 
     // 5) Devis brouillon (date du jour, échéance +30 j)
     const today = new Date();
@@ -1683,6 +1655,22 @@ async function descriptionDevisPourPennylane(devisFields) {
   }
 }
 
+// Client de FACTURATION d'un devis : celui du PROJET (source de vérité « tout part
+// du projet »), repli sur le lien Client du devis. Le lien Client du devis peut
+// pointer un contact importé (ex. « Virginie Bothuan ») sans adresse → Pennylane
+// refuse alors « Missing required fields » (pas d'adresse de facturation).
+async function clientIdPourDevis(f) {
+  const projetId = (f['Projet'] || [])[0];
+  if (projetId) {
+    try {
+      const [projet] = await atFetchByIds(TABLES.projets.id, [projetId]);
+      const pc = (projet && projet.fields && projet.fields['Client']) || [];
+      if (pc[0]) return pc[0];
+    } catch (_) { /* repli sur le devis ci-dessous */ }
+  }
+  return (f['Client'] || [])[0] || null;
+}
+
 async function resolvePennylaneCustomer(clientId, body = {}) {
   const [client] = await atFetchByIds(TABLES.clients.id, [clientId]);
   const cf = (client && client.fields) || {};
@@ -1695,6 +1683,12 @@ async function resolvePennylaneCustomer(clientId, body = {}) {
     else if (match.candidates.length && !body.create_customer) return { needsCustomerConfirmation: true, clientNom: nom, candidates: match.candidates };
     else {
       const adresse = String(cf['Adresse'] || '').split('\n');
+      // Pennylane EXIGE une adresse de facturation pour créer un client. Sans elle,
+      // l'API renvoie « Missing required fields » : on le DIT clairement à Virginie
+      // (avec le nom du client et le geste à faire) au lieu de laisser passer l'erreur brute.
+      if (!(adresse[0] || '').trim()) {
+        return { error: `Le client « ${nom || '—'} » n'a pas d'adresse de facturation : complète son adresse dans la fiche client, puis relance la génération Pennylane.` };
+      }
       const cpVille = (adresse[1] || '').trim().match(/^(\d{5})\s+(.*)$/);
       const created = await pennylane.createCustomer({
         name: nom, isCompany: !!(cf['Type'] && cf['Type'] !== 'Particulier'), contact: cf['Contact'] || '', email: cf['Email'] || undefined,
@@ -1759,11 +1753,12 @@ app.post('/api/devis/:id/echeances-factures', requireAuth, async (req, res) => {
     const devis = await dr.json();
     const f = devis.fields || {};
     if (!(f['Échéances devis'] || []).length) return res.status(422).json({ error: 'Ce devis n\'a pas d\'échéances' });
-    const clientId = (f['Client'] || [])[0];
+    const clientId = await clientIdPourDevis(f);
     if (!clientId) return res.status(422).json({ error: 'Devis sans client lié' });
 
     const resolved = await resolvePennylaneCustomer(clientId, body);
     if (resolved.needsCustomerConfirmation) return res.json({ ok: false, ...resolved });
+    if (resolved.error) return res.status(422).json({ error: resolved.error });
     const { customerId, customerCreated } = resolved;
 
     const out = await createEcheanceDraftInvoicesForDevis(devis, customerId);
@@ -1798,10 +1793,11 @@ app.post('/api/devis/:devisId/echeances/:echId/facture-pennylane', requireAuth, 
         openUrl: pennylaneInvoiceUrl(ef[PL_ECH_FIELD]), pdfUrl: `/api/echeances/${echId}/pennylane/pdf` });
     }
 
-    const clientId = (f['Client'] || [])[0];
+    const clientId = await clientIdPourDevis(f);
     if (!clientId) return res.status(422).json({ error: 'Devis sans client lié' });
     const resolved = await resolvePennylaneCustomer(clientId, body);
     if (resolved.needsCustomerConfirmation) return res.json({ ok: false, ...resolved });
+    if (resolved.error) return res.status(422).json({ error: resolved.error });
     const { customerId, customerCreated } = resolved;
 
     const descDevis = await descriptionDevisPourPennylane(f);
@@ -1897,10 +1893,11 @@ app.post('/api/devis/:id/facture-acompte', requireAuth, async (req, res) => {
     if (!lines.length) return res.status(422).json({ error: 'Acompte sans montant exploitable — rien à facturer', warnings });
 
     // 4) Client Pennylane (id stocké > match exact > homonyme à trancher > création)
-    const clientId = (f['Client'] || [])[0];
+    const clientId = await clientIdPourDevis(f);
     if (!clientId) return res.status(422).json({ error: 'Devis sans client lié' });
     const resolved = await resolvePennylaneCustomer(clientId, body);
     if (resolved.needsCustomerConfirmation) return res.json({ ok: false, ...resolved });
+    if (resolved.error) return res.status(422).json({ error: resolved.error });
     const { customerId, customerCreated } = resolved;
 
     // 5) Facture d'acompte brouillon (échéance à +30 j, jamais dans le passé)
@@ -2627,11 +2624,13 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     let facturesEcheances = null;
     if (process.env.PENNYLANE_API_KEY && (dv['Échéances devis'] || []).length) {
       try {
-        const clientId = (dv['Client'] || [])[0];
+        const clientId = await clientIdPourDevis(dv);
         if (clientId) {
           const resolved = await resolvePennylaneCustomer(clientId, {});
           if (resolved.needsCustomerConfirmation) {
             facturesEcheances = { skipped: 'client Pennylane ambigu — à générer via le bouton après confirmation' };
+          } else if (resolved.error) {
+            facturesEcheances = { skipped: resolved.error };
           } else {
             const out = await createEcheanceDraftInvoicesForDevis(devis, resolved.customerId);
             facturesEcheances = { created: out.created, customerCreated: resolved.customerCreated };
