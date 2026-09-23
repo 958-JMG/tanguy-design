@@ -1584,7 +1584,14 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
     const today = new Date();
     const iso = d => d.toISOString().slice(0, 10);
     const deadline = new Date(today.getTime() + 30 * 86400000);
-    const quote = await pennylane.createDraftQuote({ customer_id: customerId, date: iso(today), deadline: iso(deadline), lines, external_reference: f['Numéro devis'] });
+    // Pennylane refuse une external_reference DÉJÀ utilisée, même sur un devis archivé
+    // (« External reference has already been taken »). À la régénération (force), on
+    // suffixe la réf. du devis pour la rendre unique — sinon 422.
+    const refBase = f['Numéro devis'] || '';
+    const pad = n => String(n).padStart(2, '0');
+    const stamp = `${pad(today.getDate())}/${pad(today.getMonth() + 1)} ${pad(today.getHours())}:${pad(today.getMinutes())}:${pad(today.getSeconds())}`;
+    const externalRef = (body.force && refBase) ? `${refBase} (régén. ${stamp})` : refBase;
+    const quote = await pennylane.createDraftQuote({ customer_id: customerId, date: iso(today), deadline: iso(deadline), lines, external_reference: externalRef });
 
     // 6) Persiste les identifiants sur le devis
     await atPatch(TABLES.devis.id, devisId, { [PL_QUOTE_FIELD]: String(quote.id), [PL_NUM_FIELD]: quote.number || '' });
