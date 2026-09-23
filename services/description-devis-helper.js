@@ -95,15 +95,47 @@ function descriptionCourte(zones, maxLongueur = 120) {
   return descriptionDevis(zones, { separateur: ' · ', maxLongueur }).texte;
 }
 
+// Lignes de désignation à écarter : dans Winner, la Désignation d'une ligne est un
+// bloc multi-lignes (marque seule, puis référence + produit + cotes, puis finitions
+// et quincaillerie). Pour un devis client PROPRE, on ne garde que le produit et on
+// jette le bruit (FINITION…, FITTING…) + la marque répétée seule.
+const LIGNE_BRUIT_RE = /^(FINITION|FITTING)\b/i;
+
+// Compacte les cotes « 1125 x 2270 x 610 » → « 1125×2270×610 ».
+function compacterCotes(s) {
+  return String(s).replace(/(\d)\s*[x×]\s*(\d)/gi, '$1×$2').replace(/\s{2,}/g, ' ').trim();
+}
+// Casse « phrase » (majuscule initiale, reste en minuscules) — le texte Winner est
+// tout en CAPITALES, illisible sur un devis. On ne touche pas au code produit.
+function casserPhrase(s) {
+  const t = String(s).toLowerCase().trim();
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+}
+
+// Nom d'article propre : jette la marque seule et les lignes de finition/quincaillerie,
+// garde la ligne produit, et évite de répéter le code produit déjà affiché.
+function nomArticlePropre(designation, code, marque) {
+  const marqueN = String(marque || '').trim().toLowerCase();
+  let lignes = String(designation || '').split('\n').map(s => s.trim()).filter(Boolean)
+    .filter(l => !LIGNE_BRUIT_RE.test(l))
+    .filter(l => l.toLowerCase() !== marqueN);
+  if (!lignes.length) lignes = String(designation || '').split('\n').map(s => s.trim()).filter(Boolean).slice(0, 1);
+  let nom = lignes.join(' ');
+  const codeT = String(code || '').trim();
+  if (codeT && nom.toUpperCase().startsWith(codeT.toUpperCase())) nom = nom.slice(codeT.length).trim();
+  return casserPhrase(compacterCotes(nom));
+}
+
 /**
- * Liste des LIGNES d'un devis, groupées par zone — pour la description Pennylane.
- * Demande JMG (2026-09-23) : « la génération du devis dans Pennylane doit reprendre
- * les lignes du devis dans la description ». PURE et testable (pas d'Airtable).
+ * Liste PROPRE des articles d'un devis, groupés par zone — pour la description
+ * Pennylane. Demande JMG (2026-09-23, choix « liste d'articles propre ») : un article
+ * = une ligne (code + nom + cotes, quantité si > 1), sans le bruit des finitions.
+ * PURE et testable (pas d'Airtable).
  *
  * @param {Array} lignes - records (ou fields) de « Lignes devis » : Position,
- *        « Code produit », Désignation, Quantité, Unité, lien Zone.
+ *        « Code produit », Désignation (multi-lignes), Quantité, lien Zone.
  * @param {Array} zones  - records (ou fields, avec id) de « Zones devis » : Nom zone,
- *        Marque, Modèle, Ordre. Sert à titrer et ordonner les groupes.
+ *        Marque, Modèle, Ordre. Sert à titrer, ordonner et nettoyer.
  * @param {{ max?: number }} [opts] - longueur cible (défaut 900, marge sous le cap
  *        Pennylane de 1000). Au-delà on TRONQUE et on l'annonce (jamais de coupe muette).
  * @returns {{ texte:string, total:number, inclus:number, tronque:boolean, vide:boolean }}
@@ -128,37 +160,40 @@ function lignesDevisTexte(lignes, zones, { max = 900 } = {}) {
   const titreGroupe = zid => {
     if (!zid) return 'Hors ensemble';
     const z = zoneById.get(zid);
-    return (z && (z['Nom zone'] || [z.Marque, z.Modèle].filter(Boolean).join(' — '))) || 'Ensemble';
+    const brut = (z && (z['Nom zone'] || [z.Marque, z.Modèle].filter(Boolean).join(' — '))) || 'Ensemble';
+    return casserPhrase(brut);
   };
-  const ligneTexte = l => {
-    const libelle = [String(l['Code produit'] || '').trim(), String(l['Désignation'] || '').trim()]
-      .filter(Boolean).join(' ') || '(sans libellé)';
+  const ligneTexte = (l, zone) => {
+    const code = String(l['Code produit'] || '').trim();
+    const nom = nomArticlePropre(l['Désignation'], code, zone && zone.Marque);
+    const libelle = [code, nom].filter(Boolean).join(' ') || '(sans libellé)';
     const q = l['Quantité'];
-    const unite = String(l['Unité'] || '').trim();
-    const qte = (q != null && q !== '')
-      ? ` (×${Number(q).toLocaleString('fr-FR', { maximumFractionDigits: 4 })}${unite ? ' ' + unite : ''})`
+    const qte = (q != null && Number(q) > 1)
+      ? ` ×${Number(q).toLocaleString('fr-FR', { maximumFractionDigits: 4 })}`
       : '';
-    return `- ${libelle}${qte}`;
+    return `• ${libelle}${qte}`;
   };
 
   const total = L.length;
   const out = [];
-  let inclus = 0, tronque = false, len = 0;
+  let inclus = 0, tronque = false, len = 0, premier = true;
   const fits = s => (len + s.length + 1) <= max;
   outer:
   for (const zid of zids) {
-    const entete = `[${titreGroupe(zid)}]`;
-    if (!fits(entete)) { tronque = true; break; }
-    out.push(entete); len += entete.length + 1;
+    const zone = zid ? zoneById.get(zid) : null;
+    const entete = titreGroupe(zid);
+    const bloc = premier ? entete : `\n${entete}`; // ligne vide avant chaque zone (sauf 1re)
+    if (!fits(bloc)) { tronque = true; break; }
+    out.push(bloc); len += bloc.length + 1; premier = false;
     for (const l of groupes.get(zid)) {
-      const t = ligneTexte(l);
+      const t = ligneTexte(l, zone);
       if (!fits(t)) { tronque = true; break outer; }
       out.push(t); len += t.length + 1; inclus++;
     }
   }
   if (tronque && inclus < total) {
     const reste = total - inclus;
-    out.push(`… (+${reste} ligne${reste > 1 ? 's' : ''}, détail complet sur le devis Tanguy)`);
+    out.push(`… (+${reste} article${reste > 1 ? 's' : ''}, détail complet sur le devis Tanguy)`);
   }
   const texte = out.join('\n');
   return { texte, total, inclus, tronque, vide: texte.trim() === '' };
