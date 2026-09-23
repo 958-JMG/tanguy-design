@@ -251,4 +251,18 @@ test('detailErreur — rien d\'exploitable → chaîne vide (l\'appelant met son
   assert.strictEqual(detailErreur({}), '');
   assert.strictEqual(detailErreur(null), '');
   assert.strictEqual(detailErreur({ errors: {} }), '');
+  assert.strictEqual(detailErreur({ errors: [] }), '');
+});
+
+test('detailErreur — { error: "..." } singulier (forme Pennylane) est repris', () => {
+  assert.strictEqual(detailErreur({ error: 'external_reference already taken' }), 'external_reference already taken');
+});
+
+test('detailErreur — tableau d\'objets → messages extraits', () => {
+  assert.strictEqual(detailErreur({ errors: [{ message: 'invalid vat_rate' }, { detail: 'line 2' }] }), 'invalid vat_rate; line 2');
+});
+
+test('detailErreur — forme inconnue AVEC contenu → extrait brut (jamais aveugle)', () => {
+  const d = detailErreur({ base: ['quote is invalid'] });
+  assert.match(d, /quote is invalid/);
 });
