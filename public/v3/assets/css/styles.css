@@ -1928,12 +1928,24 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   padding-bottom: 8px;
   -webkit-overflow-scrolling: touch;
 }
+/* Pipeline prolongé : 4 phases commerciales + 3 colonnes de pose (2026-09-23) */
+.pipeline-board--pose {
+  grid-template-columns: repeat(7, minmax(220px, 1fr));
+}
 @media (max-width: 1100px) {
   .pipeline-board {
     grid-template-columns: repeat(5, minmax(240px, 1fr));
     overflow-x: scroll;
   }
+  .pipeline-board--pose {
+    grid-template-columns: repeat(7, minmax(240px, 1fr));
+  }
 }
+/* Bloc « après signature » (chantier) — famille verte, distincte du commercial */
+.pipeline-col.is-pose .pipeline-col-head { background: var(--green-lo); }
+.pipeline-col.is-pose .pipeline-col-icon,
+.pipeline-col.is-pose .pipeline-col-title { color: var(--green); }
+.pipeline-col.is-pose-start { border-left: 3px solid var(--green); }
 .pipeline-col {
   background: var(--paper);
   border: 1px solid var(--line);
