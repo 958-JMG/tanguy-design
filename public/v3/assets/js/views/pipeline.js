@@ -6,13 +6,52 @@ import { navigateTo } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
 import { toast, confirmModal } from '../core/ui.js';
 
-const PHASES = [
+// Phases commerciales (champ « Phase commerciale ») — avant la signature.
+const COMMERCIAL_PHASES = [
   { key: 'Découverte',          icon: 'compass', pct: 0,   short: 'Découverte' },
   { key: 'Dessin',              icon: 'pencil',  pct: 25,  short: 'Dessin' },
   { key: 'Présentation devis',  icon: 'file',    pct: 50,  short: 'Devis présenté' },
   { key: 'En attente décision', icon: 'clock',   pct: 75,  short: 'En attente' },
-  { key: 'Signé',               icon: 'check',   pct: 100, short: 'Signé' },
 ];
+
+// JMG 2026-09-23 : « signé ≠ posé ». Après la signature, le projet vit au rythme
+// du chantier (champ « Statut chantier »). Ces colonnes prolongent le pipeline pour
+// que « Signé » ne garde QUE les signés pas encore posés ; les posés sortent d'eux-mêmes
+// (Virginie archive depuis « Posé »).
+const SIGNE_KEY = 'Signé';
+const POSE_COLUMNS = [
+  { key: 'Signé',            icon: 'check',        pct: 100, short: 'Signé (à poser)', pose: true },
+  { key: 'En cours de pose', icon: 'hammer',       pct: 100, short: 'En pose', pose: true },
+  { key: 'Posé',             icon: 'check-circle', pct: 100, short: 'Posé',             pose: true },
+];
+
+// Toutes les colonnes du Kanban, dans l'ordre du parcours.
+const COLUMNS = [...COMMERCIAL_PHASES, ...POSE_COLUMNS];
+
+const isCommercialPhase = key => COMMERCIAL_PHASES.some(c => c.key === key);
+
+// Colonne d'un projet : phase commerciale tant qu'il n'est pas signé ; ensuite, le
+// « Statut chantier » décide (vide/Pré-pose = à poser, Pose en cours, Terminé/SAV = posé).
+// Aucun projet signé non archivé ne peut passer entre les mailles : il tombe toujours
+// dans « Signé », « En cours de pose » ou « Posé ».
+function projetColumn(p) {
+  const phase = projetPhase(p);
+  if (phase !== SIGNE_KEY) return phase; // Découverte…En attente (Refus déjà filtré)
+  const ch = p['Statut chantier'] || '';
+  if (ch === 'Pose en cours') return 'En cours de pose';
+  if (ch === 'Terminé' || ch === 'SAV') return 'Posé';
+  return SIGNE_KEY; // '' ou 'Pré-pose' → signé, à poser
+}
+
+// Ce qu'un déplacement de carte écrit dans Airtable selon la colonne cible.
+// Reculer vers une phase commerciale « dé-signe » le projet (on vide le chantier).
+function patchForColumn(targetKey) {
+  if (isCommercialPhase(targetKey)) return { 'Phase commerciale': targetKey, 'Statut chantier': '' };
+  if (targetKey === SIGNE_KEY)            return { 'Phase commerciale': SIGNE_KEY, 'Statut chantier': '' };
+  if (targetKey === 'En cours de pose')   return { 'Phase commerciale': SIGNE_KEY, 'Statut chantier': 'Pose en cours' };
+  if (targetKey === 'Posé')               return { 'Phase commerciale': SIGNE_KEY, 'Statut chantier': 'Terminé' };
+  return null;
+}
 
 // P-C (2026-06-24) — refus commercial : statut hors pipeline actif, avec motif + note + date.
 const REFUS_PHASE = 'Refus';
@@ -74,30 +113,30 @@ export function renderPipeline(app, filterPhase = null) {
     (p['Statut chantier'] || '') !== 'Archivé' && projetPhase(p) !== REFUS_PHASE
   );
 
-  // Agrégat par phase
-  const byPhase = {};
-  for (const ph of PHASES) byPhase[ph.key] = [];
+  // Agrégat par colonne (colonne = projetColumn, pas juste la phase)
+  const byCol = {};
+  for (const col of COLUMNS) byCol[col.key] = [];
   for (const p of projets) {
-    const ph = projetPhase(p);
-    if (!byPhase[ph]) byPhase[ph] = [];
-    byPhase[ph].push(p);
+    const key = projetColumn(p);
+    if (!byCol[key]) byCol[key] = [];
+    byCol[key].push(p);
   }
 
-  // Stats globales
+  // Stats globales — le « CA pipeline » ne compte que le commercial (avant signature).
   const totalProjets = projets.length;
+  const isPipelineProjet = p => isCommercialPhase(projetPhase(p));
   const caPipeline = projets
-    .filter(p => projetPhase(p) !== 'Signé')
+    .filter(isPipelineProjet)
     .reduce((s, p) => s + (p['Budget HT'] || 0), 0);
   const caPondere = projets
-    .filter(p => projetPhase(p) !== 'Signé')
+    .filter(isPipelineProjet)
     .reduce((s, p) => {
-      const ph = PHASES.find(x => x.key === projetPhase(p));
+      const ph = COMMERCIAL_PHASES.find(x => x.key === projetPhase(p));
       return s + (p['Budget HT'] || 0) * (ph?.pct || 0) / 100;
     }, 0);
   const stuckCount = projets.filter(p => {
     const a = daysSinceActivity(p);
-    const ph = projetPhase(p);
-    return a != null && a > STUCK_THRESHOLD && ph !== 'Signé';
+    return a != null && a > STUCK_THRESHOLD && isPipelineProjet(p);
   }).length;
 
   app.innerHTML = `
@@ -115,13 +154,14 @@ export function renderPipeline(app, filterPhase = null) {
       <div class="kpi-card${stuckCount > 0 ? ' is-warning' : ''}"><div class="kpi-value">${stuckCount}</div><div class="kpi-label">À relancer (> ${STUCK_THRESHOLD} j)</div></div>
     </div>
 
-    <!-- Kanban board : 5 colonnes par phase -->
-    <div class="pipeline-board" role="list" aria-label="Pipeline commercial Kanban">
-      ${PHASES.map(ph => {
-        const list = byPhase[ph.key] || [];
+    <!-- Kanban board : phases commerciales + étapes de pose (Statut chantier) -->
+    <div class="pipeline-board pipeline-board--pose" role="list" aria-label="Pipeline commercial et pose Kanban">
+      ${COLUMNS.map(ph => {
+        const list = byCol[ph.key] || [];
         const ca = list.reduce((s, p) => s + (p['Budget HT'] || 0), 0);
+        const firstPose = ph.pose && ph.key === SIGNE_KEY; // marque le début du bloc « après signature »
         return `
-        <section class="pipeline-col" data-phase="${esc(ph.key)}" role="listitem">
+        <section class="pipeline-col${ph.pose ? ' is-pose' : ''}${firstPose ? ' is-pose-start' : ''}" data-phase="${esc(ph.key)}" role="listitem">
           <header class="pipeline-col-head">
             <div class="pipeline-col-title">
               <span class="pipeline-col-icon" aria-hidden="true">${icon(ph.icon, 14)}</span>
@@ -233,13 +273,32 @@ async function relancerProjet(projetId, app) {
   }
 }
 
+// Colonnes de pose : au lieu de « X j depuis la dernière activité » (qui n'a pas de
+// sens pour un chantier), on montre la date de pose prévue et un repère SAV.
+function poseFootInfo(p) {
+  const bits = [];
+  const dPose = p['Date pose prévue'];
+  if (dPose) {
+    const d = new Date(dPose);
+    if (!isNaN(d.getTime())) bits.push(`<span class="pipeline-card-age" title="Date de pose prévue">${icon('hammer', 11)} ${d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}</span>`);
+  }
+  if ((p['Statut chantier'] || '') === 'SAV') bits.push(`<span class="pipeline-card-age is-stuck" title="En SAV">SAV</span>`);
+  return bits.join(' ');
+}
+
 function renderProjetCard(p, phaseKey, clientById) {
   const cId = (p.Client || [])[0];
   const c = cId ? clientById.get(cId) : null;
   const cNom = c?.Nom || '— Sans client —';
+  const isCommercial = isCommercialPhase(phaseKey);
   const days = daysSinceActivity(p);
-  const isStuck = days != null && days > STUCK_THRESHOLD && phaseKey !== 'Signé';
+  const isStuck = isCommercial && days != null && days > STUCK_THRESHOLD;
   const budget = p['Budget HT'];
+  const foot = isCommercial
+    ? (days != null
+        ? `<span class="pipeline-card-age ${isStuck ? 'is-stuck' : ''}" title="${days} jours depuis la dernière activité enregistrée">${days} j</span>`
+        : '')
+    : poseFootInfo(p);
   return `
     <article class="pipeline-card ${isStuck ? 'is-stuck' : ''}">
       <a href="#projet/${esc(p.id)}" class="pipeline-card-main" data-id="${esc(p.id)}">
@@ -247,19 +306,17 @@ function renderProjetCard(p, phaseKey, clientById) {
         <div class="pipeline-card-ref">${esc(p['Référence'] || '(sans référence)')}</div>
         <div class="pipeline-card-foot">
           ${budget ? `<span class="pipeline-card-budget">${euros(budget)}</span>` : '<span class="pipeline-card-budget pipeline-card-budget--todo">à chiffrer</span>'}
-          ${days != null
-            ? `<span class="pipeline-card-age ${isStuck ? 'is-stuck' : ''}" title="${days} jours depuis la dernière activité enregistrée">${days} j</span>`
-            : ''}
+          ${foot}
         </div>
       </a>
-      <button class="pipeline-card-action" data-action="change-phase" data-id="${esc(p.id)}" data-phase="${esc(phaseKey)}" aria-label="Changer la phase">
+      <button class="pipeline-card-action" data-action="change-phase" data-id="${esc(p.id)}" data-phase="${esc(phaseKey)}" aria-label="Déplacer le projet">
         ${icon('arrowLeft', 12)}
       </button>
     </article>`;
 }
 
-// Sprint v3.19 — Menu de changement de phase : popover avec les 5 phases.
-// Patch /api/data/projets/:id { Phase commerciale: newPhase } + refresh.
+// Menu de déplacement : popover avec les 7 colonnes (commercial + pose).
+// Écrit Phase commerciale et/ou Statut chantier selon la colonne cible (patchForColumn).
 function openChangePhaseMenu(anchor, projetId, currentPhase) {
   // Ferme tout menu existant
   document.querySelectorAll('.pipeline-phase-menu').forEach(m => m.remove());
@@ -267,10 +324,10 @@ function openChangePhaseMenu(anchor, projetId, currentPhase) {
   const menu = document.createElement('div');
   menu.className = 'pipeline-phase-menu';
   menu.innerHTML = `
-    <div class="pipeline-phase-menu-title">Changer la phase</div>
-    ${PHASES.map(p => `
+    <div class="pipeline-phase-menu-title">Déplacer le projet</div>
+    ${COLUMNS.map(p => `
       <button class="pipeline-phase-option ${p.key === currentPhase ? 'is-current' : ''}" data-phase="${esc(p.key)}">
-        ${icon(p.icon, 12)} ${esc(p.key)}
+        ${icon(p.icon, 12)} ${esc(p.short || p.key)}
         ${p.key === currentPhase ? '<span class="muted">(actuel)</span>' : ''}
       </button>
     `).join('')}
@@ -306,21 +363,24 @@ function openChangePhaseMenu(anchor, projetId, currentPhase) {
       menu.remove();
       // P-C — passage en Refus : on demande le motif (+ note) avant d'enregistrer.
       if (newPhase === REFUS_PHASE) { openRefusModal(projetId); return; }
+      const fields = patchForColumn(newPhase);
+      if (!fields) { return; }
       try {
         const r = await fetch(`/api/data/projets/${encodeURIComponent(projetId)}`, {
           method: 'PATCH',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fields: { 'Phase commerciale': newPhase } }),
+          body: JSON.stringify({ fields }),
         });
         if (!r.ok) {
           const j = await r.json().catch(() => ({}));
           throw new Error(j.error || r.statusText);
         }
-        // Update state local pour re-render sans refetch complet
+        // Update state local pour re-render sans refetch complet (Phase + Statut chantier)
         const proj = (state.projets || []).find(p => p.id === projetId);
-        if (proj) proj['Phase commerciale'] = newPhase;
-        toast(`Phase → ${newPhase}`, 'success');
+        if (proj) Object.assign(proj, fields);
+        const col = COLUMNS.find(c => c.key === newPhase);
+        toast(`Déplacé → ${col?.short || newPhase}`, 'success');
         // Re-render pipeline
         const app = document.getElementById('app');
         renderPipeline(app);
