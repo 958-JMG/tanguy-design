@@ -26,7 +26,9 @@ const POSE_COLUMNS = [
 ];
 
 // Toutes les colonnes du Kanban, dans l'ordre du parcours.
-const COLUMNS = [...COMMERCIAL_PHASES, ...POSE_COLUMNS];
+// Exporté pour que le dashboard affiche EXACTEMENT la même distinction (une seule
+// source de vérité pour le modèle de phases).
+export const COLUMNS = [...COMMERCIAL_PHASES, ...POSE_COLUMNS];
 
 const isCommercialPhase = key => COMMERCIAL_PHASES.some(c => c.key === key);
 
@@ -34,7 +36,7 @@ const isCommercialPhase = key => COMMERCIAL_PHASES.some(c => c.key === key);
 // « Statut chantier » décide (vide/Pré-pose = à poser, Pose en cours, Terminé/SAV = posé).
 // Aucun projet signé non archivé ne peut passer entre les mailles : il tombe toujours
 // dans « Signé », « En cours de pose » ou « Posé ».
-function projetColumn(p) {
+export function projetColumn(p) {
   const phase = projetPhase(p);
   if (phase !== SIGNE_KEY) return phase; // Découverte…En attente (Refus déjà filtré)
   const ch = p['Statut chantier'] || '';

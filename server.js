@@ -29,7 +29,7 @@ const { resumeGeneres, commandesGenereesPar, tachesGenereesPar, filtrerIdsAutori
 const ecoBareme = require('./services/eco-contribution-bareme');
 // Descriptif commercial d'un devis (zones : marque, modèle, coloris, finitions) —
 // partagé entre le bon de commande et les factures Pennylane.
-const { descriptionDevis } = require('./services/description-devis-helper');
+const { descriptionDevis, lignesDevisTexte } = require('./services/description-devis-helper');
 // Rétro-commission 5 % sur les devis artisans — règle UNIQUE (cf. le helper :
 // s'applique à tous les devis, pas aux seuls artisans contractuels).
 const { retroTotale } = require('./services/retro-artisans-helper');
@@ -1660,12 +1660,23 @@ const PL_ECH_FIELD = 'Pennylane invoice ID';
 // descriptif manquant, mais buildInvoiceLines remonte alors un avertissement.
 async function descriptionDevisPourPennylane(devisFields) {
   try {
-    const zoneIds = Array.isArray(devisFields['Zones devis']) ? devisFields['Zones devis'] : [];
-    if (!zoneIds.length) return '';
-    const zones = await atFetchByIds(TABLES['zones-devis'].id, zoneIds);
-    // toutesZones : la facture reprend TOUS les ensembles signés (multi-zones), pas
-    // seulement le premier (demande JMG 2026-09-14).
-    return descriptionDevis(zones, { toutesZones: true }).texte;
+    const zoneIds  = Array.isArray(devisFields['Zones devis'])  ? devisFields['Zones devis']  : [];
+    const ligneIds = Array.isArray(devisFields['Lignes devis']) ? devisFields['Lignes devis'] : [];
+    const [zones, lignes] = await Promise.all([
+      zoneIds.length  ? atFetchByIds(TABLES['zones-devis'].id,  zoneIds)  : Promise.resolve([]),
+      ligneIds.length ? atFetchByIds(TABLES['lignes-devis'].id, ligneIds) : Promise.resolve([]),
+    ]);
+    // JMG 2026-09-23 : la description Pennylane doit REPRENDRE LES LIGNES du devis.
+    // Les lignes priment ; on ajoute les finitions en tête si la place le permet
+    // (cap Pennylane 1000 → on vise 980, jamais de coupe muette).
+    const { texte: lignesTxt } = lignesDevisTexte(lignes, zones, { max: 900 });
+    const bloc = lignesTxt ? `Détail du devis :\n${lignesTxt}` : '';
+    // toutesZones : rappel des ensembles signés + finitions (demande JMG 2026-09-14).
+    const finitions = zones.length ? descriptionDevis(zones, { toutesZones: true }).texte : '';
+    const parts = [];
+    if (finitions && (!bloc || finitions.length + bloc.length + 2 <= 980)) parts.push(finitions);
+    if (bloc) parts.push(bloc);
+    return parts.join('\n\n');
   } catch (e) {
     logger.warn({ err: e.message }, '[pennylane] descriptif du devis non lu');
     return '';

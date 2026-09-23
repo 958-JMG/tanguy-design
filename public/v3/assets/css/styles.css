@@ -276,11 +276,20 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 
 /* === Dashboard funnel === */
 .funnel { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+/* Funnel prolongé : 4 phases commerciales + 3 étapes de pose (2026-09-23) */
+.funnel--pose { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+@media (max-width: 760px) {
+  .funnel--pose { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
+}
 .funnel-step {
   background: white; border: 1px solid var(--line); border-radius: var(--r-md);
   padding: 16px 8px; text-align: center; transition: transform 0.12s, border-color 0.12s;
 }
 .funnel-step:hover { border-color: var(--accent); transform: translateY(-2px); }
+/* Étapes de pose (chantier) — famille verte, distincte du commercial */
+.funnel-step--pose { border-color: var(--green-lo); background: #EDF4EF; }
+.funnel-step--pose .funnel-icon { color: var(--green); }
+.funnel-step--pose:hover { border-color: var(--green); }
 .funnel-icon { font-size: 22px; }
 .funnel-count { font-size: 24px; font-weight: 700; color: var(--ink1); margin-top: 4px; font-variant-numeric: tabular-nums; }
 .funnel-name { font-size: 12px; color: var(--ink2); margin-top: 2px; }

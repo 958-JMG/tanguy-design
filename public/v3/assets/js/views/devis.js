@@ -46,8 +46,13 @@ function renderFiche(app, data) {
 
   // Resolve projet + client depuis state (déjà chargé via navigation)
   const projetId = (f.Projet || [])[0];
-  const clientId = (f.Client || [])[0];
   const projet = projetId ? (state.projets || []).find(p => p.id === projetId) : null;
+  // Le client du fil d'Ariane est celui du PROJET (source de vérité « tout part du
+  // projet »). Le lien Client porté par le devis peut diverger (contact importé) et
+  // afficher un mauvais nom — c'est le « de temps en temps Virginie Bothuan au lieu
+  // du client » signalé sur MACE. On privilégie le client du projet, repli sur le devis.
+  const projetClientId = projet ? ((projet.fields?.Client || projet.Client || [])[0]) : null;
+  const clientId = projetClientId || (f.Client || [])[0];
   const client = clientId ? (state.clients || []).find(c => c.id === clientId) : null;
 
   // Groupe les lignes par zone

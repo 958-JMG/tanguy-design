@@ -95,4 +95,73 @@ function descriptionCourte(zones, maxLongueur = 120) {
   return descriptionDevis(zones, { separateur: ' · ', maxLongueur }).texte;
 }
 
-module.exports = { CHAMPS_DETAIL, zonePrincipale, titreZone, detailsZone, descriptionDevis, descriptionCourte };
+/**
+ * Liste des LIGNES d'un devis, groupées par zone — pour la description Pennylane.
+ * Demande JMG (2026-09-23) : « la génération du devis dans Pennylane doit reprendre
+ * les lignes du devis dans la description ». PURE et testable (pas d'Airtable).
+ *
+ * @param {Array} lignes - records (ou fields) de « Lignes devis » : Position,
+ *        « Code produit », Désignation, Quantité, Unité, lien Zone.
+ * @param {Array} zones  - records (ou fields, avec id) de « Zones devis » : Nom zone,
+ *        Marque, Modèle, Ordre. Sert à titrer et ordonner les groupes.
+ * @param {{ max?: number }} [opts] - longueur cible (défaut 900, marge sous le cap
+ *        Pennylane de 1000). Au-delà on TRONQUE et on l'annonce (jamais de coupe muette).
+ * @returns {{ texte:string, total:number, inclus:number, tronque:boolean, vide:boolean }}
+ */
+function lignesDevisTexte(lignes, zones, { max = 900 } = {}) {
+  const L = (lignes || []).map(l => (l && l.fields) ? { ...l.fields, _id: l.id } : l).filter(Boolean);
+  const Z = (zones || []).map(z => (z && z.fields) ? { ...z.fields, _id: z.id } : z).filter(Boolean);
+  const zoneById = new Map(Z.map(z => [z._id, z]));
+  const ordreZone = z => (z && z.Ordre != null) ? z.Ordre : 999;
+
+  // Lignes triées par Position (numérique-aware), puis groupées par zone.
+  L.sort((a, b) => String(a.Position ?? '').localeCompare(String(b.Position ?? ''), 'fr', { numeric: true }));
+  const groupes = new Map(); // zoneId | '' → lignes[]
+  for (const l of L) {
+    const zid = (Array.isArray(l.Zone) ? l.Zone[0] : l.Zone) || '';
+    if (!groupes.has(zid)) groupes.set(zid, []);
+    groupes.get(zid).push(l);
+  }
+  const ordreZid = zid => zid ? ordreZone(zoneById.get(zid)) : 1000; // hors zone en dernier
+  const zids = [...groupes.keys()].sort((a, b) => ordreZid(a) - ordreZid(b));
+
+  const titreGroupe = zid => {
+    if (!zid) return 'Hors ensemble';
+    const z = zoneById.get(zid);
+    return (z && (z['Nom zone'] || [z.Marque, z.Modèle].filter(Boolean).join(' — '))) || 'Ensemble';
+  };
+  const ligneTexte = l => {
+    const libelle = [String(l['Code produit'] || '').trim(), String(l['Désignation'] || '').trim()]
+      .filter(Boolean).join(' ') || '(sans libellé)';
+    const q = l['Quantité'];
+    const unite = String(l['Unité'] || '').trim();
+    const qte = (q != null && q !== '')
+      ? ` (×${Number(q).toLocaleString('fr-FR', { maximumFractionDigits: 4 })}${unite ? ' ' + unite : ''})`
+      : '';
+    return `- ${libelle}${qte}`;
+  };
+
+  const total = L.length;
+  const out = [];
+  let inclus = 0, tronque = false, len = 0;
+  const fits = s => (len + s.length + 1) <= max;
+  outer:
+  for (const zid of zids) {
+    const entete = `[${titreGroupe(zid)}]`;
+    if (!fits(entete)) { tronque = true; break; }
+    out.push(entete); len += entete.length + 1;
+    for (const l of groupes.get(zid)) {
+      const t = ligneTexte(l);
+      if (!fits(t)) { tronque = true; break outer; }
+      out.push(t); len += t.length + 1; inclus++;
+    }
+  }
+  if (tronque && inclus < total) {
+    const reste = total - inclus;
+    out.push(`… (+${reste} ligne${reste > 1 ? 's' : ''}, détail complet sur le devis Tanguy)`);
+  }
+  const texte = out.join('\n');
+  return { texte, total, inclus, tronque, vide: texte.trim() === '' };
+}
+
+module.exports = { CHAMPS_DETAIL, zonePrincipale, titreZone, detailsZone, descriptionDevis, descriptionCourte, lignesDevisTexte };

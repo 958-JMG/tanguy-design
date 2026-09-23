@@ -4,6 +4,7 @@
 import { state } from '../core/state.js';
 import { navigateTo } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
+import { COLUMNS as PIPELINE_COLUMNS, projetColumn } from './pipeline.js';
 
 function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 
@@ -64,13 +65,7 @@ const URGENCE_LABEL = {
   normal:  d => d != null ? `dans ${d} j` : '',
 };
 
-const PHASES = [
-  { key: 'Découverte',          icon: 'compass', pct: 0 },
-  { key: 'Dessin',              icon: 'pencil',  pct: 25 },
-  { key: 'Présentation devis',  icon: 'file',    pct: 50 },
-  { key: 'En attente décision', icon: 'clock',   pct: 75 },
-  { key: 'Signé',               icon: 'check',   pct: 100 },
-];
+// Le modèle de phases (funnel) vient de pipeline.js (COLUMNS) — une seule source.
 
 const euros = n => (n == null || isNaN(n)) ? '—' : Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 
@@ -110,12 +105,17 @@ export async function renderDashboard(app) {
   // Si la moyenne brute > 1, c'est qu'on est en notation pourcent entier → ne pas re-multiplier
   const margeAvgPct = margeAvgRaw > 1 ? margeAvgRaw : margeAvgRaw * 100;
 
-  // Compteurs par phase (fallback Statut legacy si Phase commerciale absente)
-  const countByPhase = {};
-  for (const p of projets) {
-    const phase = p['Phase commerciale'] || mapLegacyStatut(p.Statut);
-    countByPhase[phase] = (countByPhase[phase] || 0) + 1;
+  // Compteurs par COLONNE — même modèle que le pipeline (Signé prolongé en pose).
+  // Board-éligibles seulement : on exclut les archivés et les refusés, exactement
+  // comme la vue Pipeline, pour que le funnel et le Kanban donnent les mêmes chiffres.
+  const boardProjets = projets.filter(p =>
+    (p['Statut chantier'] || '') !== 'Archivé' && projetColumn(p) !== 'Refus');
+  const countByCol = {};
+  for (const p of boardProjets) {
+    const col = projetColumn(p);
+    countByCol[col] = (countByCol[col] || 0) + 1;
   }
+  const anyRealPhase = projets.some(p => p['Phase commerciale']);
 
   // Alertes simples
   const alertes = [];
@@ -157,18 +157,18 @@ export async function renderDashboard(app) {
       <p class="muted">Chargement des tâches…</p>
     </div>
 
-    <h2 class="section-title">Pipeline commercial</h2>
-    <div class="funnel">
-      ${PHASES.map(p => `
-        <button class="funnel-step" data-phase="${p.key}" onclick="window.navigateTo('pipeline')">
+    <h2 class="section-title">Pipeline commercial et pose</h2>
+    <div class="funnel funnel--pose">
+      ${PIPELINE_COLUMNS.map(p => `
+        <button class="funnel-step${p.pose ? ' funnel-step--pose' : ''}" data-phase="${esc(p.key)}" onclick="window.navigateTo('pipeline')">
           <div class="funnel-icon">${icon(p.icon, 24)}</div>
-          <div class="funnel-count">${countByPhase[p.key] || 0}</div>
-          <div class="funnel-name">${p.key}</div>
-          <div class="funnel-pct">${p.pct}%</div>
+          <div class="funnel-count">${countByCol[p.key] || 0}</div>
+          <div class="funnel-name">${esc(p.short || p.key)}</div>
+          <div class="funnel-pct">${p.pose && p.key !== 'Signé' ? 'chantier' : p.pct + '%'}</div>
         </button>
       `).join('')}
     </div>
-    ${!Object.keys(countByPhase).some(k => k && PHASES.find(p => p.key === k))
+    ${!anyRealPhase
       ? `<p class="muted muted-with-icon" style="margin-top:8px">${icon('alert', 14)} Migration Airtable v3 non appliquée : compteurs basés sur Statut legacy. Lance <code>node scripts/setup-fields-v3.js --apply</code> pour activer Phase commerciale.</p>`
       : ''}
 

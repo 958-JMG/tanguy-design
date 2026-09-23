@@ -5,7 +5,7 @@
  */
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { zonePrincipale, titreZone, detailsZone, descriptionDevis, descriptionCourte } = require('./description-devis-helper');
+const { zonePrincipale, titreZone, detailsZone, descriptionDevis, descriptionCourte, lignesDevisTexte } = require('./description-devis-helper');
 
 const ZONES = [
   { id: 'z2', fields: { Ordre: 2, Marque: 'Autre', 'Modèle': 'Secondaire' } },
@@ -76,5 +76,54 @@ describe('descriptionDevis()', () => {
     const c = descriptionCourte(ZONES);
     assert.doesNotMatch(c, /\n/);
     assert.match(c, /Novamobili — Night · /);
+  });
+});
+
+describe('lignesDevisTexte() — lignes du devis pour la description Pennylane', () => {
+  const ZONES = [
+    { id: 'z1', fields: { Ordre: 1, 'Nom zone': 'Cuisine', Marque: 'Schmidt' } },
+    { id: 'z2', fields: { Ordre: 2, 'Nom zone': 'Cellier' } },
+  ];
+  const LIGNES = [
+    { id: 'l3', fields: { Position: '10', 'Code produit': 'C1', Désignation: 'Caisson bas 60', Quantité: 2, Unité: 'u', Zone: ['z1'] } },
+    { id: 'l1', fields: { Position: '2',  'Code produit': 'P1', Désignation: 'Plan de travail', Quantité: 1, Zone: ['z1'] } },
+    { id: 'l2', fields: { Position: '5',  Désignation: 'Étagère', Zone: ['z2'] } },
+    { id: 'l4', fields: { Position: '9',  'Code produit': 'X9', Désignation: 'Divers' } }, // hors zone
+  ];
+
+  test('groupe par zone (ordre zone), trie par Position, hors-zone en dernier', () => {
+    const { texte, total, tronque } = lignesDevisTexte(LIGNES, ZONES);
+    assert.equal(total, 4);
+    assert.equal(tronque, false);
+    const lignes = texte.split('\n');
+    assert.deepEqual(lignes, [
+      '[Cuisine]',
+      '- P1 Plan de travail (×1)',   // Position 2 avant 10
+      '- C1 Caisson bas 60 (×2 u)',
+      '[Cellier]',
+      '- Étagère',                    // sans code ni quantité
+      '[Hors ensemble]',
+      '- X9 Divers',
+    ]);
+  });
+
+  test('tronque proprement et ANNONCE le reste (jamais de coupe muette)', () => {
+    const many = Array.from({ length: 40 }, (_, i) => ({ id: 'm' + i, fields: { Position: String(i), Désignation: 'Article ' + i, Zone: ['z1'] } }));
+    const { texte, tronque, inclus, total } = lignesDevisTexte(many, ZONES, { max: 120 });
+    assert.equal(total, 40);
+    assert.equal(tronque, true);
+    assert.ok(inclus < total);
+    assert.match(texte, new RegExp(`\\+${total - inclus} lignes`));
+    assert.ok(texte.length <= 200);
+  });
+
+  test('aucune ligne → vide', () => {
+    assert.equal(lignesDevisTexte([], ZONES).vide, true);
+  });
+
+  test('accepte des fields nus (sans wrapper .fields)', () => {
+    const { texte } = lignesDevisTexte(
+      [{ Position: '1', Désignation: 'Direct', Zone: ['z1'] }], ZONES);
+    assert.match(texte, /\[Cuisine\]\n- Direct/);
   });
 });
