@@ -101,6 +101,17 @@ export async function renderAide(app) {
         <h2 class="section-title" id="guide-pages-title">L’aide, page par page</h2>
         <div class="guide-pages">${pagesHtml}</div>
       </section>
+
+      ${state.isAdmin ? `
+      <section aria-labelledby="guide-export-title" style="margin-top:32px">
+        <h2 class="section-title" id="guide-export-title">${icon('download', 18)} Exporter mes données <span class="badge">Réversibilité</span></h2>
+        <div class="card">
+          <p class="muted">Vos données vous appartiennent. Créez un ZIP complet du cockpit (toutes les tables en JSON + CSV) avec votre document de réversibilité. Le lien de téléchargement est sécurisé et valable 24 h, chaque export est tracé.</p>
+          <p><button type="button" class="btn btn-primary" id="export-run">${icon('download', 15)} Exporter tout le cockpit</button></p>
+          <p class="muted" id="export-msg" style="display:none"></p>
+          <div id="export-list"></div>
+        </div>
+      </section>` : ''}
     </div>
   `;
 
@@ -110,4 +121,58 @@ export async function renderAide(app) {
     await renderAide(app);
     window.scrollTo(0, scrollY);
   });
+
+  if (state.isAdmin) bindExport(app);
+}
+
+// --- Export / réversibilité (admin) --------------------------------------
+function fdate(s) { if (!s) return '—'; const d = new Date(s); return isNaN(d) ? '—' : d.toLocaleDateString('fr-FR'); }
+function fdatetime(s) { if (!s) return '—'; const d = new Date(s); return isNaN(d) ? '—' : d.toLocaleString('fr-FR'); }
+
+async function bindExport(app) {
+  const runBtn = app.querySelector('#export-run');
+  const msg = app.querySelector('#export-msg');
+  const list = app.querySelector('#export-list');
+  if (!runBtn) return;
+
+  function say(t) { msg.style.display = 'block'; msg.textContent = t; }
+
+  async function refresh() {
+    let j;
+    try { j = await (await fetch('/api/export')).json(); } catch { return; }
+    const items = (j && j.exports) || [];
+    if (!items.length) { list.innerHTML = ''; return; }
+    list.innerHTML = items.map(e => {
+      const etat = e.revoque ? 'Révoqué' : (e.expire ? 'Lien expiré' : `Valable jusqu’au ${fdatetime(e.expire_le)}`);
+      const dl = e.telecharge_le ? ` · téléchargé le ${fdate(e.telecharge_le)}` : '';
+      const ko = Math.max(1, Math.round((e.taille || 0) / 1024));
+      const actions = e.expire ? '' :
+        `<a class="btn btn-ghost btn-sm" href="/export/${encodeURIComponent(e.token)}/telecharger">${icon('download', 13)} Télécharger</a> ` +
+        `<button type="button" class="btn btn-ghost btn-sm" data-export-revoke="${esc(e.token)}">${icon('trash', 13)} Révoquer</button>`;
+      return `<div style="padding:11px 0;border-top:1px solid var(--border,#eee)">
+        <div><strong>Export du ${fdate(e.cree_le)}</strong></div>
+        <div class="muted" style="font-size:13px;margin:2px 0 8px">${e.nb_tables} tables · ${e.nb_lignes} lignes · ${ko} Ko · ${esc(etat)}${dl}</div>
+        <div>${actions}</div>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('[data-export-revoke]').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('Révoquer ce lien ? Il ne sera plus téléchargeable.')) return;
+      await fetch(`/api/export/${b.dataset.exportRevoke}/revoquer`, { method: 'POST' });
+      refresh();
+    }));
+  }
+
+  runBtn.addEventListener('click', async () => {
+    runBtn.disabled = true; const t0 = runBtn.textContent; runBtn.textContent = 'Création…';
+    try {
+      // La route POST /api/export répond via withKeepAlive (espaces + JSON) → on parse le texte.
+      const txt = await (await fetch('/api/export', { method: 'POST' })).text();
+      const j = JSON.parse(txt);
+      if (j.ok) say(`Export prêt : ${j.stats.tables} tables, ${j.stats.lignes} lignes. Le lien est valable 24 h.`);
+      else say(`Échec : ${j.error || 'inconnu'}`);
+    } catch (e) { say(`Échec : ${e.message}`); }
+    runBtn.disabled = false; runBtn.textContent = t0; refresh();
+  });
+
+  refresh();
 }
