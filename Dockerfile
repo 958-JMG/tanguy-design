@@ -5,14 +5,14 @@
 # ================================================================
 
 # ----- Stage 1 : dependencies --------------------------------------
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json* ./
-RUN npm install --prefer-offline --no-audit --no-fund --omit=dev
+RUN npm ci --no-audit --no-fund --omit=dev
 
 # ----- Stage 2 : runtime -------------------------------------------
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 # Libs pour bcrypt natif
