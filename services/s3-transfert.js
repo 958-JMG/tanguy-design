@@ -174,6 +174,44 @@ async function deleteFromTransfert(key) {
   logger.info({ key, bucket: c.bucket }, '[s3-transfert] objet supprimé');
 }
 
+// --- Helpers objets génériques (utilisés par l'export/réversibilité) -------
+/** Écrit un objet à une clé EXACTE (pas de préfixe attachments/). */
+async function putObject(key, body, contentType = 'application/octet-stream') {
+  const { PutObjectCommand } = require('@aws-sdk/client-s3');
+  const c = getConfig();
+  await getClient().send(new PutObjectCommand({ Bucket: c.bucket, Key: key, Body: body, ContentType: contentType }));
+  return { key };
+}
+
+/** Lit un objet en Buffer, ou null s'il n'existe pas. */
+async function getObject(key) {
+  const { GetObjectCommand } = require('@aws-sdk/client-s3');
+  const c = getConfig();
+  try {
+    const r = await getClient().send(new GetObjectCommand({ Bucket: c.bucket, Key: key }));
+    const chunks = [];
+    for await (const ch of r.Body) chunks.push(ch);
+    return Buffer.concat(chunks);
+  } catch (e) {
+    if (e && (e.name === 'NoSuchKey' || e.$metadata?.httpStatusCode === 404)) return null;
+    throw e;
+  }
+}
+
+/** Liste les clés sous un préfixe (paginé). */
+async function listKeys(prefix) {
+  const { ListObjectsV2Command } = require('@aws-sdk/client-s3');
+  const c = getConfig();
+  const out = [];
+  let token;
+  do {
+    const r = await getClient().send(new ListObjectsV2Command({ Bucket: c.bucket, Prefix: prefix, ContinuationToken: token }));
+    for (const o of (r.Contents || [])) out.push(o.Key);
+    token = r.IsTruncated ? r.NextContinuationToken : undefined;
+  } while (token);
+  return out;
+}
+
 // Pour les tests : reset du client (les env changent entre tests).
 function _resetClient() { s3Client = null; }
 
@@ -185,5 +223,8 @@ module.exports = {
   presignGetRaw,
   makeKey,
   PRESIGN_EXPIRES_S,
+  putObject,
+  getObject,
+  listKeys,
   _resetClient,
 };

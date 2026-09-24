@@ -40,6 +40,7 @@ const { canAccess, pickAllowedFields } = require('./services/acl');
 const logger = require('./services/logger');
 const usersStore = require('./services/users-store');
 const s3Transfert = require('./services/s3-transfert');
+const exportService = require('./services/export');   // export / réversibilité : ZIP des données Airtable, remis par lien signé
 const totp = require('./services/totp');
 
 const app = express();
@@ -711,6 +712,39 @@ app.get('/api/retro-apporteurs', requireAuth, requireAdmin, async (req, res) => 
 // Claude (claude-sonnet-4-5) une synthèse + 5 suggestions actionnables. Admin only.
 // (Grand nettoyage 2026-06-07 : requireAdmin était redéfini ici à l'identique —
 // doublon supprimé, on utilise la définition RC Pro 2026 plus haut.)
+// --- Export / réversibilité : le cockpit produit un ZIP complet de ses données ---
+// À côté de l'Aide (réservé aux admins). Le ZIP (toutes les tables Airtable en
+// JSON+CSV + kit de réversibilité) est déposé en S3 et remis par un lien SIGNÉ
+// valable 24 h, tracé (sidecar JSON) et révocable. Les secrets (Hash bcrypt,
+// TOTP secret…) sont retirés. Le code source n'y est jamais (cf services/export.js).
+app.post('/api/export', requireAuth, requireAdmin, async (req, res) => {
+  if (!s3Transfert.isConfigured()) return res.status(503).json({ error: 'stockage S3 non configuré (S3_TRANSFERT_BUCKET / clés)' });
+  await withKeepAlive(req, res, async () => {
+    const out = await exportService.createExport({ cabinet: 'Tanguy Design' });
+    logger.info({ token: out.token, ...out.stats }, '[export] créé');
+    return { ok: true, ...out };
+  });
+});
+app.get('/api/export', requireAuth, requireAdmin, async (_req, res) => {
+  try { res.json({ ok: true, exports: await exportService.listExports() }); }
+  catch (e) { res.status(502).json({ error: e.message }); }
+});
+app.get('/export/:token/telecharger', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const r = await exportService.getForDownload(req.params.token);
+    if (r.missing) return res.status(404).send("Lien d'export inconnu.");
+    if (r.gone) return res.status(410).send("Ce lien d'export a expiré ou a été révoqué. Relancez un export depuis l'écran Aide.");
+    res.set('Content-Type', 'application/zip');
+    res.set('Content-Disposition', `attachment; filename="${r.filename}"`);
+    res.set('Content-Length', String(r.buffer.length));
+    res.end(r.buffer);
+  } catch (e) { logger.error({ err: e.message }, '[export] download KO'); res.status(502).send('Erreur : ' + e.message); }
+});
+app.post('/api/export/:token/revoquer', requireAuth, requireAdmin, async (req, res) => {
+  try { await exportService.revoke(req.params.token); res.json({ ok: true }); }
+  catch (e) { res.status(502).json({ error: e.message }); }
+});
+
 app.get('/api/admin/ai-suggestions', requireAuth, requireAdmin, async (req, res) => {
   if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY non configurée' });
   await withKeepAlive(req, res, async () => {
