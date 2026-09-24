@@ -40,6 +40,7 @@ const { canAccess, pickAllowedFields } = require('./services/acl');
 const logger = require('./services/logger');
 const usersStore = require('./services/users-store');
 const s3Transfert = require('./services/s3-transfert');
+const { nomFichier } = require('./services/nom-fichier');   // nom d'un fichier reçu, accents réparés : jamais le nom brut de multer en direct
 const exportService = require('./services/export');   // export / réversibilité : ZIP des données Airtable, remis par lien signé
 const totp = require('./services/totp');
 
@@ -2006,7 +2007,7 @@ app.post('/api/devis-fournisseur/parse', requireAdmin, upload.single('pdf'), asy
 
   await withKeepAlive(req, res, async () => {
     const t0 = Date.now();
-    logger.info(`[devis-fournisseur/parse] START ${req.file.originalname} (${req.file.size} bytes)`);
+    logger.info(`[devis-fournisseur/parse] START ${nomFichier(req.file)} (${req.file.size} bytes)`);
     const parsed = await parseDevisFournisseurPdf(req.file.buffer);
     logger.info(`[devis-fournisseur/parse] ✓ parsed in ${Date.now() - t0}ms: ${parsed?.fournisseur?.type_detecte || '?'}, total_ht=${parsed?.totaux?.total_ht}`);
 
@@ -2158,7 +2159,7 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
     }
 
     const t0 = Date.now();
-    logger.info(`[devis/import] START parsing ${req.file.originalname} (${req.file.size} bytes, type=${typeDevis}, projetId=${projetId||'auto'})`);
+    logger.info(`[devis/import] START parsing ${nomFichier(req.file)} (${req.file.size} bytes, type=${typeDevis}, projetId=${projetId||'auto'})`);
     const parsed = await parseDevisPdf(req.file.buffer);
     const tParse = Date.now() - t0;
     logger.info(`[devis/import] ✓ parsed in ${tParse}ms: ${parsed.lignes?.length || 0} lignes, ${parsed.zones?.length || 0} zones, ${parsed.echeances?.length || 0} échéances`);
@@ -3086,7 +3087,7 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
 
   // withKeepAlive — parser un PDF artisan via Claude peut prendre 60-120s
   await withKeepAlive(req, res, async () => {
-    logger.info(`[artisan-devis/import] parsing ${req.file.originalname} (${req.file.size} bytes)`);
+    logger.info(`[artisan-devis/import] parsing ${nomFichier(req.file)} (${req.file.size} bytes)`);
     const parsed = await parseArtisanDevisPdf(req.file.buffer);
     logger.info(`[artisan-devis/import] ✓ parsed: ${parsed.artisan?.entreprise} / ${euros(parsed.totaux?.total_ht)}`);
 
@@ -3141,7 +3142,7 @@ app.post('/api/artisan-devis/import', requireAuth, upload.single('pdf'), async (
 
     // Upload du PDF original en attachment
     try {
-      await atUploadAttachment(recordId, DA_FIELDS.pdfOriginal, req.file.buffer, req.file.originalname || 'devis-artisan.pdf');
+      await atUploadAttachment(recordId, DA_FIELDS.pdfOriginal, req.file.buffer, nomFichier(req.file) || 'devis-artisan.pdf');
       logger.info(`[artisan-devis/import] PDF attaché au record ${recordId}`);
     } catch (e) {
       logger.warn(`[artisan-devis/import] upload PDF échoué (record créé quand même): ${e.message}`);
@@ -3683,14 +3684,15 @@ app.post('/api/projets/:id/attachments', requireAuth, uploadSingleWithLimit('fil
     return res.status(400).json({ error: `field invalide (attendu: ${Object.keys(PROJET_ATTACHMENT_FIELDS).join(', ')})` });
   }
   const size = req.file.size;
+  const filename = nomFichier(req.file);
 
   // ── Chemin historique (≤ 5 Mo) : upload direct Airtable, INCHANGÉ ──
   if (size <= AIRTABLE_DIRECT_LIMIT) {
     try {
       const fieldId = await resolveProjetFieldId(field);
       const ct = req.file.mimetype || 'application/octet-stream';
-      await atUploadAttachment(projetId, fieldId, req.file.buffer, req.file.originalname, ct);
-      res.json({ ok: true, filename: req.file.originalname });
+      await atUploadAttachment(projetId, fieldId, req.file.buffer, filename, ct);
+      res.json({ ok: true, filename });
     } catch (e) {
       logger.error('[projets/upload] error:', e);
       res.status(500).json({ error: e.message });
@@ -3706,7 +3708,6 @@ app.post('/api/projets/:id/attachments', requireAuth, uploadSingleWithLimit('fil
       limitMo: 5,
     });
   }
-  const filename = req.file.originalname;
   let s3Key = null;
   try {
     await resolveProjetFieldId(field); // vérifie que le champ existe côté Airtable
@@ -4242,7 +4243,7 @@ app.post('/api/factures-fournisseurs/import', requireAdmin, upload.single('pdf')
 
     // Attache le PDF original (limite 5 MB content API)
     if (req.file.buffer.length <= 5 * 1024 * 1024) {
-      await atUploadAttachment(created.id, FF_FIELDS.pdf, req.file.buffer, req.file.originalname || `${numero}.pdf`)
+      await atUploadAttachment(created.id, FF_FIELDS.pdf, req.file.buffer, nomFichier(req.file) || `${numero}.pdf`)
         .catch(err => logger.warn({ err: err.message }, '[factures-fournisseurs] upload PDF échoué'));
     }
     logger.info({ numero, fournisseur: fournisseur?.fields['Nom'], commande: commande?.fields['Numéro'], ecart }, '[factures-fournisseurs] importée');
@@ -4818,7 +4819,7 @@ app.post('/api/poseur/chantiers/:id/photos', requireAuth, requirePoseur, uploadI
   try {
     const login = String(req.session.user).toLowerCase();
     const fieldId = await resolveProjetFieldId('Images');
-    const safe = (req.file.originalname || 'photo.jpg').replace(/[^\w.\-]+/g, '_').slice(-60);
+    const safe = (nomFichier(req.file) || 'photo.jpg').replace(/[^\w.\-]+/g, '_').slice(-60);
     const filename = `${POSEUR_TAG(login)}${Date.now()}__${safe}`;
     await atUploadAttachment(req.params.id, fieldId, req.file.buffer, filename, req.file.mimetype);
     logger.info(`[poseur] photo ajoutée par ${login} au chantier ${req.params.id}`);
