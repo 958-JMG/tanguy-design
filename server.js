@@ -296,8 +296,15 @@ app.use(session({
   // verra une page non-authentifiée (cookie pas envoyé sur la 1re requête). Acceptable ici (cockpit interne).
   sameSite: 'strict',
   secure: IS_PROD, // HTTPS only en prod
-  maxAge: 1000 * 60 * 60 * 24 * 30
+  maxAge: 1000 * 60 * 60 * 24 * 90 // 90 j : app installée sur l'écran d'accueil, plus de reconnexion permanente
 }));
+
+// App iPhone (PWA) : manifest + icônes servis à la racine, PUBLICS (iOS les récupère sans session).
+app.get('/manifest.webmanifest', (req, res) => { res.type('application/manifest+json'); res.sendFile(path.join(__dirname, 'public', 'manifest.webmanifest')); });
+app.get('/apple-touch-icon.png', (req, res) => res.sendFile(path.join(__dirname, 'public', 'img', 'apple-touch-icon.png')));
+app.get('/apple-touch-icon-precomposed.png', (req, res) => res.sendFile(path.join(__dirname, 'public', 'img', 'apple-touch-icon.png')));
+app.get('/icon-192.png', (req, res) => res.sendFile(path.join(__dirname, 'public', 'img', 'icon-192.png')));
+app.get('/icon-512.png', (req, res) => res.sendFile(path.join(__dirname, 'public', 'img', 'icon-512.png')));
 
 function requireAuth(req, res, next) {
   if (req.session && req.session.user) return next();
