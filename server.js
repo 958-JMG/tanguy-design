@@ -9,6 +9,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const pinoHttp = require('pino-http');
 const { parseDevisPdf, parsePlaudTranscript } = require('./services/devis-parser');
+const { sonderConnecteurs } = require('./services/sonde-connecteurs');
 const { parseArtisanDevisPdf } = require('./services/artisan-devis-parser');
 const { generateFicheMission } = require('./services/fiche-mission-generator');
 const { generateBcPdf } = require('./services/bc-pdf-generator');
@@ -637,6 +638,19 @@ async function atUploadAttachment(recordId, fieldId, buffer, filename, contentTy
 // Endpoint minimal : pas d'info sensible (users_count, table IDs) pour ne rien révéler aux scans externes.
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'tanguy-design', ts: new Date().toISOString() });
+});
+
+// Santé des CONNECTEURS (au-delà de /api/health qui ne voit que le conteneur).
+// Chaque connecteur (Airtable, IA, Pennylane, Object Storage) est exercé pour de vrai ;
+// 200 = tout vert, 503 = au moins un rouge avec la cause. Public (pas de requireAuth) :
+// lu par la revue du dimanche du hub ; ne renvoie aucun secret ni donnée client.
+app.get('/health/connecteurs', async (_req, res) => {
+  try {
+    const bilan = await sonderConnecteurs();
+    res.status(bilan.global === 'rouge' ? 503 : 200).json(bilan);
+  } catch (e) {
+    res.status(503).json({ global: 'rouge', error: e.message });
+  }
 });
 
 // --- Admin : tableau marges par projet (Sprint 5) ---
