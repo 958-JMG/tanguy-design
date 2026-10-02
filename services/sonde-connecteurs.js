@@ -24,7 +24,42 @@ function classer(status, { vert, cause401 = 'clé/jeton invalide ou expiré', ca
   if (status === 403) return { etat: 'rouge', detail: `403 ${cause403}` };
   if (status === 404) return { etat: 'rouge', detail: `404 ${cause404}` };
   const extrait = (body || '').replace(/\s+/g, ' ').slice(0, 80);
-  return { etat: 'rouge', detail: `HTTP ${status}${extrait ? ' — ' + extrait : ''}` };
+  // Un 5xx vient du fournisseur (pas de notre clé) : transitoire, donc réessayable.
+  return { etat: 'rouge', detail: `HTTP ${status}${extrait ? ' — ' + extrait : ''}`, transitoire: status >= 500 };
+}
+
+// Un échec transitoire (timeout, coupure réseau, 5xx fournisseur) peut disparaître au réessai :
+// ce n'est PAS une clé morte. On réessaie UNE fois avant de peindre un rouge, pour ne jamais
+// crier au loup sur un simple pic de latence (leçon fail2ban / fonts.check qui mentent). Un
+// échec FRANC (401/403/404) n'est jamais réessayé : il est déterministe.
+const RE_TRANSITOIRE = /timeout|etimedout|econnreset|econnrefused|enotfound|eai_again|und_err|epipe|network|fetch failed|socket|aborted/i;
+function estErreurTransitoire(e) {
+  if (!e) return false;
+  if (e.name === 'TimeoutError' || e.name === 'AbortError') return true;
+  const sig = `${e.name || ''} ${e.message || ''} ${e.code || ''} ${(e.cause && e.cause.code) || ''}`;
+  return RE_TRANSITOIRE.test(sig);
+}
+
+// Exécute une sonde, et la rejoue une fois si l'échec est transitoire. ms = dernière tentative.
+// Exporté pour être prouvé par un test qui sait échouer.
+async function sonderAvecReessai(fn, arg, { tentatives = 2, delai = 800 } = {}) {
+  let out, ms = 0;
+  for (let i = 0; i < tentatives; i++) {
+    const t0 = Date.now();
+    let transitoire = false;
+    try {
+      out = await fn(arg);
+      transitoire = out && out.etat === 'rouge' && out.transitoire === true;
+    } catch (e) {
+      transitoire = estErreurTransitoire(e);
+      out = { etat: 'rouge', detail: (e.name === 'TimeoutError' || e.name === 'AbortError') ? 'injoignable (timeout)' : (e.message || 'échec inattendu').slice(0, 100) };
+    }
+    ms = Date.now() - t0;
+    if (out.etat !== 'rouge' || !transitoire || i === tentatives - 1) break;
+    await new Promise((r) => setTimeout(r, delai));
+  }
+  if (out && 'transitoire' in out) delete out.transitoire;
+  return { out, ms };
 }
 
 const SONDES = {
@@ -103,14 +138,11 @@ const LIBELLE = {
 
 async function sonderConnecteurs() {
   const resultats = await Promise.all(ORDRE.map(async (cle) => {
-    const t0 = Date.now();
-    let out;
-    try { out = await SONDES[cle](); }
-    catch (e) { out = { etat: 'rouge', detail: e.name === 'TimeoutError' ? 'injoignable (timeout)' : (e.message || 'échec inattendu').slice(0, 100) }; }
-    return { cle, nom: LIBELLE[cle] || cle, etat: out.etat, detail: out.detail, ms: Date.now() - t0 };
+    const { out, ms } = await sonderAvecReessai(SONDES[cle]);
+    return { cle, nom: LIBELLE[cle] || cle, etat: out.etat, detail: out.detail, ms };
   }));
   const global = resultats.some(r => r.etat === 'rouge') ? 'rouge' : 'vert';
   return { global, genere_a: new Date().toISOString(), connecteurs: resultats };
 }
 
-module.exports = { sonderConnecteurs, classer, ORDRE, LIBELLE };
+module.exports = { sonderConnecteurs, sonderAvecReessai, classer, ORDRE, LIBELLE };

@@ -5,7 +5,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { sonderConnecteurs, classer, ORDRE } = require('./sonde-connecteurs');
+const { sonderConnecteurs, sonderAvecReessai, classer, ORDRE } = require('./sonde-connecteurs');
+
+const timeoutErr = () => Object.assign(new Error('The operation was aborted'), { name: 'TimeoutError' });
 
 const ENV_CLES = [
   'AIRTABLE_BASE_ID', 'AIRTABLE_KEY', 'AI_PROVIDER', 'ANTHROPIC_API_KEY', 'MISTRAL_API_KEY',
@@ -33,6 +35,43 @@ test('classer traduit les codes HTTP en états', () => {
   assert.equal(r500.etat, 'rouge');
   assert.match(r500.detail, /500/);
   assert.match(r500.detail, /boom interne/);
+});
+
+// Le réessai ne doit JAMAIS peindre un faux rouge sur un pic transitoire (leçon fail2ban /
+// fonts.check), ni cacher un vrai rouge franc, ni ralentir un rouge déterministe par un réessai inutile.
+test('réessai : un blip (timeout puis OK) est absorbé en vert', async () => {
+  let appels = 0;
+  const fn = async () => { appels++; if (appels === 1) throw timeoutErr(); return { etat: 'vert', detail: 'OK' }; };
+  const { out } = await sonderAvecReessai(fn, undefined, { delai: 0 });
+  assert.equal(out.etat, 'vert');
+  assert.equal(appels, 2, 'doit avoir réessayé une fois');
+});
+
+test('réessai : un 5xx transitoire puis OK est absorbé en vert', async () => {
+  let appels = 0;
+  const fn = async () => { appels++; return appels === 1 ? classer(503, { vert: 'OK' }) : { etat: 'vert', detail: 'OK' }; };
+  const { out } = await sonderAvecReessai(fn, undefined, { delai: 0 });
+  assert.equal(out.etat, 'vert');
+  assert.equal(appels, 2);
+});
+
+test('réessai : un timeout persistant reste rouge (après 2 tentatives)', async () => {
+  let appels = 0;
+  const fn = async () => { appels++; throw timeoutErr(); };
+  const { out } = await sonderAvecReessai(fn, undefined, { delai: 0 });
+  assert.equal(out.etat, 'rouge');
+  assert.match(out.detail, /timeout/);
+  assert.equal(appels, 2);
+  assert.ok(!('transitoire' in out), 'le flag interne ne fuit pas en sortie');
+});
+
+test('réessai : un 401 franc reste rouge SANS réessai (déterministe)', async () => {
+  let appels = 0;
+  const fn = async () => { appels++; return classer(401, { vert: 'OK' }); };
+  const { out } = await sonderAvecReessai(fn, undefined, { delai: 0 });
+  assert.equal(out.etat, 'rouge');
+  assert.match(out.detail, /401/);
+  assert.equal(appels, 1, 'un échec franc ne se réessaie pas');
 });
 
 test('sans clé ni réseau : toutes les sondes sont absentes et le contrat tient', async () => {
