@@ -10,6 +10,7 @@ import {
   pushDevisToPennylane, pennylanePdfUrl,
   pushEcheancesFactures, echeancePdfUrl,
   fetchDevisGeneres, supprimerDevisGeneres,
+  calculEcoContribution, fetchEcoReferentiel,
 } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 
@@ -116,6 +117,21 @@ function renderFiche(app, data) {
       <div class="kpi-card"><div class="kpi-value">${euros(f['Total TTC'])}</div><div class="kpi-label">Total TTC</div></div>
     </div>
 
+    <!-- Éco-participation (dont, hors CA) -->
+    <div class="card" id="eco-card" style="margin-bottom:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:600;display:flex;align-items:center;gap:6px">${icon('leaf', 15)} Éco-participation</div>
+          <div class="muted" style="font-size:12px;margin-top:2px">Comprise dans le prix (« dont »), sortie du chiffre d'affaires au moment du brouillon Pennylane. Mobilier + électroménager.</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <input id="eco-input" type="number" step="0.01" min="0" inputmode="decimal" value="${f['Éco-participation'] != null ? esc(f['Éco-participation']) : ''}" placeholder="0,00" aria-label="Montant éco-participation TTC" style="width:110px;text-align:right;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r-sm)"> € TTC
+          <button class="btn btn-ghost btn-sm" id="btn-eco-save">${icon('check', 14)} Enregistrer</button>
+          <button class="btn btn-ghost btn-sm" id="btn-eco-calc">${icon('calculator', 14)} Calculer depuis les dimensions</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Lignes par zone -->
     <section class="projet-section" aria-label="Lignes du devis">
       <div class="projet-section-header">
@@ -185,6 +201,24 @@ function renderFiche(app, data) {
     if (ok) pennylaneFlow(devis, { force: true });
   });
   document.getElementById('btn-pennylane-echeances')?.addEventListener('click', () => pennylaneEcheancesFlow(devis));
+
+  // Éco-participation : enregistrer le montant saisi, ou l'obtenir depuis les dimensions.
+  document.getElementById('btn-eco-save')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-eco-save');
+    const raw = (document.getElementById('eco-input')?.value || '').trim().replace(',', '.');
+    const val = raw === '' ? 0 : Number(raw);
+    if (!Number.isFinite(val) || val < 0) { toast('Montant d\'éco-participation invalide', 'error'); return; }
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Enregistrement…'; }
+    try {
+      await patchDevis(devis.id, { 'Éco-participation': val });
+      toast('Éco-participation enregistrée', 'success');
+      renderDevis(document.getElementById('app'), devis.id);
+    } catch (err) {
+      toast('Erreur : ' + err.message, 'error', 5000);
+      if (btn) { btn.disabled = false; btn.innerHTML = 'Enregistrer'; }
+    }
+  });
+  document.getElementById('btn-eco-calc')?.addEventListener('click', () => openEcoCalculModal(devis));
 }
 
 // Génère les factures brouillon d'échéance dans Pennylane (acompte/livraison/solde).
@@ -601,4 +635,112 @@ async function signFlow(devis, projet) {
     toast('Erreur signature : ' + err.message, 'error', 7000);
     if (btn) { btn.disabled = false; btn.innerHTML = '<span>Signer ce devis</span>'; }
   }
+}
+
+// ── Calculateur d'éco-contribution mobilier (barème Ecomaison 2026, poids estimé) ──
+// Formulaire de pièces (type, dimensions, classe matière). Appelle le barème serveur
+// (source unique, services/eco-contribution-2026.js) et propose de reporter le total
+// TTC dans la case Éco-participation. Virginie ajoute l'électroménager à la main.
+async function openEcoCalculModal(devis) {
+  const f = devis.fields || {};
+  const tauxTva = f['TVA taux 1 pourcentage'] != null ? Number(f['TVA taux 1 pourcentage']) : 20;
+  let ref;
+  try {
+    ref = await fetchEcoReferentiel();
+  } catch (err) {
+    toast('Impossible de charger le barème éco : ' + err.message, 'error', 6000);
+    return;
+  }
+  const typeOpts = ref.types.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  const matOpts = ref.matieres.map(m => `<option value="${esc(m)}" ${m === ref.matiereDefaut ? 'selected' : ''}>${esc(m)}</option>`).join('');
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-bg';
+  const rowHtml = () => `
+    <tr class="eco-row">
+      <td><input class="eco-desig" placeholder="ex. Bas 60" style="width:100%"></td>
+      <td><select class="eco-type">${typeOpts}</select></td>
+      <td><input class="eco-larg" type="number" min="0" step="1" placeholder="mm" style="width:72px"></td>
+      <td><input class="eco-haut" type="number" min="0" step="1" placeholder="mm" style="width:72px"></td>
+      <td><input class="eco-prof" type="number" min="0" step="1" placeholder="mm" style="width:72px"></td>
+      <td><select class="eco-mat">${matOpts}</select></td>
+      <td><input class="eco-qte" type="number" min="1" step="1" value="1" style="width:52px"></td>
+      <td><button type="button" class="btn btn-ghost btn-sm eco-del" aria-label="Supprimer la pièce">✕</button></td>
+    </tr>`;
+  modal.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" style="max-width:900px">
+      <h2>${icon('calculator', 18)} Éco-contribution mobilier (barème Ecomaison 2026)</h2>
+      <p class="muted" style="font-size:12px;margin-top:-6px">Le poids est estimé depuis les dimensions, puis le tarif HT est lu dans le barème officiel. TVA ${tauxTva} %. L'électroménager se saisit à la main dans la case du devis.</p>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13px" class="eco-table">
+          <thead><tr style="text-align:left;font-size:11px;color:var(--muted)">
+            <th>Désignation</th><th>Type</th><th>Larg.</th><th>Haut.</th><th>Prof.</th><th>Matière</th><th>Qté</th><th></th>
+          </tr></thead>
+          <tbody id="eco-rows">${rowHtml()}</tbody>
+        </table>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm" id="eco-add" style="margin-top:8px">+ Ajouter une pièce</button>
+      <div id="eco-result" style="margin-top:14px"></div>
+      <div class="modal-actions" style="margin-top:16px">
+        <button type="button" class="btn btn-ghost" id="eco-cancel">Fermer</button>
+        <button type="button" class="btn btn-ghost" id="eco-compute">${icon('calculator', 14)} Calculer</button>
+        <button type="button" class="btn btn-primary" id="eco-apply" disabled>Reporter dans la case</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  hydrateIcons(modal);
+  const close = () => modal.remove();
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  modal.querySelector('#eco-cancel').onclick = close;
+  modal.querySelector('#eco-add').onclick = () => {
+    const tb = modal.querySelector('#eco-rows');
+    tb.insertAdjacentHTML('beforeend', rowHtml());
+    hydrateIcons(tb);
+  };
+  modal.querySelector('#eco-rows').addEventListener('click', e => {
+    if (e.target.closest('.eco-del')) {
+      const rows = modal.querySelectorAll('.eco-row');
+      if (rows.length > 1) e.target.closest('.eco-row').remove();
+    }
+  });
+
+  let computedTtc = null;
+  modal.querySelector('#eco-compute').onclick = async () => {
+    const pieces = [...modal.querySelectorAll('.eco-row')].map(r => ({
+      designation: r.querySelector('.eco-desig').value.trim(),
+      type: r.querySelector('.eco-type').value,
+      largeurMm: Number(r.querySelector('.eco-larg').value) || null,
+      hauteurMm: Number(r.querySelector('.eco-haut').value) || null,
+      profondeurMm: Number(r.querySelector('.eco-prof').value) || null,
+      classeMatiere: r.querySelector('.eco-mat').value,
+      quantite: Number(r.querySelector('.eco-qte').value) || 1,
+    }));
+    const box = modal.querySelector('#eco-result');
+    box.innerHTML = '<span class="muted">Calcul…</span>';
+    try {
+      const r = await calculEcoContribution(pieces, tauxTva);
+      computedTtc = r.totalTtc;
+      const incal = r.piecesIncalculables || 0;
+      const avert = (r.avertissements || []);
+      const detail = (r.lignes || []).filter(l => l.totalHt != null)
+        .map(l => `<li>${esc(l.designation || l.type || 'pièce')} : ${l.poidsKg} kg (${esc(l.tranche || '')}) → ${euros(l.ecoHtUnitaire)} HT × ${l.quantite}</li>`).join('');
+      box.innerHTML = `
+        <div class="card" style="background:var(--bg-soft,#f7f7f5)">
+          <div style="font-size:20px;font-weight:700">${euros(r.totalTtc)} TTC <span class="muted" style="font-size:13px;font-weight:400">(${euros(r.totalHt)} HT)</span></div>
+          <div class="muted" style="font-size:12px">${r.piecesCalculees || 0} pièce(s) calculée(s)${incal ? ` · <span style="color:#b45309">${incal} incalculable(s) (dimension manquante)</span>` : ''}</div>
+          ${detail ? `<ul style="font-size:12px;margin:8px 0 0 16px">${detail}</ul>` : ''}
+          ${avert.length ? `<ul style="font-size:12px;color:#b45309;margin:8px 0 0 16px">${avert.map(a => `<li>${esc(a)}</li>`).join('')}</ul>` : ''}
+        </div>`;
+      modal.querySelector('#eco-apply').disabled = !(computedTtc > 0);
+    } catch (err) {
+      box.innerHTML = `<span style="color:var(--danger,#c0392b)">Erreur : ${esc(err.message)}</span>`;
+    }
+  };
+  modal.querySelector('#eco-apply').onclick = () => {
+    if (!(computedTtc > 0)) return;
+    const input = document.getElementById('eco-input');
+    if (input) input.value = Number(computedTtc).toFixed(2);
+    toast(`Montant reporté (${euros(computedTtc)}). Ajoute l'électroménager si besoin, puis Enregistrer.`, 'success', 6000);
+    close();
+  };
 }

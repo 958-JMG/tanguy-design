@@ -279,6 +279,107 @@ function buildEcheanceInvoiceLines(devisFields = {}, echMontantTtc, echLibelle =
   return { lines, reconciliation: { computedTtc, expectedTtc: montant, diff, ok }, warnings };
 }
 
+// ── Éco-participation : « dont », hors chiffre d'affaires ────────────────────
+// Demande JMG (2026-10-08) : l'éco-participation (mobilier calculé à la dimension
+// + électroménager saisi par Virginie) doit apparaître sur une LIGNE de la facture
+// mais ne PAS entrer dans le CA, « comme la TVA » : elle est encaissée puis reversée
+// à l'éco-organisme, marge nulle.
+//
+// Choix verrouillés avec JMG :
+//   • « dont » : l'éco est DÉJÀ comprise dans le prix annoncé au client. On la SORT
+//     du prix produit (on ne l'ajoute pas par-dessus) → le total payé par le client
+//     ne bouge pas d'un centime, la réconciliation TTC continue de passer.
+//   • Hors CA : la ligne éco porte un produit/compte Pennylane dédié (env
+//     PENNYLANE_ECO_PRODUCT_ID, à défaut PENNYLANE_ECO_LEDGER_ACCOUNT_ID). Le
+//     compte de reversement se règle UNE fois dans Pennylane, jamais en dur ici.
+//     Sans ce réglage, la ligne reste distincte et lisible mais retombe sur le
+//     compte de ventes : on le DIT (avertissement), on ne le tait pas.
+//
+// Montant éco exprimé en TTC (le « dont XX € » que voit le client). On carve au
+// taux de TVA de la ligne de marchandise support (taux normal ; la pose à taux
+// réduit ne porte pas d'éco). Fonction PURE, sans réseau.
+// Produit Pennylane par défaut de la ligne éco : « Éco-participation » (id
+// 109588803584), créé le 2026-10-08, rattaché au compte 70811 « ECO-PARTICIPATION
+// 20% » (compte 708 « produits des activités annexes », SÉPARÉ des ventes 70431
+// cuisines / 70434 mobilier → l'éco n'entre pas dans le CA de ventes).
+//
+// ⚠️ Prouvé le 2026-10-08 : poser un `ledger_account_id` sur une ligne LIBRE est
+//    IGNORÉ par Pennylane (le compte se porte par le PRODUIT, pas par la ligne).
+//    D'où le passage par `product_id`. Défaut volontaire (plutôt qu'un env qui
+//    pourrait manquer et renvoyer l'éco dans le CA) ; surchargeable par env si le
+//    produit change (millésime, autre société).
+const ECO_PRODUCT_DEFAUT = 109588803584;
+
+function ecoLineImputation() {
+  const pid = process.env.PENNYLANE_ECO_PRODUCT_ID;
+  if (pid != null && String(pid).trim() !== '' && Number.isFinite(Number(pid))) return { product_id: Number(pid) };
+  return { product_id: ECO_PRODUCT_DEFAUT };
+}
+
+/**
+ * Sort l'éco-participation du prix produit et ajoute une ligne éco dédiée.
+ * @param {Array} lines   - lignes déjà construites (buildInvoiceLines / buildEcheanceInvoiceLines)
+ * @param {number} ecoTtc - montant éco TTC (le « dont » client). ≤ 0 → aucun carve.
+ * @returns {{ lines, ecoLine, ecoHt, ecoTtc, vat_rate, warnings }}
+ *          `lines` est une COPIE : l'appelant garde la version non carvée s'il veut.
+ *          Total HT et total TTC préservés (on déplace de l'éco d'une ligne à l'autre
+ *          au même taux), donc la réconciliation existante reste valable.
+ */
+function carveEcoParticipation(lines, ecoTtc, opts = {}) {
+  const warnings = [];
+  const out = (lines || []).map(l => ({ ...l }));
+  const eco = round2(num(ecoTtc));
+  if (!(eco > 0)) {
+    if (eco < 0) warnings.push(`Montant d'éco-participation négatif (${eco} €) ignoré`);
+    return { lines: out, ecoLine: null, ecoHt: 0, ecoTtc: 0, vat_rate: null, warnings };
+  }
+  if (!out.length) {
+    warnings.push('Aucune ligne où imputer l\'éco-participation');
+    return { lines: out, ecoLine: null, ecoHt: 0, ecoTtc: eco, vat_rate: null, warnings };
+  }
+
+  // Ligne support = marchandise au taux le plus élevé ; à taux égal, le plus gros
+  // montant. On ne devine jamais une ligne absente : si rien ne convient, on le dit.
+  const candidat = out
+    .map((l, i) => ({ i, pct: enumPct[l.vat_rate] ?? 0, ht: round2(num(l.raw_currency_unit_price) * (num(l.quantity) || 1)) }))
+    .filter(x => x.ht > 0)
+    .sort((a, b) => b.pct - a.pct || b.ht - a.ht)[0];
+  if (!candidat) {
+    warnings.push('Aucune ligne de marchandise positive où imputer l\'éco-participation');
+    return { lines: out, ecoLine: null, ecoHt: 0, ecoTtc: eco, vat_rate: null, warnings };
+  }
+
+  const support = out[candidat.i];
+  const pct = enumPct[support.vat_rate] ?? 0;
+  const ecoHt = round2(eco / (1 + pct / 100));
+  const qte = num(support.quantity) || 1;
+  const supportHt = round2(num(support.raw_currency_unit_price) * qte);
+  if (ecoHt >= supportHt) {
+    warnings.push(`Éco-participation (${ecoHt} € HT) ≥ ligne support (${supportHt} € HT) : non carvée, à vérifier avant d'envoyer`);
+    return { lines: out, ecoLine: null, ecoHt, ecoTtc: eco, vat_rate: support.vat_rate, warnings };
+  }
+
+  // On retire l'éco HT du prix unitaire de la ligne support. Côté Tanguy la quantité
+  // est toujours 1 (le prix unitaire porte tout le HT) : total préservé au centime.
+  support.raw_currency_unit_price = round2((supportHt - ecoHt) / qte).toFixed(2);
+  const mention = `dont éco-participation : ${eco.toFixed(2)} € TTC`;
+  support.description = support.description ? `${support.description}\n${mention}`.slice(0, 1000) : mention;
+
+  const imput = ecoLineImputation();
+
+  const ecoLine = {
+    label: String(opts.libelle || process.env.PENNYLANE_ECO_LIBELLE || 'Éco-participation').slice(0, 200),
+    quantity: 1,
+    unit: 'piece',
+    raw_currency_unit_price: ecoHt.toFixed(2),
+    vat_rate: support.vat_rate,
+    description: String(opts.descriptionEco || 'Éco-participation reversée à l\'éco-organisme (hors chiffre d\'affaires)').slice(0, 1000),
+    ...(imput || {}),
+  };
+  out.push(ecoLine);
+  return { lines: out, ecoLine, ecoHt, ecoTtc: eco, vat_rate: support.vat_rate, warnings };
+}
+
 // ── Réseau : clients ────────────────────────────────────────────────────────
 async function listAllCustomers() {
   const out = []; let cursor = null, guard = 0;
@@ -417,6 +518,7 @@ module.exports = {
   detailErreur,
   // purs (testables sans réseau)
   buildInvoiceLines, buildEcheanceInvoiceLines, calcAcompte, normalizeName, vatEnum,
+  carveEcoParticipation, ecoLineImputation,
   // réseau
   findCustomerByName, createCustomer, createDraftQuote, createDraftInvoice,
   fetchQuotePdf, fetchInvoicePdf, listAllCustomers,

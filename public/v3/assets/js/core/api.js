@@ -417,6 +417,20 @@ export async function patchDevis(devisId, fields) {
   });
 }
 
+// Référentiel du barème 2026 : types de meuble + classes de matière.
+export async function fetchEcoReferentiel() {
+  return api('/api/eco-contribution/referentiel');
+}
+
+// Calcul de l'éco-contribution mobilier (barème Ecomaison 2026, poids estimé).
+// pieces : [{ designation, type, largeurMm, hauteurMm, profondeurMm, classeMatiere, quantite }]
+export async function calculEcoContribution(pieces, tauxTvaPct = null) {
+  return api('/api/eco-contribution/calcul', {
+    method: 'POST',
+    body: JSON.stringify({ pieces, tauxTvaPct }),
+  });
+}
+
 // Parse Plaud R1/R2 → création réunion + tâches auto depuis prochaines_actions[].
 // niveau: 'R1' (découverte) ou 'R2' (chantier). type_reunion: 'Découverte', 'Présentation devis',
 // 'Suivi chantier', 'SAV'.

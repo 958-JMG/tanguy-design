@@ -28,6 +28,7 @@ const { DEVIS_IMPORT_HASH_FIELD, computeImportHash, buildHashFilterFormula } = r
 const { resumeGeneres, commandesGenereesPar, tachesGenereesPar, filtrerIdsAutorises } = require('./services/devis-generes-helper');
 // Barème éco-contribution des tablettes et panneaux (à la dimension, pas au poids).
 const ecoBareme = require('./services/eco-contribution-bareme');
+const eco2026 = require('./services/eco-contribution-2026');
 // Descriptif commercial d'un devis (zones : marque, modèle, coloris, finitions) —
 // partagé entre le bon de commande et les factures Pennylane.
 const { lignesDevisTexte } = require('./services/description-devis-helper');
@@ -1595,6 +1596,42 @@ app.get('/api/devis/:id/detail', requireAuth, async (req, res) => {
 const PL_CUST_FIELD = 'Pennylane customer ID';
 const PL_QUOTE_FIELD = 'Pennylane quote ID';
 const PL_NUM_FIELD = 'Pennylane numéro';
+// Montant TTC d'éco-participation saisi sur le devis (le « dont XX € » client).
+// Sorti du prix produit et posé sur une ligne dédiée hors CA au moment du brouillon.
+const PL_ECO_FIELD = 'Éco-participation';
+// Éco-participation d'une échéance (acompte, livraison, solde) = part de l'éco du
+// devis AU PRORATA du montant TTC de l'échéance, comme les bases de TVA. Ainsi la
+// somme des « dont éco » des échéances = l'éco du devis, au centime.
+function ecoTtcPourEcheance(devisFields, echMontantTtc) {
+  const raw = devisFields[PL_ECO_FIELD];
+  const eco = typeof raw === 'string' ? parseFloat(raw.replace(',', '.')) : Number(raw);
+  const total = Number(devisFields['Total TTC']);
+  const mont = Number(echMontantTtc);
+  if (!(eco > 0) || !(total > 0) || !(mont > 0)) return 0;
+  return Math.round((eco * mont / total) * 100) / 100;
+}
+
+// Référentiel du barème 2026 (types de meuble + classes de matière) pour alimenter
+// les menus du calculateur côté client, sans figer les libellés dans le front.
+app.get('/api/eco-contribution/referentiel', requireAuth, (req, res) => {
+  res.json({ types: eco2026.TYPES, matieres: eco2026.MATIERES, matiereDefaut: eco2026.MATIERE_DEFAUT, tvaDefaut: eco2026.TVA_DEFAUT });
+});
+
+// Calcul de l'éco-contribution mobilier — barème Ecomaison 2026 (poids estimé à la
+// dimension, cf. services/eco-contribution-2026.js). Pour le bouton « Calculer depuis
+// les dimensions » du devis. Renvoie le total TTC (le « dont XX € » client) + le
+// détail, sans rien écrire : Virginie reporte le montant dans la case si elle veut.
+app.post('/api/eco-contribution/calcul', requireAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const pieces = Array.isArray(body.pieces) ? body.pieces : [];
+    const out = eco2026.calculer(pieces, { tauxTvaPct: body.tauxTvaPct != null ? Number(body.tauxTvaPct) : eco2026.TVA_DEFAUT });
+    res.json({ ok: true, ...out });
+  } catch (e) {
+    logger.error({ err: e.message }, 'échec calcul éco-contribution');
+    res.status(500).json({ error: e.message });
+  }
+});
 function pennylaneQuoteUrl(raw, id) {
   return (raw && (raw.public_url || raw.url || (raw.quote && (raw.quote.public_url || raw.quote.url)))) ||
     (id ? `https://app.pennylane.com/app#/estimates/${id}` : 'https://app.pennylane.com');
@@ -1622,8 +1659,14 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
     // 3) Lignes Pennylane (mapping par nature + réconciliation TTC)
     //    Le descriptif du devis alimente la description des lignes.
     const descDevis = await descriptionDevisPourPennylane(f);
-    const { lines, reconciliation, warnings } = pennylane.buildInvoiceLines(f, { description: descDevis });
-    if (!lines.length) return res.status(422).json({ error: 'Devis sans montant exploitable — rien à pousser', warnings });
+    const built = pennylane.buildInvoiceLines(f, { description: descDevis });
+    const { reconciliation } = built;
+    if (!built.lines.length) return res.status(422).json({ error: 'Devis sans montant exploitable — rien à pousser', warnings: built.warnings });
+    // Éco-participation « dont » : sortie du prix produit vers une ligne hors CA.
+    // Total client inchangé → la réconciliation ci-dessus reste valable.
+    const eco = pennylane.carveEcoParticipation(built.lines, f[PL_ECO_FIELD]);
+    const lines = eco.lines;
+    const warnings = [...built.warnings, ...eco.warnings];
 
     // 4) Résolution client (anti-doublon) — depuis le PROJET (source de vérité), pas
     //    le lien Client du devis qui peut pointer un contact importé sans adresse.
@@ -1784,8 +1827,12 @@ async function createEcheanceDraftInvoicesForDevis(devis, customerId) {
     const libelle = ef['Libellé'] || 'Échéance';
     if (ef[PL_ECH_FIELD]) { results.push({ echId: e.id, libelle, already: true, invoiceId: ef[PL_ECH_FIELD] }); continue; }
     if ((ef['Statut'] || '') === 'Encaissé') { results.push({ echId: e.id, libelle, skipped: 'déjà encaissée' }); continue; }
-    const { lines, reconciliation, warnings } = pennylane.buildEcheanceInvoiceLines(f, ef['Montant prévu'], libelle, { description: descDevis });
-    if (!lines.length) { results.push({ echId: e.id, libelle, error: 'échéance sans montant exploitable', warnings }); continue; }
+    const builtE = pennylane.buildEcheanceInvoiceLines(f, ef['Montant prévu'], libelle, { description: descDevis });
+    const { reconciliation } = builtE;
+    if (!builtE.lines.length) { results.push({ echId: e.id, libelle, error: 'échéance sans montant exploitable', warnings: builtE.warnings }); continue; }
+    const ecoE = pennylane.carveEcoParticipation(builtE.lines, ecoTtcPourEcheance(f, ef['Montant prévu']));
+    const lines = ecoE.lines;
+    const warnings = [...builtE.warnings, ...ecoE.warnings];
     // Échéance de règlement : la date prévue, mais jamais dans le passé (Pennylane refuse) → plancher = aujourd'hui.
     const dueRaw = ef['Date prévue'] || today;
     const dueDate = dueRaw < today ? today : dueRaw;
@@ -1857,8 +1904,12 @@ app.post('/api/devis/:devisId/echeances/:echId/facture-pennylane', requireAuth, 
     const { customerId, customerCreated } = resolved;
 
     const descDevis = await descriptionDevisPourPennylane(f);
-    const { lines, reconciliation, warnings } = pennylane.buildEcheanceInvoiceLines(f, ef['Montant prévu'], libelle, { description: descDevis });
-    if (!lines.length) return res.status(422).json({ error: 'Échéance sans montant exploitable', warnings });
+    const builtE = pennylane.buildEcheanceInvoiceLines(f, ef['Montant prévu'], libelle, { description: descDevis });
+    const { reconciliation } = builtE;
+    if (!builtE.lines.length) return res.status(422).json({ error: 'Échéance sans montant exploitable', warnings: builtE.warnings });
+    const ecoE = pennylane.carveEcoParticipation(builtE.lines, ecoTtcPourEcheance(f, ef['Montant prévu']));
+    const lines = ecoE.lines;
+    const warnings = [...builtE.warnings, ...ecoE.warnings];
 
     const iso = d => d.toISOString().slice(0, 10);
     const today = iso(new Date());
@@ -1945,8 +1996,12 @@ app.post('/api/devis/:id/facture-acompte', requireAuth, async (req, res) => {
 
     // 3) Lignes de facture (prorata TVA du devis) + descriptif repris du devis.
     const descDevis = await descriptionDevisPourPennylane(f);
-    const { lines, reconciliation, warnings } = pennylane.buildEcheanceInvoiceLines(f, ac.montant, ac.libelle, { description: descDevis });
-    if (!lines.length) return res.status(422).json({ error: 'Acompte sans montant exploitable — rien à facturer', warnings });
+    const builtA = pennylane.buildEcheanceInvoiceLines(f, ac.montant, ac.libelle, { description: descDevis });
+    const { reconciliation } = builtA;
+    if (!builtA.lines.length) return res.status(422).json({ error: 'Acompte sans montant exploitable — rien à facturer', warnings: builtA.warnings });
+    const ecoA = pennylane.carveEcoParticipation(builtA.lines, ecoTtcPourEcheance(f, ac.montant));
+    const lines = ecoA.lines;
+    const warnings = [...builtA.warnings, ...ecoA.warnings];
 
     // 4) Client Pennylane (id stocké > match exact > homonyme à trancher > création)
     const clientId = await clientIdPourDevis(f);
