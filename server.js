@@ -27,7 +27,6 @@ const { DEVIS_IMPORT_HASH_FIELD, computeImportHash, buildHashFilterFormula } = r
 // coche quand un devis signé repasse à « Refusé » (dossier MORALES).
 const { resumeGeneres, commandesGenereesPar, tachesGenereesPar, filtrerIdsAutorises } = require('./services/devis-generes-helper');
 // Barème éco-contribution des tablettes et panneaux (à la dimension, pas au poids).
-const ecoBareme = require('./services/eco-contribution-bareme');
 const eco2026 = require('./services/eco-contribution-2026');
 // Descriptif commercial d'un devis (zones : marque, modèle, coloris, finitions) —
 // partagé entre le bon de commande et les factures Pennylane.
@@ -2102,27 +2101,24 @@ app.post('/api/devis-fournisseur/parse', requireAdmin, upload.single('pdf'), asy
       if (eco) ecopart = { categorie: eco.categorie, montant_ht: eco.montant, source: 'grille' };
     } catch (e) { logger.warn(`[devis-fournisseur/parse] éco-part non résolue: ${e.message}`); }
 
-    // Éco-contribution des tablettes / panneaux : barème À LA DIMENSION appliqué
-    // aux pièces lues dans le devis. Distinct de `ecopart` (forfait par catégorie,
-    // grille Airtable) : on ne remplace rien en silence, l'écran affiche les deux
-    // et c'est l'équipe qui reporte le montant retenu dans le prix client.
-    // Le taux de TVA du devis sert à convertir le barème (donné en TTC) vers du HT.
-    let ecoContribution = null;
+    // Éco-contribution des tablettes / panneaux : on renvoie les pièces lues telles
+    // quelles (dimensions + matériau). Le CALCUL se fait côté client via l'endpoint
+    // /api/eco-contribution/calcul (barème Ecomaison 2026, source UNIQUE) — plus de
+    // grille répliquée ni de moteur séparé ici. Distinct de `ecopart` (forfait par
+    // catégorie, grille Airtable) : on ne remplace rien en silence, l'écran affiche
+    // les deux et l'équipe reporte le montant retenu.
+    let ecoPieces = [];
     try {
       const pieces = Array.isArray(parsed?.pieces_eco_contribution) ? parsed.pieces_eco_contribution : [];
-      if (pieces.length) {
-        ecoContribution = ecoBareme.calculerEcoContribution(
-          pieces.map(pc => ({
-            designation: pc.designation,
-            quantite: pc.quantite,
-            longueurMm: pc.longueur_mm,
-            hauteurMm: pc.hauteur_mm,
-            materiau: mapMateriauEco(pc.materiau),
-          })),
-          { tauxTvaPct: Number(parsed?.totaux?.tva_taux) || null },
-        );
-      }
-    } catch (e) { logger.warn(`[devis-fournisseur/parse] éco-contribution non calculée: ${e.message}`); }
+      ecoPieces = pieces.map(pc => ({
+        designation: pc.designation,
+        quantite: pc.quantite,
+        longueur_mm: pc.longueur_mm,
+        hauteur_mm: pc.hauteur_mm,
+        epaisseur_mm: pc.epaisseur_mm,
+        materiau: pc.materiau,
+      }));
+    } catch (e) { logger.warn(`[devis-fournisseur/parse] pièces éco non lues: ${e.message}`); }
 
     // Prix client suggéré = total net fournisseur × coefficient (+ éco-part).
     // Si pas de coefficient connu : on laisse null → l'équipe le saisit dans le builder.
@@ -2137,23 +2133,13 @@ app.post('/api/devis-fournisseur/parse', requireAdmin, upload.single('pdf'), asy
       enrichissement: {
         marge,
         ecopart,
-        eco_contribution: ecoContribution,
+        eco_pieces: ecoPieces,
         suggestion: { total_ht_fournisseur: totalHt, prix_client_ht: prixClientHt },
       },
     };
   });
 });
 
-// Libellé matériau renvoyé par le parsing → clé du barème éco-contribution.
-// « Inconnu » (ou tout libellé non reconnu) → undefined, ce qui laisse le barème
-// appliquer son défaut Tanguy (panneaux de particules) plutôt que de refuser.
-function mapMateriauEco(libelle) {
-  const n = String(libelle || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  if (n.includes('massif')) return ecoBareme.MATERIAUX.BOIS_MASSIF;
-  if (n.includes('particule') || n.includes('melamine') || n.includes('agglomere') || n.includes('mdf')) return ecoBareme.MATERIAUX.PANNEAUX_PARTICULES;
-  if (n.includes('biosource') || n.includes('certifie')) return ecoBareme.MATERIAUX.BIOSOURCES;
-  return undefined;
-}
 
 // Associe un fournisseur parsé à une ligne de la grille des marges.
 // Match tolérant : type détecté OU nom, insensible casse/accents, par inclusion.

@@ -12,7 +12,7 @@
 
 import { icon, hydrateIcons } from '../core/lucide.js';
 import { toast } from '../core/ui.js';
-import { parseDevisFournisseur, creerDevisClientExpress } from '../core/api.js';
+import { parseDevisFournisseur, creerDevisClientExpress, calculEcoContribution } from '../core/api.js';
 import { state } from '../core/state.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -82,102 +82,93 @@ async function handleFile(file) {
 
 
 // ---------------------------------------------------------------------------
-// Éco-contribution des tablettes et panneaux (barème à la dimension)
+// Éco-contribution des tablettes et panneaux (barème Ecomaison 2026)
 // ---------------------------------------------------------------------------
-// Le barème dépend de la LONGUEUR, de la HAUTEUR, du matériau et de la gestion
-// durable — jamais du poids. Les tarifs de la grille sont en TTC : la conversion
-// vers le HT du Devis express se fait avec le taux de TVA du devis.
-// Chaque ligne reste modifiable : dimensions relevées après coup, cas non prévu
-// par la grille. Le total se recalcule et se reporte dans l'éco-participation.
+// Barème OFFICIEL 2026, à la tranche de POIDS (HT), le poids estimé depuis les
+// dimensions du panneau. SOURCE UNIQUE : l'endpoint /api/eco-contribution/calcul
+// (services/eco-contribution-2026.js). AUCUNE grille répliquée ici — un barème
+// change à un seul endroit. Ces pièces sont des tablettes/panneaux → type
+// « Joue / panneau » (poids = largeur × hauteur × épaisseur × densité).
 
-const MATERIAUX_UI = [
-  'Panneaux de particules ≥ 75%',
-  'Bois massif ≥ 75%',
-  'Bois et dérivés certifiés, matériaux biosourcés ≥ 50%',
-];
-
-// Ligne vierge : sert à la saisie manuelle quand le devis ne porte pas ses
-// dimensions (nomenclatures) ou que la lecture automatique n'a rien trouvé.
-const LIGNE_ECO_VIDE = {
-  designation: '', quantite: 1, longueurMm: null, hauteurMm: null,
-  materiau: 'Panneaux de particules ≥ 75%', gestionDurable: 'certifiee', tarifUnitaireTtc: null,
-};
-
-function renderEcoSection(eco) {
-  // La section est TOUJOURS affichée, même sans pièce détectée : le calcul ne
-  // doit pas dépendre entièrement de ce que la lecture automatique a trouvé.
-  // Sans pièce, une ligne vierge attend la saisie.
-  const detecte = !!(eco && eco.lignes && eco.lignes.length);
-  if (!detecte) {
-    eco = { lignes: [{ ...LIGNE_ECO_VIDE }], complet: false, piecesIncalculables: 1, avertissements: [] };
-  }
-
-  const alerte = !eco.complet
-    ? `<p class="muted" style="font-size:13px;color:var(--accent)">${icon('alert', 13)}
-        ${eco.piecesIncalculables} pièce${eco.piecesIncalculables > 1 ? 's' : ''} sans dimensions exploitables :
-        le total ci-dessous est <strong>partiel</strong>. Complète la longueur et la hauteur, ou saisis le tarif à la main.</p>`
-    : '';
-  const avertissements = (eco.avertissements || []).length
-    ? `<p class="muted" style="font-size:12px">${eco.avertissements.map(a => `${icon('alert', 12)} ${esc(a)}`).join('<br>')}</p>`
-    : '';
-
-  const rows = eco.lignes.map((l, i) => ligneEcoHtml(l, i)).join('');
-  return sectionEcoHtml({ eco, rows, detecte, alerte, avertissements });
+// Matériau simple affiché → classe matière du barème 2026 (+ gestion durable).
+const MATERIAUX_UI = ['Panneaux de particules', 'Bois massif', 'Biosourcé'];
+function classeMatiere2026(materiau, gestionDurableCertifiee) {
+  const gd = gestionDurableCertifiee;
+  const n = String(materiau || '').toLowerCase();
+  if (n.includes('massif')) return gd ? 'Bois massif >95% - gestion durable certifiée' : 'Bois massif >95% - sans gestion durable';
+  if (n.includes('biosourc')) return gd ? 'Biosourcés ≥50% - gestion durable certifiée' : 'Biosourcés ≥50% - sans gestion durable';
+  return gd ? 'Panneaux particules ≥75% - gestion durable certifiée' : 'Panneaux particules ≥75% - sans gestion durable';
 }
 
-// Une ligne du tableau éco. Extraite pour être réutilisée par « Ajouter une pièce ».
+const LIGNE_ECO_VIDE = {
+  designation: '', quantite: 1, longueurMm: null, hauteurMm: null,
+  epaisseurMm: 19, materiau: 'Panneaux de particules', gestionDurable: 'sans',
+};
+
+// Normalise une pièce (parsing: longueur_mm/hauteur_mm/… ou déjà normalisée).
+function normEcoPiece(p = {}) {
+  const mat = p.materiau || 'Panneaux de particules';
+  return {
+    designation: p.designation || '',
+    quantite: p.quantite || 1,
+    longueurMm: p.longueurMm ?? p.longueur_mm ?? null,
+    hauteurMm: p.hauteurMm ?? p.hauteur_mm ?? null,
+    epaisseurMm: p.epaisseurMm ?? p.epaisseur_mm ?? 19,
+    materiau: /massif/i.test(mat) ? 'Bois massif' : (/biosourc/i.test(mat) ? 'Biosourcé' : 'Panneaux de particules'),
+    gestionDurable: p.gestionDurable === 'certifiee' ? 'certifiee' : 'sans',
+  };
+}
+
+function renderEcoSection(pieces) {
+  const detecte = Array.isArray(pieces) && pieces.length > 0;
+  const lignes = detecte ? pieces.map(normEcoPiece) : [normEcoPiece(LIGNE_ECO_VIDE)];
+  const rows = lignes.map((l, i) => ligneEcoHtml(l, i)).join('');
+  return sectionEcoHtml({ nb: lignes.length, rows, detecte });
+}
+
 function ligneEcoHtml(l, i) {
   return `
     <tr data-eco-row="${i}">
-      <td><input data-eco="designation" value="${esc(l.designation)}" style="width:100%;min-width:140px"></td>
-      <td class="num"><input data-eco="quantite" type="number" min="1" step="1" value="${l.quantite}" style="width:64px;text-align:right"></td>
-      <td class="num"><input data-eco="longueur" type="number" min="0" step="1" value="${l.longueurMm ?? ''}" placeholder="mm" style="width:80px;text-align:right"></td>
-      <td class="num"><input data-eco="hauteur" type="number" min="0" step="1" value="${l.hauteurMm ?? ''}" placeholder="mm" style="width:80px;text-align:right"></td>
+      <td><input data-eco="designation" value="${esc(l.designation)}" style="width:100%;min-width:130px"></td>
+      <td class="num"><input data-eco="quantite" type="number" min="1" step="1" value="${l.quantite}" style="width:60px;text-align:right"></td>
+      <td class="num"><input data-eco="longueur" type="number" min="0" step="1" value="${l.longueurMm ?? ''}" placeholder="mm" style="width:76px;text-align:right"></td>
+      <td class="num"><input data-eco="hauteur" type="number" min="0" step="1" value="${l.hauteurMm ?? ''}" placeholder="mm" style="width:76px;text-align:right"></td>
+      <td class="num"><input data-eco="epaisseur" type="number" min="0" step="1" value="${l.epaisseurMm ?? ''}" placeholder="19" style="width:58px;text-align:right"></td>
       <td>
-        <select data-eco="materiau" style="max-width:180px">
+        <select data-eco="materiau" style="max-width:170px">
           ${MATERIAUX_UI.map(m => `<option value="${esc(m)}" ${l.materiau === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}
         </select>
       </td>
       <td class="num"><input data-eco="gd" type="checkbox" ${l.gestionDurable === 'certifiee' ? 'checked' : ''} title="Gestion durable certifiée"></td>
-      <!-- Volontairement VIDE : un champ prérempli serait lu comme une saisie
-           manuelle et figerait la ligne — corriger une dimension ne recalculerait
-           plus rien. Le tarif de la grille s'affiche en repère (placeholder). -->
-      <td class="num"><input data-eco="tarif" type="number" min="0" step="0.01" value="" placeholder="auto" style="width:80px;text-align:right" title="Vide = tarif de la grille, recalculé à chaque changement. Une valeur saisie ici prend le pas."></td>
+      <td class="num"><input data-eco="tarif" type="number" min="0" step="0.01" value="" placeholder="auto" style="width:76px;text-align:right" title="Vide = tarif du barème (HT), recalculé. Une valeur saisie ici prime."></td>
       <td class="num"><strong data-eco="total">—</strong></td>
     </tr>`;
 }
 
-function sectionEcoHtml({ eco, rows, detecte, alerte, avertissements }) {
+function sectionEcoHtml({ nb, rows, detecte }) {
   return `
     <div class="card" style="margin-top:16px">
       <div class="section-header" style="margin-bottom:6px">
-        <h2 class="section-title">Éco-contribution <span class="count">(${eco.lignes.length} pièce${eco.lignes.length > 1 ? 's' : ''})</span></h2>
+        <h2 class="section-title">Éco-contribution <span class="count">(${nb} pièce${nb > 1 ? 's' : ''})</span></h2>
       </div>
       <p class="muted" style="font-size:13px">
-        Barème tablettes et panneaux revêtus, <strong>à la dimension</strong> (longueur × hauteur), pas au poids.
-        Tarifs de la grille en TTC. Modifie n'importe quelle ligne : le total suit.
+        Barème Ecomaison <strong>2026</strong> (officiel, à la tranche de poids, en HT). Le poids est estimé depuis les dimensions du panneau. Modifie une ligne : le total suit.
       </p>
-      ${!detecte ? `<p class="muted" style="font-size:13px">
-        ${icon('alert', 13)} Aucune tablette ni panneau lu automatiquement dans ce devis.
-        Saisis les pièces ci-dessous — le tarif se calcule tout seul dès que longueur et hauteur sont renseignées.
-      </p>` : alerte}${avertissements}
+      ${!detecte ? `<p class="muted" style="font-size:13px">${icon('alert', 13)} Aucune tablette ni panneau lu automatiquement. Saisis les pièces ci-dessous.</p>` : ''}
+      <div id="df-eco-avert"></div>
       <div style="overflow-x:auto">
-        <table class="pipeline-table" style="margin-top:10px;min-width:720px">
+        <table class="pipeline-table" style="margin-top:10px;min-width:780px">
           <thead>
             <tr>
               <th>Pièce</th><th class="num">Qté</th><th class="num">Long. (mm)</th><th class="num">Haut. (mm)</th>
-              <th>Matériau</th><th class="num" title="Gestion durable certifiée">GD</th>
-              <th class="num" title="Vide = calculé par la grille">Tarif TTC</th><th class="num">Total TTC</th>
+              <th class="num">Épais.</th><th>Matériau</th><th class="num" title="Gestion durable certifiée">GD</th>
+              <th class="num" title="Vide = calculé par le barème">Tarif HT</th><th class="num">Total HT</th>
             </tr>
           </thead>
           <tbody id="df-eco-rows">${rows}</tbody>
           <tfoot>
             <tr>
-              <td colspan="7"><strong>Total éco-contribution</strong> <span class="muted" id="df-eco-partiel"></span></td>
-              <td class="num"><strong id="df-eco-total-ttc">—</strong></td>
-            </tr>
-            <tr>
-              <td colspan="7" class="muted">soit en HT (TVA <span id="df-eco-tva">—</span>), reporté dans l'éco-participation ci-dessus</td>
+              <td colspan="8"><strong>Total éco-contribution HT</strong> <span class="muted" id="df-eco-partiel"></span></td>
               <td class="num"><strong id="df-eco-total-ht">—</strong></td>
             </tr>
           </tfoot>
@@ -191,102 +182,76 @@ function sectionEcoHtml({ eco, rows, detecte, alerte, avertissements }) {
     </div>`;
 }
 
-// Barème répliqué côté navigateur : le recalcul est instantané à la frappe, sans
-// aller-retour serveur. MÊMES VALEURS que services/eco-contribution-bareme.js —
-// toute correction de la grille doit être faite AUX DEUX ENDROITS.
-const GRILLE_ECO_TTC = {
-  'Bois massif ≥ 75%': {
-    '0 à 600 mm':    { 'h<250': { sans: 0.19, certifiee: 0.06 }, 'h>=250': { sans: 0.41, certifiee: 0.11 } },
-    '610 à 1200 mm': { 'h<250': { sans: 0.35, certifiee: 0.11 }, 'h>=250': { sans: 0.70, certifiee: 0.29 } },
-    '> 1200 mm':     { 'h<250': { sans: 0.40, certifiee: 0.29 }, 'h>=250': { sans: 0.96, certifiee: 0.29 } },
-  },
-  'Panneaux de particules ≥ 75%': {
-    '0 à 600 mm':    { 'h<250': { sans: 0.19, certifiee: 0.06 }, 'h>=250': { sans: 0.41, certifiee: 0.11 } },
-    '610 à 1200 mm': { 'h<250': { sans: 0.35, certifiee: 0.11 }, 'h>=250': { sans: 0.70, certifiee: 0.29 } },
-    '> 1200 mm':     { 'h<250': { sans: 0.64, certifiee: 0.29 }, 'h>=250': { sans: 0.96, certifiee: 0.40 } },
-  },
-  'Bois et dérivés certifiés, matériaux biosourcés ≥ 50%': {
-    '0 à 600 mm':    { 'h<250': { sans: 0.22, certifiee: 0.08 }, 'h>=250': { sans: 0.47, certifiee: 0.17 } },
-    '610 à 1200 mm': { 'h<250': { sans: 0.41, certifiee: 0.17 }, 'h>=250': { sans: 0.82, certifiee: 0.41 } },
-    '> 1200 mm':     { 'h<250': { sans: 0.76, certifiee: 0.41 }, 'h>=250': { sans: 1.08, certifiee: 0.48 } },
-  },
-};
-
-function tarifEcoTtc({ longueurMm, hauteurMm, materiau, gestionDurable }) {
-  const l = Number(longueurMm), h = Number(hauteurMm);
-  if (!Number.isFinite(l) || l <= 0 || !Number.isFinite(h) || h <= 0) return null;
-  const tranche = l <= 600 ? '0 à 600 mm' : (l <= 1200 ? '610 à 1200 mm' : '> 1200 mm');
-  const cleH = h < 250 ? 'h<250' : 'h>=250';
-  const g = GRILLE_ECO_TTC[materiau];
-  if (!g) return null;
-  return g[tranche][cleH][gestionDurable ? 'certifiee' : 'sans'];
+// Lit les pièces saisies dans le tableau (pour l'appel serveur).
+function lireEcoRows(out) {
+  const tbody = out.querySelector('#df-eco-rows');
+  if (!tbody) return [];
+  return [...tbody.querySelectorAll('tr[data-eco-row]')].map(tr => {
+    const tarifBrut = tr.querySelector('[data-eco=tarif]').value;
+    return {
+      _tr: tr,
+      designation: tr.querySelector('[data-eco=designation]').value.trim(),
+      quantite: Math.max(1, Number(tr.querySelector('[data-eco=quantite]').value) || 1),
+      type: 'Joue / panneau',
+      largeurMm: Number(tr.querySelector('[data-eco=longueur]').value) || null,
+      hauteurMm: Number(tr.querySelector('[data-eco=hauteur]').value) || null,
+      epaisseurMm: Number(tr.querySelector('[data-eco=epaisseur]').value) || null,
+      classeMatiere: classeMatiere2026(tr.querySelector('[data-eco=materiau]').value, tr.querySelector('[data-eco=gd]').checked),
+      tarifHtManuel: (tarifBrut !== '' && Number.isFinite(Number(tarifBrut))) ? Number(tarifBrut) : undefined,
+    };
+  });
 }
 
-// Recalcule le tableau et renvoie le total TTC (null si rien de calculable).
-function recomputeEco(out) {
-  const tbody = out.querySelector('#df-eco-rows');
-  if (!tbody) return null;
-  // Le taux de TVA convertit le barème (TTC) vers le HT du prix client. S'il est
-  // introuvable, on NE retombe PAS sur 0 % : afficher un TTC en le nommant « HT »
-  // fausserait un montant déclaré sans qu'aucune alerte ne le dise.
-  const champTva = out.querySelector('#df-tva') || document.querySelector('#df-tva');
-  const tva = champTva && champTva.value !== '' ? Number(champTva.value) : null;
-  let totalTtc = 0, incalculables = 0, lignes = 0;
-
-  tbody.querySelectorAll('tr[data-eco-row]').forEach(tr => {
-    lignes++;
-    const q = Math.max(1, Number(tr.querySelector('[data-eco=quantite]').value) || 1);
-    const saisi = tr.querySelector('[data-eco=tarif]').value;
-    const manuel = saisi !== '' && Number.isFinite(Number(saisi));
-    const tarif = manuel ? Number(saisi) : tarifEcoTtc({
-      longueurMm: tr.querySelector('[data-eco=longueur]').value,
-      hauteurMm: tr.querySelector('[data-eco=hauteur]').value,
-      materiau: tr.querySelector('[data-eco=materiau]').value,
-      gestionDurable: tr.querySelector('[data-eco=gd]').checked,
-    });
-    const champTarif = tr.querySelector('[data-eco=tarif]');
-    // Repère visible du tarif que la grille applique, sans le "saisir" à la place
-    // de l'utilisateur.
-    if (!manuel) champTarif.placeholder = tarif == null ? 'auto' : tarif.toFixed(2).replace('.', ',');
-    const cell = tr.querySelector('[data-eco=total]');
-    if (tarif == null) {
-      incalculables++;
+let _ecoSeq = 0;
+// Recalcule via l'endpoint 2026 (source unique). Async. Mémorise le dernier
+// résultat sur out._ecoLast pour que « Reporter » n'appelle pas le réseau deux fois.
+async function recomputeEco(out) {
+  const rows = lireEcoRows(out);
+  if (!rows.length) return null;
+  const seq = ++_ecoSeq;
+  let res;
+  try {
+    res = await calculEcoContribution(rows.map(({ _tr, ...p }) => p), 20);
+  } catch (e) {
+    const av = out.querySelector('#df-eco-avert');
+    if (av) av.innerHTML = `<p class="muted" style="font-size:12px;color:var(--accent)">${icon('alert', 12)} Calcul éco indisponible : ${esc(e.message)}</p>`;
+    return null;
+  }
+  if (seq !== _ecoSeq) return null;   // une frappe plus récente a relancé le calcul
+  const lignes = res.lignes || [];
+  rows.forEach((r, i) => {
+    const l = lignes[i] || {};
+    const cell = r._tr.querySelector('[data-eco=total]');
+    const tarifInput = r._tr.querySelector('[data-eco=tarif]');
+    if (l.ecoHtUnitaire == null) {
       cell.textContent = '—';
-      cell.title = 'Longueur et hauteur nécessaires, ou saisis un tarif à la main';
+      cell.title = (l.manquants || []).length ? 'Manque : ' + l.manquants.join(', ') : 'Non calculable';
       cell.style.color = 'var(--accent)';
     } else {
-      const t = Math.round(tarif * q * 100) / 100;
-      totalTtc += t;
-      cell.textContent = eur(t);
-      cell.title = manuel ? 'Tarif saisi à la main' : 'Tarif de la grille';
+      cell.textContent = eur(l.totalHt);
       cell.style.color = '';
+      cell.title = l.source === 'tarif-fournisseur' ? 'Tarif saisi à la main' : `${l.poidsKg} kg (${l.tranche || ''})`;
+      if (tarifInput.value === '') tarifInput.placeholder = Number(l.ecoHtUnitaire).toFixed(2).replace('.', ',');
     }
   });
-
-  totalTtc = Math.round(totalTtc * 100) / 100;
-  const totalHt = (tva == null || !Number.isFinite(tva))
-    ? null
-    : Math.round((totalTtc / (1 + tva / 100)) * 100) / 100;
-  out.querySelector('#df-eco-total-ttc').textContent = lignes ? eur(totalTtc) : '—';
-  out.querySelector('#df-eco-total-ht').textContent = (lignes && totalHt != null) ? eur(totalHt) : '—';
-  out.querySelector('#df-eco-tva').textContent = tva == null ? 'taux introuvable' : tva + ' %';
-  // Jamais de silence : un total partiel se présente comme partiel.
-  out.querySelector('#df-eco-partiel').textContent = incalculables
-    ? `— partiel : ${incalculables} pièce${incalculables > 1 ? 's' : ''} sans dimensions`
+  out.querySelector('#df-eco-total-ht').textContent = res.piecesCalculees ? eur(res.totalHt) : '—';
+  out.querySelector('#df-eco-partiel').textContent = res.piecesIncalculables
+    ? `— partiel : ${res.piecesIncalculables} pièce(s) sans dimensions`
     : '';
-  return { totalTtc, totalHt, incalculables, lignes };
+  const av = out.querySelector('#df-eco-avert');
+  if (av) av.innerHTML = (res.avertissements || []).length
+    ? `<p class="muted" style="font-size:12px;color:var(--accent)">${res.avertissements.map(a => `${icon('alert', 12)} ${esc(a)}`).join('<br>')}</p>`
+    : '';
+  const r = { totalHt: res.totalHt, incalculables: res.piecesIncalculables, lignes: rows.length };
+  out._ecoLast = r;
+  return r;
 }
 
 // Reporte le total HT dans le champ « Éco-participation » qui alimente le prix client.
-function reporterEco(out, { silencieux = false } = {}) {
-  const r = recomputeEco(out);
+async function reporterEco(out, { silencieux = false } = {}) {
+  const r = out._ecoLast || await recomputeEco(out);
   const msg = out.querySelector('#df-eco-report-msg');
   if (!r || !r.lignes) return;
-  if (r.totalHt == null) {
-    if (msg) { msg.textContent = 'Taux de TVA introuvable — montant HT non calculable, rien reporté.'; msg.style.color = 'var(--accent)'; }
-    if (!silencieux) toast('Taux de TVA introuvable : rien n\'a été reporté', 'error', 5000);
-    return;
-  }
   const champ = out.querySelector('#df-eco');
   champ.value = r.totalHt;
   champ.dispatchEvent(new Event('input', { bubbles: true }));
@@ -302,24 +267,20 @@ function reporterEco(out, { silencieux = false } = {}) {
 function wireEco(out) {
   const tbody = out.querySelector('#df-eco-rows');
   if (!tbody) return;
-  tbody.addEventListener('input', () => recomputeEco(out));
-  tbody.addEventListener('change', () => recomputeEco(out));
-  out.querySelector('#df-tva')?.addEventListener('change', () => recomputeEco(out));
+  let t;
+  const debounced = () => { clearTimeout(t); t = setTimeout(() => recomputeEco(out), 250); };
+  tbody.addEventListener('input', debounced);
+  tbody.addEventListener('change', debounced);
   out.querySelector('#df-eco-report')?.addEventListener('click', () => reporterEco(out));
-  // Ajout d'une pièce à la main : indispensable quand le devis ne porte pas ses
-  // dimensions (nomenclatures) ou qu'une pièce a été oubliée à la lecture.
   out.querySelector('#df-eco-add')?.addEventListener('click', () => {
-    const tbody = out.querySelector('#df-eco-rows');
     const index = tbody.querySelectorAll('tr[data-eco-row]').length;
-    tbody.insertAdjacentHTML('beforeend', ligneEcoHtml({ ...LIGNE_ECO_VIDE }, index));
+    tbody.insertAdjacentHTML('beforeend', ligneEcoHtml(normEcoPiece(LIGNE_ECO_VIDE), index));
     recomputeEco(out);
-    // Curseur dans la désignation de la ligne qui vient d'apparaître.
     tbody.querySelector(`tr[data-eco-row="${index}"] [data-eco=designation]`)?.focus();
   });
-  const r = recomputeEco(out);
-  // Report automatique UNIQUEMENT si tout est chiffré : un total partiel ne
-  // s'invite pas dans le prix client sans que quelqu'un l'ait décidé.
-  if (r && r.lignes && !r.incalculables) reporterEco(out, { silencieux: true });
+  // Calcul initial, puis report automatique UNIQUEMENT si tout est chiffré : un
+  // total partiel ne s'invite pas dans le prix sans que quelqu'un l'ait décidé.
+  recomputeEco(out).then(r => { if (r && r.lignes && !r.incalculables) reporterEco(out, { silencieux: true }); });
 }
 
 
@@ -441,7 +402,7 @@ function renderResult(out, res) {
   const tot = p.totaux || {};
   const marge = enr.marge || {};
   const ecopart = enr.ecopart || {};
-  const eco = enr.eco_contribution || null;
+  const ecoPieces = enr.eco_pieces || null;
 
   const variante = p.variante_prix && p.variante_prix !== 'INCONNU'
     ? `<span class="badge">${esc(p.variante_prix)}</span>` : '';
@@ -505,7 +466,7 @@ function renderResult(out, res) {
       </div>
     </div>
 
-    ${renderEcoSection(eco)}
+    ${renderEcoSection(ecoPieces)}
   `;
   hydrateIcons(out);
 

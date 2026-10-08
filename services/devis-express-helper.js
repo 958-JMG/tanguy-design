@@ -85,7 +85,13 @@ function construireDevisClient({ numero, designation, prixClientHt, tvaTaux, eco
     'TVA taux 1 base': totalHtFinal,
     'TVA taux 1 montant': tvaMontant,
     'Total TTC': totalTtc,
-    ...(eco > 0 ? { 'Eco-participation mobilier': arrondi(eco) } : {}),
+    // Éco-participation TTC (le « dont » client) : lue par le brouillon Pennylane
+    // pour sortir l'éco du prix produit vers la ligne hors CA (compte 70811).
+    // `eco` est HT ici → TTC = eco × (1 + TVA). Défaut 20 % si le taux manque.
+    ...(eco > 0 ? {
+      'Eco-participation mobilier': arrondi(eco),
+      'Éco-participation': arrondi(eco * (1 + (tvaOk ? tva : 20) / 100)),
+    } : {}),
     'Notes internes': [
       'Devis créé depuis le Devis express.',
       origine ? `Devis fournisseur d'origine : ${origine}` : '',
