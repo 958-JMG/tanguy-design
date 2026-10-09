@@ -112,16 +112,25 @@ function casserPhrase(s) {
   return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
 }
 
-// Nom d'article propre : jette la marque seule et les lignes de finition/quincaillerie,
-// garde la ligne produit, et évite de répéter le code produit déjà affiché.
+// Nom d'article propre. La Désignation Winner empile, SOUS la ligne produit, les
+// composants de l'article (verres, sous-mesures « F09033 VERRE POUR PORTE… ») et du
+// bruit (marque seule, FINITION/FITTING, cotes isolées « 96 », « RECOUPE… », « SENS
+// OUVERTURE… »). Les concaténer donnait un libellé à rallonge, illisible, qui faisait
+// déborder le plafond Pennylane (1000 car.) et tronquait la liste. On ne garde donc
+// QUE la ligne produit : celle qui porte le code. Le détail technique complet (verres,
+// finitions) reste sur le devis Tanguy, document de référence.
 function nomArticlePropre(designation, code, marque) {
   const marqueN = String(marque || '').trim().toLowerCase();
-  let lignes = String(designation || '').split('\n').map(s => s.trim()).filter(Boolean)
+  const codeT = String(code || '').trim();
+  const brutes = String(designation || '').split('\n').map(s => s.trim()).filter(Boolean);
+  const utiles = brutes
     .filter(l => !LIGNE_BRUIT_RE.test(l))
     .filter(l => l.toLowerCase() !== marqueN);
-  if (!lignes.length) lignes = String(designation || '').split('\n').map(s => s.trim()).filter(Boolean).slice(0, 1);
-  let nom = lignes.join(' ');
-  const codeT = String(code || '').trim();
+  // La ligne produit = celle qui commence par le code. À défaut (code absent de la
+  // désignation, ou aucun code), la 1re ligne utile ; en dernier recours la 1re ligne
+  // brute, pour ne jamais rendre un article sans libellé.
+  let nom = (codeT && utiles.find(l => l.toUpperCase().startsWith(codeT.toUpperCase())))
+    || utiles[0] || brutes[0] || '';
   if (codeT && nom.toUpperCase().startsWith(codeT.toUpperCase())) nom = nom.slice(codeT.length).trim();
   return casserPhrase(compacterCotes(nom));
 }

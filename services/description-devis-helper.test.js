@@ -115,6 +115,24 @@ describe('lignesDevisTexte() — liste d\'articles propre pour la description Pe
     assert.equal(texte.split('\n')[1], '• GA3610 Colonne now battante asymétrique 1125×2270×610');
   });
 
+  test('un article = SA ligne produit seule : verres/sous-mesures et cotes isolées ne débordent pas le libellé', () => {
+    // Forme réelle (devis MACE 381/15/17, Pos 1) : sous la ligne produit s'empilent
+    // le « 96 » isolé et plusieurs « F09033 VERRE POUR PORTE … » qui survivaient au
+    // filtre FINITION/FITTING et se concaténaient en un libellé à rallonge.
+    const ligne = [{ Position: '1', 'Code produit': 'GA3610', Quantité: 1, Zone: ['z1'],
+      Désignation: 'LAGO\nGA3610 COLONNE NOW BATTANTE ASYMÉTRIQUE 1125 x 2270 x 610\n\nFINITION DOS MÉLAMINÉ MANDORLA\nFINITION VERRE VERRE BRILLANT BIANCO\nFITTING TROUS PERÇAGE CONTINU ENTRAXE\n96\nF09033 VERRE POUR PORTE 267 x 2253 x 4\nFINITION VERRE VERRE MAT BIANCO\nF09033 VERRE POUR PORTE 227 x 2253 x 4\nFINITION VERRE VERRE MAT BIANCO' }];
+    const { texte } = lignesDevisTexte(ligne, ZONES);
+    assert.equal(texte.split('\n')[1], '• GA3610 Colonne now battante asymétrique 1125×2270×610');
+  });
+
+  test('ligne produit trouvée même si le code n\'est pas en tête de désignation', () => {
+    // Pos 8 réel : la désignation commence par une FINITION, puis LAGO, puis le produit.
+    const ligne = [{ Position: '1', 'Code produit': 'L13001', Quantité: 1, Zone: ['z1'],
+      Désignation: 'FINITION VERRE VERRE MAT BIANCO\nLAGO\nL13001 CÔTÉ EXTERNE ARMOIRE 19 x 2270 x 584\nFINITION CÔTÉ BOIS MÉLAMINÉ POMICE' }];
+    const { texte } = lignesDevisTexte(ligne, ZONES);
+    assert.equal(texte.split('\n')[1], '• L13001 Côté externe armoire 19×2270×584');
+  });
+
   test('tronque proprement et ANNONCE le reste (jamais de coupe muette)', () => {
     const many = Array.from({ length: 40 }, (_, i) => ({ id: 'm' + i, fields: { Position: String(i), Désignation: 'Article ' + i, Zone: ['z1'] } }));
     const { texte, tronque, inclus, total } = lignesDevisTexte(many, ZONES, { max: 120 });
