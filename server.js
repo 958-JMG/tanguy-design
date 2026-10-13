@@ -4969,11 +4969,35 @@ app.use('/v3',  requireAuth, express.static(path.join(__dirname, 'public', 'v3')
 if (require.main === module) {
   (async () => {
     try { await resolveTablesByNameIfE2E(); } catch (e) { logger.warn('[e2e] resolve tables KO: ' + e.message); }
-    app.listen(PORT, () => {
+    const serveur = app.listen(PORT, () => {
       logger.info(`✅ Tanguy Design — Cockpit v0.3.0 on port ${PORT}`);
       logger.info(`   Users: ${Object.keys(USERS).length} | Airtable: ${BASE_ID ? 'OK' : 'MISSING'} | Claude: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'MISSING'}`);
     });
+    arretPropre(serveur);
   })();
+}
+
+// Arrêt propre (13/10/2026). Scaleway envoie SIGTERM quand il remplace ou endort l'instance (déploiement,
+// mise en veille à min_scale 0). Node s'arrêtait net : la page en cours de chargement finissait en
+// « connection reset by peer » ou en page « EOF » (vu sur cdlink le même jour). Désormais : plus de nouvelle
+// connexion, les requêtes en cours se terminent — et leur réponse demande au proxy de fermer la connexion —,
+// les connexions au repos se ferment, puis on sort (10 s au plus). Preuve : services/arret-propre.test.js.
+function arretPropre(serveur) {
+  let enArret = false;
+  serveur.prependListener('request', (_req, res) => {
+    const writeHead = res.writeHead;
+    res.writeHead = function (...args) { if (enArret && !res.headersSent) res.setHeader('Connection', 'close'); return writeHead.apply(this, args); };
+  });
+  const arreter = (signal) => {
+    if (enArret) return;
+    enArret = true;
+    logger.info(`[arrêt] ${signal} reçu : fin des requêtes en cours`);
+    serveur.close(() => { logger.info('[arrêt] terminé'); process.exit(0); });
+    serveur.closeIdleConnections();
+    setTimeout(() => process.exit(0), 10_000).unref();
+  };
+  process.on('SIGTERM', () => arreter('SIGTERM'));
+  process.on('SIGINT', () => arreter('SIGINT'));
 }
 
 app.isAdminLogin = isAdminLogin; // exposé pour les tests d'accès
