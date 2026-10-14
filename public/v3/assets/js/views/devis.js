@@ -775,12 +775,15 @@ async function signFlow(devis, projet) {
     const fe = result.factures_echeances;
     const feMsg = fe && fe.created ? ` · ${fe.created} facture(s) brouillon Pennylane` : '';
     toast(`Devis signé · ${result.commandes_creees} commande(s) · ${result.taches_creees} tâche(s)${feMsg}`, 'success', 6500);
-    // Jamais de silence : Dépose / Divers ne font pas de BC automatique. On le dit,
-    // et la fiche devis propose « Créer la commande » pour ces lignes si besoin.
+    // Jamais de silence : la Dépose ne fait pas de BC, et les commandes « À classer »
+    // (Divers hors catalogue, catégorie inconnue) attendent un fournisseur.
+    if (result.a_classer) {
+      toast(`${result.a_classer} commande(s) « À classer » : fournisseur à choisir (tâche créée).`, 'info', 10000);
+    }
     const sansCmd = (result.sans_commande || []).filter(x => x.lignes > 0);
     if (sansCmd.length) {
       const nb = sansCmd.reduce((t, x) => t + x.lignes, 0);
-      toast(`${nb} ligne(s) ${sansCmd.map(x => x.type).join(' / ')} sans commande fournisseur : la fiche du devis permet de les commander.`, 'info', 10000);
+      toast(`${nb} ligne(s) ${sansCmd.map(x => x.type).join(' / ')} sans commande fournisseur.`, 'info', 10000);
     }
     // Retour fiche projet pour voir les BC générés
     if (projet?.id) {

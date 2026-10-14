@@ -45,8 +45,9 @@ const normalize = s => String(s || '')
  * @param {string} raw
  * @returns {{ canon: string|null, commande: boolean, grille: boolean, raison?: string }}
  *   - canon   : catégorie canonique (une des CATEGORIES_GRILLE, ou 'Accessoires'
- *               / 'Dépose' / 'Divers'), ou null si non reconnue.
- *   - commande: faut-il créer une commande fournisseur ? (Dépose/Divers = non)
+ *               / 'Dépose'), ou null → commande « À classer » (inconnue, absente,
+ *               ou Divers depuis le 14/10/2026).
+ *   - commande: faut-il créer une commande fournisseur ? (Dépose = non)
  *   - grille  : la catégorie est-elle une dimension de la grille fournisseurs ?
  *   - raison  : explication (affichée, jamais tue) quand utile.
  */
@@ -69,7 +70,11 @@ function classifierCategorie(raw) {
   if (has('meuble', 'mobilier', 'panneaux de recouvrement', 'caisson')) return grille('Mobilier');
   if (has('produits de vente', 'accessoire')) return { canon: 'Accessoires', commande: true, grille: false };
   if (has('depose')) return { canon: 'Dépose', commande: false, grille: false, raison: 'Dépose : pas de commande fournisseur' };
-  if (has('divers')) return { canon: 'Divers', commande: false, grille: false, raison: 'Divers : pas de commande fournisseur' };
+  // Décision JMG du 14/10/2026 : le Divers part dans une commande « À classer »
+  // VISIBLE au lieu de nulle part. Ce sont des articles hors catalogue Winner
+  // (meuble LAGO du devis 650/1/1, flexible, colonne sur mesure…) qui se
+  // commandent aussi ; aucun fournisseur ne se devine depuis « Divers ».
+  if (has('divers')) return { canon: null, commande: true, grille: false, raison: 'Divers : article hors catalogue, fournisseur à choisir' };
 
   return { canon: null, commande: true, grille: false, raison: `Catégorie « ${String(raw).trim()} » non reconnue` };
 }

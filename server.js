@@ -2546,7 +2546,7 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     // Référence courte, Lignes BC JSON) + les Notes texte ASCII pour rétrocompatibilité.
     const commandesCreees = [];
     const aClasserCreees = [];   // groupes non reconnus → à router à la main (jamais tus)
-    const sansCommande = [];     // Dépose / Divers : reportés, sans BC fournisseur
+    const sansCommande = [];     // Dépose : reportée, sans BC fournisseur
     let idx = 1;
     // Pour meubles : extraire infos modèle depuis la 1re zone du devis (NOVA_CUC = singulier).
     // Fix 2026-06-07 (grand nettoyage) : ce bloc référençait `parsed.zones` (variable du
@@ -2565,7 +2565,8 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     for (const g of groupes) {
       const type = g.type;
       const montant = g.montant;
-      // Dépose / Divers : pas de commande fournisseur, mais on les REPORTE (jamais tu).
+      // Dépose : pas de commande fournisseur, mais on la REPORTE (jamais tue). Le
+      // Divers, lui, part en « À classer » depuis le 14/10/2026 (décision JMG).
       if (!g.commande) { sansCommande.push({ type: g.canon, montant, lignes: g.lignes.length }); continue; }
       // On crée le BC dès qu'il y a des lignes, ou pour le « Plan de travail » (BC vide
       // à compléter sur chantier), ou pour un groupe « À classer » (lignes à router).
@@ -2578,7 +2579,7 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       // fournisseur retenu, OU pourquoi il n'a pas pu l'être (À classer, ambiguïté,
       // absent de la grille) — pour qu'elle route à la main en connaissance de cause.
       const enteteNote = [];
-      if (g.aClasser) enteteNote.push(`⚠️ À CLASSER — catégorie « ${g.categorieBrute || '—'} » non reconnue. Rattacher au bon fournisseur / BC à la main.`);
+      if (g.aClasser) enteteNote.push(`⚠️ À CLASSER — ${g.raison || `catégorie « ${g.categorieBrute || '—'} » non reconnue`}. Rattacher au bon fournisseur / BC à la main.`);
       else if (g.fournisseurNom) enteteNote.push(`Fournisseur (grille) : ${g.fournisseurNom}.`);
       else if (g.grille && g.raison) enteteNote.push(`⚠️ Fournisseur à choisir — ${g.raison}.`);
       const notesPrefill = (enteteNote.length ? enteteNote.join('\n') + '\n\n' : '') + (isPlanTravailVide
@@ -2618,7 +2619,7 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       tachesFields.push({
         'Titre': `Router ${aClasserCreees.length} commande(s) « À classer » — ${numero}`,
         'Assignée à': 'Virginie', 'Priorité': 'Haute', 'Statut': 'À faire', 'Échéance': today,
-        'Description': `Des lignes du devis ${numero} n'ont pas pu être classées automatiquement (catégorie non reconnue). BC créés « À classer » : ${aClasserCreees.map(a => `${a.numero} (${a.categorie || '—'}, ${a.lignes} ligne(s))`).join(' ; ')}. Rattache chacun au bon fournisseur / BC.`,
+        'Description': `Des lignes du devis ${numero} n'ont pas de fournisseur déductible (Divers hors catalogue, ou catégorie non reconnue). BC créés « À classer » : ${aClasserCreees.map(a => `${a.numero} (${a.categorie || '—'}, ${a.lignes} ligne(s))`).join(' ; ')}. Rattache chacun au bon fournisseur / BC.`,
       });
     }
     if (projetId) tachesFields.forEach(t => t['Projet'] = [projetId]);
@@ -2663,7 +2664,7 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       taches_creees: tachesFields.length,
       detail: commandesCreees,
       a_classer: aClasserCreees.length,          // lignes non reconnues → BC « À classer » (jamais perdues)
-      sans_commande: sansCommande,               // Dépose / Divers : reportés, sans BC fournisseur
+      sans_commande: sansCommande,               // Dépose : reportée, sans BC fournisseur
       factures_echeances: facturesEcheances,
     });
   } catch (e) {

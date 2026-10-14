@@ -202,7 +202,7 @@ test('commande : la fiche du devis signé montre les 3 lignes qu\'aucun BC ne po
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.equal(r.json.commandes, 1, 'le BC « Plan de travail » vide est bien vu comme un BC du devis');
   assert.deepEqual(r.json.lignes.map(l => l.id), ['recL1', 'recL2', 'recL3']);
-  assert.ok(r.json.lignes.every(l => l.famille === 'Divers'));
+  assert.ok(r.json.lignes.every(l => l.categorie === 'Divers'));
   assert.ok(r.json.categories.includes('Mobilier'));
 });
 
@@ -241,14 +241,22 @@ test('commande : devis non signé → refus clair (ses BC naissent à la signatu
 });
 
 // ── Signature : la fabrication des BC a déménagé dans services/commande-bc.js ─
-test('signature : mêmes BC qu\'avant (Mobilier + Électroménager + Plan de travail vide), le Divers est dit', async () => {
+// Décision JMG du 14/10/2026 : le Divers part dans un BC « À classer » visible.
+test('signature : Mobilier + Électroménager + Plan de travail vide + Divers en « À classer »', async () => {
   const r = await appel('POST', '/api/devis/recDEV2/sign', {});
   assert.equal(r.status, 200, JSON.stringify(r.json));
-  assert.equal(r.json.commandes_creees, 3);
-  assert.deepEqual(r.json.sans_commande, [{ type: 'Divers', montant: 40, lignes: 1 }]);
+  assert.equal(r.json.commandes_creees, 4);
+  assert.equal(r.json.a_classer, 1);
+  assert.deepEqual(r.json.sans_commande, [], 'plus aucune ligne laissée sans commande');
   const bcs = (get(T.projets, 'recPRJ2').fields.Commandes || []).map(id => get(T.commandes, id).fields);
   const parRef = Object.fromEntries(bcs.map(f => [f['Référence courte'], f]));
-  assert.deepEqual(Object.keys(parRef).sort(), ['ELECTRO', 'MOBILIER', 'PLAN_CRED']);
+  assert.deepEqual(Object.keys(parRef).sort(), ['A_CLASSER', 'ELECTRO', 'MOBILIER', 'PLAN_CRED']);
+  assert.deepEqual(JSON.parse(parRef.A_CLASSER['Lignes BC']).map(l => l.code), ['D1']);
+  assert.equal(parRef.A_CLASSER.Fournisseur, undefined, 'aucun fournisseur deviné pour du Divers');
+  assert.match(parRef.A_CLASSER.Notes, /À CLASSER — Divers : article hors catalogue/);
+  assert.match(parRef.A_CLASSER['Numéro'], /· À CLASSER · T-100-\d$/);
+  const taches = [...table('tblDwUHL16LBVMSaz').values()].map(t => t.fields['Titre']);
+  assert.ok(taches.some(t => /Router 1 commande\(s\) « À classer » — T-100/.test(t)), 'tâche de routage pour Virginie');
   assert.equal(parRef.PLAN_CRED['Numéro'], 'CLIENT TEST · PLAN DE TRAVAIL & CRÉDENCE · T-100-1');
   assert.equal(parRef.PLAN_CRED['Lignes BC'], '[]');
   assert.deepEqual(JSON.parse(parRef.MOBILIER['Lignes BC']).map(l => l.code), ['M1']);
@@ -260,5 +268,5 @@ test('signature : mêmes BC qu\'avant (Mobilier + Électroménager + Plan de tra
   assert.equal(parRef.ELECTRO['Modèle choisi'], undefined);
 
   const orphelines = await appel('GET', '/api/devis/recDEV2/lignes-sans-commande');
-  assert.deepEqual(orphelines.json.lignes.map(l => l.code), ['D1'], 'seul le Divers reste à commander, et la fiche le montre');
+  assert.deepEqual(orphelines.json.lignes, [], 'toutes les lignes sont dans un BC, la fiche n\'affiche rien');
 });

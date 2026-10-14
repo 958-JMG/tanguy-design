@@ -58,12 +58,17 @@ describe('classifierCategorie — vocabulaire réel Winner → 4 familles', () =
     assert.equal(r.grille, false);
   });
 
-  test('Dépose et Divers → pas de commande, mais catégorie reconnue (jamais tue)', () => {
-    for (const c of ['Dépose', 'Divers']) {
-      const r = classifierCategorie(c);
-      assert.equal(r.commande, false);
-      assert.ok(r.raison);
-    }
+  test('Dépose → pas de commande, mais catégorie reconnue (jamais tue)', () => {
+    const r = classifierCategorie('Dépose');
+    assert.equal(r.commande, false);
+    assert.ok(r.raison);
+  });
+
+  test('Divers → commande « À classer » (décision JMG 14/10/2026), jamais un fournisseur deviné', () => {
+    const r = classifierCategorie('Divers');
+    assert.equal(r.canon, null, 'pas de famille inventée');
+    assert.equal(r.commande, true, 'le Divers se commande');
+    assert.match(r.raison, /Divers/);
   });
 
   test('catégorie inconnue → canon null + raison (JAMAIS un rattachement inventé)', () => {
@@ -128,10 +133,23 @@ describe('routeCommandes — aucune ligne jetée, aucun rattachement au hasard',
     assert.match(g.raison, /Aucun fournisseur/);
   });
 
-  test('Dépose/Divers → présents dans le résultat (commande:false), donc reportés', () => {
+  test('Dépose → présente dans le résultat (commande:false), donc reportée', () => {
     const groupes = routeCommandes([ligne('Dépose', 0), ligne('Divers', 120)], GRILLE);
     assert.ok(groupes.find(g => g.canon === 'Dépose' && g.commande === false));
-    assert.ok(groupes.find(g => g.canon === 'Divers' && g.commande === false));
+  });
+
+  test('Divers → groupe « À classer » avec ses lignes, sans fournisseur (devis 650/1/1, 14/10/2026)', () => {
+    const groupes = routeCommandes([ligne('Meubles', 5000), ligne('Divers', 733), ligne('Divers', 45)], GRILLE);
+    const g = groupes.find(x => x.aClasser);
+    assert.ok(g, 'le Divers ne disparaît plus');
+    assert.equal(g.commande, true);
+    assert.equal(g.type, 'À classer');
+    assert.equal(g.ref, 'A_CLASSER');
+    assert.equal(g.lignes.length, 2);
+    assert.equal(g.montant, 778);
+    assert.equal(g.fournisseurId, undefined);
+    assert.equal(g.categorieBrute, 'Divers');
+    assert.match(g.raison, /Divers/);
   });
 
   test('opts.forcer : le BC « Plan de travail & crédence » existe même sans ligne', () => {
