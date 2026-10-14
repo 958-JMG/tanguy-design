@@ -5,7 +5,7 @@ Gestion : https://tanguydesign.958.fr/gestion-site — connexion du cockpit, adm
 
 ## Modifier le site
 
-Choisir une rubrique. Modifier les textes, les titres et descriptions pour Google, ou remplacer une photo. Enregistrer le brouillon, cliquer Prévisualiser, puis Publier le brouillon. Les changements sont visibles sous 10 secondes sur toutes les instances. Restaurer la publication précédente permet de revenir à la dernière publication. Une nouvelle réalisation peut être ajoutée dans Réalisations. Les URL existantes restent stables.
+Choisir une rubrique. Modifier les textes, les titres et descriptions pour Google, ou remplacer une photo. Enregistrer le brouillon, cliquer Prévisualiser, puis Publier le brouillon. Les changements sont visibles sous 10 secondes sur toutes les instances. Restaurer la publication précédente permet de revenir à la dernière publication ; elle remplace aussi le brouillon, et l’écran le dit quand celui-ci porte des modifications non publiées. Abandonner le brouillon le remet sur la version en ligne. Une nouvelle réalisation peut être ajoutée dans Réalisations, et retirée du brouillon par « Supprimer cette réalisation » ; les cinq réalisations d’origine se modifient mais ne se suppriment pas (leurs pages les lisent par leur position). Les URL existantes restent stables.
 
 Les photos acceptées sont JPG, PNG et WebP, jusqu’à 8 Mo. Préférer des images optimisées de 1 600 à 2 000 pixels, idéalement sous 500 Ko. Le texte doit décrire ce qui est réellement visible. Ne pas publier de nom/adresse de client sans son accord. Aucun plug-in WordPress ni service CMS externe.
 
