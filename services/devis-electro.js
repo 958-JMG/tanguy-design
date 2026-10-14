@@ -231,8 +231,9 @@ function construireDevisElectro({ numero, articles, tvaTaux, dateDevis, typeDevi
   }
 
   // Lignes : « Montant HT » HORS éco + « Eco-participation » HT, comme les lignes
-  // Winner (Montant + éco = coût final). La dernière ligne absorbe l'arrondi pour
-  // que la somme retombe exactement sur le Total HT final du devis.
+  // Winner (Montant + éco = coût final). La PLUS GROSSE ligne absorbe l'arrondi
+  // (où il déforme le moins) pour que la somme retombe exactement sur le Total HT
+  // final du devis.
   const lignes = ml.map(({ a, m }, i) => {
     const desig = [a.marque, a.libelle].filter(Boolean).join(' ') || a.typeFindis || 'Article';
     // Le type FINDIS en 2e ligne seulement s'il apporte quelque chose : « Piano de
@@ -258,7 +259,10 @@ function construireDevisElectro({ numero, articles, tvaTaux, dateDevis, typeDevi
   });
   const sommeLignes = round2(lignes.reduce((s, l) => s + l['Montant HT'] + l['Eco-participation'], 0));
   const residu = round2(totalHtFinal - sommeLignes);
-  if (lignes.length && residu !== 0) lignes[lignes.length - 1]['Montant HT'] = round2(lignes[lignes.length - 1]['Montant HT'] + residu);
+  if (lignes.length && residu !== 0) {
+    const grosse = lignes.reduce((g, l) => (l['Montant HT'] > g['Montant HT'] ? l : g), lignes[0]);
+    grosse['Montant HT'] = round2(grosse['Montant HT'] + residu);
+  }
   const totalArticles = round2(lignes.reduce((s, l) => s + l['Montant HT'], 0));
 
   const totaux = totauxArticles(retenus, t);

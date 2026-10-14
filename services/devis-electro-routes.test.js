@@ -161,3 +161,32 @@ test('Devis express fournisseur : famille, prix d\'achat gardé, Additif automat
   assert.equal(l['Catégorie'], 'Mobilier');
   assert.equal(l['Prix achat HT'], 801);
 });
+
+test('fiche projet : marge par partie — prévue avant l\'AR, réelle après', async () => {
+  let r = await banc.appel('GET', '/api/projets/recPRJ');
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  const parties = () => Object.fromEntries(r.json.margeParties.parties.map(p => [p.partie, p]));
+  let p = parties();
+  assert.equal(p['Électroménager'].base, 'prévue');
+  assert.equal(p['Plan de travail & crédence'].marge, 69.36, 'le mitigeur, dans sa partie');
+  assert.equal(Math.round((p['Électroménager'].marge + p['Plan de travail & crédence'].marge) * 100) / 100, 1590.52);
+  assert.ok(r.json.margeParties.alertes.some(a => /700\/1\/1 signé sans total HT/.test(a)), 'devis Winner sans total : dit, pas ignoré en silence');
+
+  // AR Findis reçu : 2 800 € (un peu moins que prévu) → marge RÉELLE.
+  const bcFindis = [...table(T.commandes).values()].find(c => /FINDIS/.test(c.fields['Numéro']));
+  bcFindis.fields['Montant AR'] = 2800;
+  r = await banc.appel('GET', '/api/projets/recPRJ');
+  p = parties();
+  assert.equal(p['Électroménager'].base, 'réelle');
+  assert.equal(Math.round((p['Électroménager'].coutReel + p['Plan de travail & crédence'].coutReel) * 100) / 100, 2800, 'AR réparti par les lignes du BC');
+});
+
+test('Admin marges : même règle que la fiche (CA des devis signés, AR, sans retrancher les artisans)', async () => {
+  const r = await banc.appel('GET', '/api/admin/marges');
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  const row = r.json.rows.find(x => x.id === 'recPRJ');
+  assert.equal(row.caEstReel, true);
+  assert.equal(Math.round(row.caHT * 100) / 100, 4430.67, 'devis électroménager signé (le Winner de test n\'a pas de total)');
+  assert.equal(row.coutFourn, 2800, 'AR, pas le « Montant HT » estimé');
+  assert.equal(Math.round(row.margeAbs * 100) / 100, 1630.67);
+});

@@ -40,6 +40,10 @@ const { numeroDevisExpress, construireDevisClient, referenceProjet } = require('
 // Devis express électroménager (projets FINDIS) : lecture et construction du devis.
 const { lireProjetFindis } = require('./services/findis-parser');
 const { nomFichier } = require('./services/nom-fichier');   // nom d'un fichier reçu, accents réparés
+// Marge de chaque partie d'un projet (meubles, électroménager…) — fiche projet et Admin marges.
+const { margeParParties } = require('./services/marge-parties');
+// Règle unique de la marge globale (fiche projet ET Admin marges).
+const { computeMarge } = require('./services/couts-helper');
 const { normaliserArticles, construireDevisElectro } = require('./services/devis-electro');
 const { buildRetroApporteurs, TAUX_RETRO } = require('./services/retro-apporteurs-helper');
 const { canAccess, pickAllowedFields, splitAllowedFields } = require('./services/acl');
@@ -661,20 +665,24 @@ app.get('/health/connecteurs', async (_req, res) => {
   }
 });
 
-// --- Admin : tableau marges par projet (Sprint 5) ---
-// Pour chaque projet : CA HT, coût fournisseurs (commandes), coût artisans (devis-artisans),
-// rétro-commission 5 % sur tous les devis artisans, marge € + %.
+// --- Admin : tableau marges par projet (Sprint 5, aligné sur la fiche le 14/10/2026) ---
+// MÊME règle que la marge de la fiche projet (services/couts-helper.js computeMarge) :
+//   CA HT = devis SIGNÉS (Total HT final), à défaut le budget prévisionnel ;
+//   fournisseurs = montants confirmés par les AR (« 0 strict » validé par JMG) ;
+//   + rétro 5 % artisans − coûts chantier « sur marge » − retenue abandonnée.
+// Avant, cet écran prenait le budget prévi, le « Montant HT » des commandes (un prix
+// de VENTE estimé) et retranchait les devis artisans (que le client paie) : deux
+// marges différentes pour le même chantier.
 app.get('/api/admin/marges', requireAuth, async (req, res) => {
   if (!ADMIN_LOGINS.has(req.session?.user)) return res.status(403).json({ error: 'admin requis' });
   try {
-    // La table Artisans n'est plus chargée : elle ne servait qu'au filtre
-    // « Contractuel », retiré du calcul de la rétro. Un appel Airtable de moins
-    // sur un écran qui balaie déjà toute la base.
-    const [projets, commandes, devisArtisans, clients] = await Promise.all([
+    const [projets, commandes, devisArtisans, clients, devis, couts] = await Promise.all([
       atFetchAll(TABLES.projets.id),
       atFetchAll(TABLES.commandes.id),
       atFetchAll(TABLES['devis-artisans'].id),
       atFetchAll(TABLES.clients.id),
+      atFetchAll(TABLES.devis.id),
+      COUTS_TBL_READY ? atFetchAll(TABLES['couts-chantier'].id).catch(e => { logger.warn({ err: e.message }, '[admin/marges] coûts chantier KO'); return []; }) : [],
     ]);
     const clientById = new Map(clients.map(c => [c.id, c]));
 
@@ -682,16 +690,21 @@ app.get('/api/admin/marges', requireAuth, async (req, res) => {
       const f = p.fields || {};
       const projetCmds = commandes.filter(c => (c.fields?.Projet || []).includes(p.id));
       const projetDA = devisArtisans.filter(d => (d.fields?.Projet || []).includes(p.id));
-      const caHT = f['Budget HT'] || 0;
-      const coutFourn = projetCmds.reduce((s, c) => s + (c.fields?.['Montant HT'] || 0), 0);
-      const coutArtisans = projetDA.reduce((s, d) => s + (d.fields?.['Montant HT'] || 0), 0);
-      // Règle unique (29/07/2026) : 5 % sur TOUS les devis artisans, doublons
-      // d'import écartés, et « Rétro-commission HT » stockée prioritaire. Cet
-      // écran filtrait encore sur « Contractuel » et affichait donc une marge
-      // différente de celle de la fiche projet, pour le même chantier.
+      const signes = devis.filter(d => (d.fields?.Projet || []).includes(p.id) && d.fields?.Statut === 'Signé');
+      const caReel = signes.reduce((s, d) => s + (Number(d.fields?.['Total HT final']) || 0), 0);
+      const caEstReel = signes.length > 0 && caReel > 0;
+      const caHT = caEstReel ? caReel : (Number(f['Budget HT']) || 0);
+      const coutFourn = projetCmds.reduce((s, c) => s + (Number(c.fields?.['Montant AR']) || 0), 0);
+      const coutFournEstime = projetCmds.reduce((s, c) => s + (Number(c.fields?.['Montant HT']) || 0), 0);
+      const arManquants = projetCmds.filter(c => !(Number(c.fields?.['Montant AR']) > 0)).length;
       const retro = retroTotale(projetDA).total;
-      const margeAbs = caHT - coutFourn - coutArtisans + retro;
-      const margePct = caHT > 0 ? (margeAbs / caHT) * 100 : null;
+      const coutsProjet = couts
+        .filter(c => (c.fields?.Projets || []).includes(p.id))
+        .map(c => ({ montant: c.fields?.['Montant HT'], imputation: c.fields?.['Payé par'] }));
+      const m = computeMarge({
+        caHT, coutFourn, retro, couts: coutsProjet,
+        retenue: { montant: f['Retenue montant'], statut: f['Retenue statut'] },
+      });
       const clientNom = clientById.get((f.Client || [])[0])?.fields?.Nom || '?';
       return {
         id: p.id,
@@ -699,8 +712,9 @@ app.get('/api/admin/marges', requireAuth, async (req, res) => {
         client: clientNom,
         phase: f['Phase commerciale'] || f.Statut,
         chantier: f['Statut chantier'] || '',
-        caHT, coutFourn, coutArtisans, retro,
-        margeAbs, margePct,
+        caHT, caEstReel, coutFourn, coutFournEstime, arManquants, retro,
+        coutsSurMarge: m.coutsSurMarge, retenuePerte: m.retenuePerte,
+        margeAbs: m.margeAbs, margePct: m.margePct,
       };
     });
     res.json({ ok: true, rows });
@@ -1547,10 +1561,21 @@ app.get('/api/projets/:id', requireAuth, async (req, res) => {
     ]);
 
     // Sprint v3.5 — Échéances liées aux devis (pour section Facturation client)
+    // + lignes des devis SIGNÉS (marge par partie, 14/10/2026), en parallèle.
     const echeanceIds = devis.flatMap(d => d.fields?.['Échéances devis'] || []);
-    const echeances = echeanceIds.length
-      ? await atFetchByIds(TABLES['echeances-devis'].id, echeanceIds)
-      : [];
+    const ligneIdsSignes = devis.filter(d => d.fields?.Statut === 'Signé').flatMap(d => d.fields?.['Lignes devis'] || []);
+    const [echeances, lignesSignees] = await Promise.all([
+      echeanceIds.length ? atFetchByIds(TABLES['echeances-devis'].id, echeanceIds) : [],
+      ligneIdsSignes.length ? atFetchByIds(TABLES['lignes-devis'].id, ligneIdsSignes) : [],
+    ]);
+    // Marge de chaque partie (meubles, électroménager…). Jamais bloquant pour la
+    // fiche : un échec de calcul est renvoyé comme tel, pas tu.
+    let margeParties;
+    try { margeParties = margeParParties({ devis, lignes: lignesSignees, commandes }); }
+    catch (e) {
+      logger.warn({ err: e.message, projetId }, '[projets/:id] marge par partie KO');
+      margeParties = { erreur: e.message, parties: [], total: null, alertes: [] };
+    }
 
     // Paquet Coûts chantier — coûts additionnels liés (lien inverse « Coûts chantier »
     // sur Projets). Défensif : tant que la migration n'est pas passée (COUTS_TBL_READY
@@ -1574,7 +1599,7 @@ app.get('/api/projets/:id', requireAuth, async (req, res) => {
       } catch (e) { /* fallback silencieux */ }
     }
 
-    res.json({ ok: true, projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans, echeances, couts });
+    res.json({ ok: true, projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans, echeances, couts, margeParties });
   } catch (e) {
     logger.error({ err: e.message, projetId }, '[projets/:id] error');
     res.status(500).json({ error: e.message });

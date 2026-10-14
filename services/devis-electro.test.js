@@ -144,7 +144,8 @@ describe('construireDevisElectro()', () => {
     const smeg = r.lignes[0];
     assert.equal(smeg['Catégorie'], 'Électroménager');
     assert.equal(smeg['Code produit'], 'SCD90IMX9-1');
-    assert.equal(smeg['Montant HT'], 1653.63, '1999/1,2 − 12,20');
+    assert.equal(smeg['Montant HT'], 1653.64, '1999/1,2 − 12,20 = 1 653,63, + 0,01 d\'arrondi porté par la plus grosse ligne');
+    assert.equal(r.lignes[4]['Montant HT'], 165.82, 'le mitigeur garde son montant exact (199/1,2 − 0,01)');
     assert.equal(smeg['Eco-participation'], 12.2);
     assert.equal(smeg['Prix achat HT'], 1118.72);
     assert.deepEqual(smeg['Fournisseur'], ['recFINDIS']);

@@ -577,16 +577,18 @@ function renderMarges(container, rows) {
       </div>
     </div>
 
+    <p class="muted" style="font-size:12px;margin:0 0 8px">Même calcul que la marge de chaque fiche projet. Le détail par partie (meubles, électroménager…) est sur la fiche.</p>
+    <div class="table-scroll">
     <table class="pipeline-table">
       <thead>
         <tr>
           <th>Projet</th>
           <th>Client</th>
           <th>Phase</th>
-          <th class="num">CA HT</th>
-          <th class="num">Fourn.</th>
-          <th class="num">Artis.</th>
+          <th class="num" title="Devis signés ; à défaut, budget prévisionnel">CA HT</th>
+          <th class="num" title="Montants confirmés par les AR des commandes">Fourn. (AR)</th>
           <th class="num">Rétro</th>
+          <th class="num" title="Coûts chantier « sur marge » + retenue abandonnée">Coûts</th>
           <th class="num">Marge</th>
           <th class="num">%</th>
         </tr>
@@ -597,16 +599,17 @@ function renderMarges(container, rows) {
           <td><strong>${esc(r.reference || '?')}</strong></td>
           <td>${esc(r.client)}</td>
           <td><span class="badge phase-${esc((r.phase || '')).toLowerCase().replace(/[^a-z]+/g, '-')}">${esc(r.phase || '—')}</span></td>
-          <td class="num">${euros(r.caHT)}</td>
-          <td class="num">${euros(r.coutFourn)}</td>
-          <td class="num">${euros(r.coutArtisans)}</td>
+          <td class="num">${euros(r.caHT)} <span class="muted" style="font-size:11px">${r.caEstReel ? 'réel' : 'prévi'}</span></td>
+          <td class="num">${euros(r.coutFourn)}${r.arManquants > 0 && r.coutFournEstime > 0 ? `<div class="muted" style="font-size:11px" title="${r.arManquants} commande(s) sans AR">${r.arManquants} sans AR</div>` : ''}</td>
           <td class="num" style="color:var(--green)">+${euros(r.retro)}</td>
+          <td class="num">${(r.coutsSurMarge || 0) + (r.retenuePerte || 0) > 0 ? '−' + euros((r.coutsSurMarge || 0) + (r.retenuePerte || 0)) : '—'}</td>
           <td class="num"${r.margeAbs < 0 ? ' style="color:var(--accent);font-weight:600"' : ''}>${euros(r.margeAbs)}</td>
           <td class="num"${r.margeAbs < 0 ? ' style="color:var(--accent);font-weight:600"' : ''}>${r.margePct != null ? r.margePct.toFixed(1) + ' %' : '—'}</td>
         </tr>
         `).join('')}
       </tbody>
     </table>
+    </div>
   `;
 
   container.querySelectorAll('tbody tr').forEach(tr => {
