@@ -1746,7 +1746,7 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
     // 6) Persiste les identifiants sur le devis
     await atPatch(TABLES.devis.id, devisId, { [PL_QUOTE_FIELD]: String(quote.id), [PL_NUM_FIELD]: quote.number || '' });
 
-    logger.info({ devisId, quoteId: quote.id, customerCreated, reconOk: reconciliation.ok }, 'devis poussé en brouillon Pennylane');
+    logger.info({ devisId, quoteId: quote.id, customerCreated, reconOk: reconciliation.ok }, 'devis créé dans Pennylane');
     res.json({
       ok: true, quoteId: quote.id, number: quote.number, status: quote.status,
       openUrl: pennylaneQuoteUrl(quote.raw, quote.id),
@@ -1770,7 +1770,7 @@ app.get('/api/devis/:id/pennylane/pdf', requireAuth, async (req, res) => {
     if (!dr.ok) return res.status(404).json({ error: 'Devis introuvable' });
     const f = (await dr.json()).fields || {};
     const quoteId = f[PL_QUOTE_FIELD];
-    if (!quoteId) return res.status(409).json({ error: 'Ce devis n\'a pas encore de brouillon Pennylane' });
+    if (!quoteId) return res.status(409).json({ error: 'Ce devis n\'a pas encore été créé dans Pennylane' });
     const pdf = await pennylane.fetchQuotePdf(quoteId);
     const fname = `devis-${(f['Numéro devis'] || quoteId).toString().replace(/[^\w.-]+/g, '_')}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');

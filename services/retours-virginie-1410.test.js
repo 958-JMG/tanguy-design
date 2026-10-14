@@ -63,7 +63,7 @@ test('éco : « Enregistrer » écrit VRAIMENT le montant en base', async () => 
   assert.equal(r.json.ignores, undefined);
 });
 
-test('éco : le brouillon Pennylane reçoit une ligne « Éco-participation » hors CA, total client inchangé', async () => {
+test('éco : le devis Pennylane reçoit une ligne « Éco-participation » hors CA, total client inchangé', async () => {
   const r = await appel('POST', '/api/devis/recDEV/pennylane', {});
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.deepEqual(r.json.eco, { ttc: 2.38, ht: 1.98 }, 'la réponse dit ce qui est parti');
