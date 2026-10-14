@@ -100,7 +100,7 @@ function renderFiche(app, data) {
           ? `<a class="btn btn-ghost btn-sm" href="${esc(pennylanePdfUrl(devis.id))}">${icon('download', 14)} Télécharger PDF</a>
              <a class="btn btn-ghost btn-sm" href="https://app.pennylane.com" target="_blank" rel="noopener">${icon('external-link', 14)} Ouvrir dans Pennylane</a>
              <button class="btn btn-ghost btn-sm" id="btn-pennylane-regen">${icon('file-text', 14)} Régénérer</button>`
-          : `<button class="btn btn-ghost btn-sm" id="btn-pennylane">${icon('file-text', 14)} Générer le brouillon Pennylane</button>`}
+          : `<button class="btn btn-ghost btn-sm" id="btn-pennylane">${icon('file-text', 14)} Créer le devis dans Pennylane</button>`}
         ${echeances.length ? `<button class="btn btn-ghost btn-sm" id="btn-pennylane-echeances">${icon('file-text', 14)} Factures d'échéance (brouillon)</button>` : ''}
         ${!isSigned ? `<button class="btn btn-primary btn-sm" id="btn-sign-devis">${icon('check', 14)} Signer ce devis</button>` : ''}
       </div>
@@ -112,7 +112,7 @@ function renderFiche(app, data) {
     <div id="sans-commande-banner"></div>
 
     ${plQuote ? `<div class="card" style="margin-bottom:16px;display:flex;align-items:center;gap:8px">
-      ${icon('check-circle', 16)}<span>Brouillon dans Pennylane${f['Pennylane numéro'] ? ` · ${esc(f['Pennylane numéro'])}` : ''}. Virginie l'envoie depuis Pennylane ou télécharge le PDF pour l'envoyer depuis sa boîte mail.</span>
+      ${icon('check-circle', 16)}<span>Devis${f['Pennylane numéro'] ? ` ${esc(f['Pennylane numéro'])}` : ''} créé dans Pennylane, pas encore envoyé. Virginie l'envoie depuis Pennylane ou télécharge le PDF pour l'envoyer depuis sa boîte mail.</span>
     </div>` : ''}
 
     <!-- Totaux KPIs -->
@@ -126,10 +126,10 @@ function renderFiche(app, data) {
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
         <div>
           <div style="font-weight:600;display:flex;align-items:center;gap:6px">${icon('leaf', 15)} Éco-participation</div>
-          <div class="muted" style="font-size:12px;margin-top:2px">Comprise dans le prix (« dont »), sortie du chiffre d'affaires au moment du brouillon Pennylane. Mobilier + électroménager.</div>
+          <div class="muted" style="font-size:12px;margin-top:2px">Comprise dans le prix (« dont »), sortie du chiffre d'affaires dans le devis Pennylane. Mobilier + électroménager.</div>
           <div id="eco-etat" style="font-size:13px;margin-top:6px">${ecoTtc > 0
-            ? `${icon('check-circle', 13)} Enregistrée : <strong>${euros(ecoTtc)} TTC</strong>, portée sur une ligne « Éco-participation » dans le brouillon Pennylane.`
-            : `<span class="muted">Aucun montant enregistré : le brouillon Pennylane n'aura pas de ligne éco-participation.</span>`}</div>
+            ? `${icon('check-circle', 13)} Enregistrée : <strong>${euros(ecoTtc)} TTC</strong>, portée sur une ligne « Éco-participation » dans le devis Pennylane.`
+            : `<span class="muted">Aucun montant enregistré : le devis Pennylane n'aura pas de ligne éco-participation.</span>`}</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <input id="eco-input" type="number" step="0.01" min="0" inputmode="decimal" value="${f['Éco-participation'] != null ? esc(f['Éco-participation']) : ''}" placeholder="0,00" aria-label="Montant éco-participation TTC" style="width:110px;text-align:right;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r-sm)"> € TTC
@@ -200,11 +200,12 @@ function renderFiche(app, data) {
   document.getElementById('btn-reimport-devis')?.addEventListener('click', () => openReimportDevis(devis, projet));
   document.getElementById('btn-sign-devis')?.addEventListener('click', () => signFlow(devis, projet));
   document.getElementById('btn-pennylane')?.addEventListener('click', () => pennylaneFlow(devis));
-  // Régénérer : recrée le brouillon avec la description à jour. L'API Pennylane ne
-  // sait pas supprimer un devis → on prévient que l'ancien brouillon reste à supprimer à la main.
+  // Régénérer : recrée le devis dans Pennylane (NOUVEAU numéro), description et montants
+  // à jour. Pennylane numérote un devis dès sa création (ce n'est pas un brouillon) et
+  // l'API ne sait pas le supprimer → on prévient que l'ancien reste à supprimer à la main.
   document.getElementById('btn-pennylane-regen')?.addEventListener('click', async () => {
     const ok = await confirmModal(
-      'Régénérer le brouillon Pennylane ?\n\nCela crée un NOUVEAU brouillon (avec la description à jour). L\'ancien n\'est pas supprimé automatiquement : pense à le supprimer dans Pennylane pour éviter un doublon.',
+      'Recréer le devis dans Pennylane ?\n\nCela crée un NOUVEAU devis dans Pennylane, avec un nouveau numéro (description et montants à jour). L\'ancien n\'est pas supprimé automatiquement : pense à le supprimer dans Pennylane pour éviter un doublon.',
       { okLabel: 'Régénérer', danger: true });
     if (ok) pennylaneFlow(devis, { force: true });
   });
@@ -226,11 +227,11 @@ function renderFiche(app, data) {
         throw new Error(`la base a gardé ${euros(enBase)} au lieu de ${euros(val)}`);
       }
       toast(`Éco-participation enregistrée : ${euros(enBase)} TTC`, 'success', 5000);
-      // Un brouillon Pennylane déjà créé ne se met pas à jour tout seul : on propose
-      // de le refaire tout de suite, plutôt que de laisser un brouillon sans l'éco.
+      // Un devis Pennylane déjà créé ne se met pas à jour tout seul : on propose
+      // de le recréer tout de suite, plutôt que de laisser un devis sans l'éco.
       if (plQuote && enBase !== Math.round(ecoTtc * 100) / 100) {
         const regen = await confirmModal(
-          `Le brouillon Pennylane${f['Pennylane numéro'] ? ` ${f['Pennylane numéro']}` : ''} ne se met pas à jour tout seul.\n\nLe régénérer maintenant pour y porter l'éco-participation (${euros(enBase)} TTC) ?\nUn NOUVEAU brouillon est créé ; l'ancien reste dans Pennylane, à supprimer à la main.`,
+          `Le devis Pennylane${f['Pennylane numéro'] ? ` ${f['Pennylane numéro']}` : ''} ne se met pas à jour tout seul.\n\nLe recréer maintenant pour y porter l'éco-participation (${euros(enBase)} TTC) ?\nUn NOUVEAU devis est créé dans Pennylane, avec un nouveau numéro ; l'ancien y reste, à supprimer à la main.`,
           { okLabel: 'Régénérer', danger: false });
         if (regen) return pennylaneFlow(devis, { force: true });
       }
@@ -273,17 +274,18 @@ async function pennylaneEcheancesFlow(devis, opts = {}) {
   }
 }
 
-// Génère le devis brouillon dans Pennylane. Gère la confirmation anti-doublon
+// Crée le devis dans Pennylane (numéroté par Pennylane dès sa création, statut
+// « En attente » : pas un brouillon). Gère la confirmation anti-doublon
 // (homonyme sans correspondance exacte) et la réconciliation TTC.
 async function pennylaneFlow(devis, opts = {}) {
   const btn = document.getElementById('btn-pennylane');
-  if (btn) { btn.disabled = true; btn.innerHTML = 'Création du brouillon…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Création du devis dans Pennylane…'; }
   try {
     const r = await pushDevisToPennylane(devis.id, opts);
 
     // Homonyme sans correspondance exacte → Virginie tranche (jamais de doublon auto).
     if (r && r.needsCustomerConfirmation) {
-      if (btn) { btn.disabled = false; btn.innerHTML = `${'Générer le brouillon Pennylane'}`; }
+      if (btn) { btn.disabled = false; btn.innerHTML = 'Créer le devis dans Pennylane'; }
       const choice = await chooseCustomerModal(r.clientNom, r.candidates);
       if (!choice) return;
       return pennylaneFlow(devis, choice === '__new__' ? { create_customer: true } : { pennylane_customer_id: choice });
@@ -292,7 +294,7 @@ async function pennylaneFlow(devis, opts = {}) {
     if (r && r.already) {
       toast('Ce devis est déjà dans Pennylane', 'info', 5000);
     } else {
-      toast('Brouillon créé dans Pennylane' + (r.customerCreated ? ' · client créé' : '')
+      toast(`Devis ${r.number ? r.number + ' ' : ''}créé dans Pennylane, pas encore envoyé` + (r.customerCreated ? ' · client créé' : '')
         + (r.eco ? ` · éco-participation ${euros(r.eco.ttc)} TTC sur une ligne dédiée` : ''), 'success', 7000);
       if (r.reconciliation && r.reconciliation.ok === false) {
         toast(`⚠️ Écart TTC ${r.reconciliation.diff} € — vérifie le devis dans Pennylane avant envoi`, 'error', 9000);
@@ -308,7 +310,7 @@ async function pennylaneFlow(devis, opts = {}) {
     renderDevis(document.getElementById('app'), devis.id);
   } catch (err) {
     toast('Erreur Pennylane : ' + err.message, 'error', 8000);
-    if (btn) { btn.disabled = false; btn.innerHTML = 'Générer le brouillon Pennylane'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = 'Créer le devis dans Pennylane'; }
   }
 }
 

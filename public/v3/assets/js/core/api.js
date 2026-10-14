@@ -353,7 +353,7 @@ export async function fetchDevisDetail(devisId) {
   return api(`/api/devis/${devisId}/detail`);
 }
 
-// Pousse un devis Tanguy en BROUILLON dans Pennylane (jamais envoyé auto).
+// Crée un devis Tanguy dans Pennylane (numéroté par Pennylane, statut « En attente », jamais envoyé auto).
 // opts : { pennylane_customer_id?, create_customer?, force? }.
 // Réponses possibles : { ok:true, quoteId, openUrl, ... } | { ok:true, already:true }
 //   | { ok:false, needsCustomerConfirmation:true, candidates:[...] }.
