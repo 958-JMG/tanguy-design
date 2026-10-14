@@ -29,9 +29,10 @@ describe('lignesSansCommande()', () => {
     assert.equal(r.bcIllisibles, 0);
     assert.equal(r.bcSansListe, 0);
     for (const l of r.lignes) {
-      assert.equal(l.famille, 'Divers');
-      assert.equal(l.commandeAuto, false, 'Divers : pas de BC automatique à la signature');
+      assert.equal(l.famille, null, 'Divers : pas de famille devinée');
+      assert.equal(l.commandeAuto, true, 'depuis le 14/10/2026, la signature met le Divers en « À classer »');
       assert.match(l.raison, /Divers/);
+      assert.equal(l.categorie, 'Divers');
     }
   });
 

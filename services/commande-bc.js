@@ -104,7 +104,9 @@ const cleLigne = (pos, code) => `${String(pos ?? '').trim()}|${String(code ?? ''
  * @returns {{ lignes: Array, bcIllisibles: number, bcSansListe: number }}
  *   lignes : { id, position, code, designation, categorie, montantHT,
  *              famille: string|null, commandeAuto: bool, raison: string|null }
- *   commandeAuto = la signature en aurait fait un BC (faux pour Dépose / Divers).
+ *   commandeAuto = la signature en fait un BC (faux pour la Dépose ; vrai pour le
+ *   Divers depuis le 14/10/2026 — un Divers hors BC vient d'une signature antérieure
+ *   ou d'un BC supprimé).
  *   bcIllisibles = BC dont le JSON est invalide ; bcSansListe = BC sans « Lignes BC »
  *   (antérieurs à ce champ). Dans les deux cas on le DIT, on ne conclut pas.
  */
@@ -133,9 +135,7 @@ function lignesSansCommande(lignesDevis, lignesBcJson) {
         montantHT: Number(f['Montant HT']) || 0,
         famille: cl.canon,
         commandeAuto: cl.commande,
-        // « Divers » n'interdit pas de commander : la signature ne le fait juste pas
-        // toute seule. Le libellé le dit tel quel sur la fiche devis.
-        raison: cl.canon === 'Divers' ? 'Divers : pas de commande automatique à la signature' : (cl.raison || null),
+        raison: cl.raison || null,
       };
     })
     .sort((a, b) => (parseFloat(a.position) || 0) - (parseFloat(b.position) || 0));
