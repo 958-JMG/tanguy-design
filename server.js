@@ -1709,8 +1709,8 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
 
     // 3) Lignes Pennylane (mapping par nature + réconciliation TTC)
     //    Le descriptif du devis alimente la description des lignes.
-    const descDevis = await descriptionDevisPourPennylane(f);
-    const built = pennylane.buildInvoiceLines(f, { description: descDevis });
+    const { description: descDevis, libelles } = await contextePennylane(f);
+    const built = pennylane.buildInvoiceLines(f, { description: descDevis, libelles });
     const { reconciliation } = built;
     if (!built.lines.length) return res.status(422).json({ error: 'Devis sans montant exploitable — rien à pousser', warnings: built.warnings });
     // Éco-participation « dont » : sortie du prix produit vers une ligne hors CA.
@@ -1741,6 +1741,7 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
     const stamp = `${pad(today.getDate())}/${pad(today.getMonth() + 1)} ${pad(today.getHours())}:${pad(today.getMinutes())}:${pad(today.getSeconds())}`;
     const externalRef = (body.force && refBase) ? `${refBase} (régén. ${stamp})` : refBase;
     const quote = await pennylane.createDraftQuote({ customer_id: customerId, date: iso(today), deadline: iso(deadline), lines, external_reference: externalRef });
+    warnings.push(...avertirReference(quote));
 
     // 6) Persiste les identifiants sur le devis
     await atPatch(TABLES.devis.id, devisId, { [PL_QUOTE_FIELD]: String(quote.id), [PL_NUM_FIELD]: quote.number || '' });
@@ -1788,7 +1789,11 @@ const PL_ECH_FIELD = 'Pennylane invoice ID';
 // le libellé produit reste constant, c'est la DESCRIPTION qui doit reprendre
 // celle du devis. Best effort — une facture ne doit jamais échouer sur un
 // descriptif manquant, mais buildInvoiceLines remonte alors un avertissement.
-async function descriptionDevisPourPennylane(devisFields) {
+// Contexte d'un devis pour Pennylane, lu UNE fois : la description (liste des
+// articles) et les libellés de ligne parlants par taux de TVA (« Électroménager »,
+// « Mobilier, plan de travail et pose »… — demande JMG du 14/10/2026). Un échec de
+// lecture garde l'ancien libellé et une description vide (avertissement en aval).
+async function contextePennylane(devisFields) {
   try {
     const zoneIds  = Array.isArray(devisFields['Zones devis'])  ? devisFields['Zones devis']  : [];
     const ligneIds = Array.isArray(devisFields['Lignes devis']) ? devisFields['Lignes devis'] : [];
@@ -1800,12 +1805,20 @@ async function descriptionDevisPourPennylane(devisFields) {
     // liste les articles du devis, un par ligne, sans le bruit des finitions. Header
     // court + liste ; cap Pennylane 1000 → on vise 930, jamais de coupe muette.
     const { texte: lignesTxt } = lignesDevisTexte(lignes, zones, { max: 930 });
-    return lignesTxt ? `Détail du devis\n\n${lignesTxt}` : '';
+    return {
+      description: lignesTxt ? `Détail du devis\n\n${lignesTxt}` : '',
+      libelles: pennylane.libellesParTaux(lignes, devisFields),
+    };
   } catch (e) {
     logger.warn({ err: e.message }, '[pennylane] descriptif du devis non lu');
-    return '';
+    return { description: '', libelles: {} };
   }
 }
+// Référence déjà prise dans Pennylane (document supprimé ou archivé) : créé sous une
+// référence horodatée — on le dit.
+const avertirReference = doc => doc && doc.referenceDejaPrise
+  ? [`Référence « ${doc.referenceDejaPrise} » déjà prise dans Pennylane (ancien document supprimé ou archivé) : créé sous « ${doc.reference} »`]
+  : [];
 
 // Client de FACTURATION d'un devis : celui du PROJET (source de vérité « tout part
 // du projet »), repli sur le lien Client du devis. Le lien Client du devis peut
@@ -1873,14 +1886,14 @@ async function createEcheanceDraftInvoicesForDevis(devis, customerId) {
   const iso = d => d.toISOString().slice(0, 10);
   const today = iso(new Date());
   // Lu UNE fois : le descriptif est celui du devis, identique pour toutes ses échéances.
-  const descDevis = await descriptionDevisPourPennylane(f);
+  const { description: descDevis, libelles } = await contextePennylane(f);
   const results = [];
   for (const e of echeances) {
     const ef = e.fields || {};
     const libelle = ef['Libellé'] || 'Échéance';
     if (ef[PL_ECH_FIELD]) { results.push({ echId: e.id, libelle, already: true, invoiceId: ef[PL_ECH_FIELD] }); continue; }
     if ((ef['Statut'] || '') === 'Encaissé') { results.push({ echId: e.id, libelle, skipped: 'déjà encaissée' }); continue; }
-    const builtE = pennylane.buildEcheanceInvoiceLines(f, ef['Montant prévu'], libelle, { description: descDevis });
+    const builtE = pennylane.buildEcheanceInvoiceLines(f, ef['Montant prévu'], libelle, { description: descDevis, libelles });
     const { reconciliation } = builtE;
     if (!builtE.lines.length) { results.push({ echId: e.id, libelle, error: 'échéance sans montant exploitable', warnings: builtE.warnings }); continue; }
     const ecoE = pennylane.carveEcoParticipation(builtE.lines, ecoTtcPourEcheance(f, ef['Montant prévu']));
@@ -1893,6 +1906,7 @@ async function createEcheanceDraftInvoicesForDevis(devis, customerId) {
       customer_id: customerId, date: today, deadline: dueDate, lines,
       external_reference: `${f['Numéro devis'] || ''} · ${libelle}`.trim(),
     });
+    warnings.push(...avertirReference(inv));
     await atPatch(TABLES['echeances-devis'].id, e.id, { [PL_ECH_FIELD]: String(inv.id) });
     results.push({ echId: e.id, libelle, invoiceId: inv.id, montant: ef['Montant prévu'], reconciliation, warnings });
   }
@@ -1956,8 +1970,8 @@ app.post('/api/devis/:devisId/echeances/:echId/facture-pennylane', requireAuth, 
     if (resolved.error) return res.status(422).json({ error: resolved.error });
     const { customerId, customerCreated } = resolved;
 
-    const descDevis = await descriptionDevisPourPennylane(f);
-    const builtE = pennylane.buildEcheanceInvoiceLines(f, ef['Montant prévu'], libelle, { description: descDevis });
+    const { description: descDevis, libelles } = await contextePennylane(f);
+    const builtE = pennylane.buildEcheanceInvoiceLines(f, ef['Montant prévu'], libelle, { description: descDevis, libelles });
     const { reconciliation } = builtE;
     if (!builtE.lines.length) return res.status(422).json({ error: 'Échéance sans montant exploitable', warnings: builtE.warnings });
     const ecoE = pennylane.carveEcoParticipation(builtE.lines, ecoTtcPourEcheance(f, ef['Montant prévu']));
@@ -1972,6 +1986,7 @@ app.post('/api/devis/:devisId/echeances/:echId/facture-pennylane', requireAuth, 
       customer_id: customerId, date: today, deadline: dueDate, lines,
       external_reference: `${f['Numéro devis'] || ''} · ${libelle}`.trim(),
     });
+    warnings.push(...avertirReference(inv));
     await atPatch(TABLES['echeances-devis'].id, echId, { [PL_ECH_FIELD]: String(inv.id) });
 
     logger.info({ devisId, echId, invoiceId: inv.id, libelle, customerCreated, reconOk: reconciliation.ok }, 'facture échéance Pennylane générée (bouton unitaire)');
@@ -2048,8 +2063,8 @@ app.post('/api/devis/:id/facture-acompte', requireAuth, async (req, res) => {
     }
 
     // 3) Lignes de facture (prorata TVA du devis) + descriptif repris du devis.
-    const descDevis = await descriptionDevisPourPennylane(f);
-    const builtA = pennylane.buildEcheanceInvoiceLines(f, ac.montant, ac.libelle, { description: descDevis });
+    const { description: descDevis, libelles } = await contextePennylane(f);
+    const builtA = pennylane.buildEcheanceInvoiceLines(f, ac.montant, ac.libelle, { description: descDevis, libelles });
     const { reconciliation } = builtA;
     if (!builtA.lines.length) return res.status(422).json({ error: 'Acompte sans montant exploitable — rien à facturer', warnings: builtA.warnings });
     const ecoA = pennylane.carveEcoParticipation(builtA.lines, ecoTtcPourEcheance(f, ac.montant));
@@ -2072,6 +2087,7 @@ app.post('/api/devis/:id/facture-acompte', requireAuth, async (req, res) => {
       customer_id: customerId, date: today, deadline, lines,
       external_reference: `${f['Numéro devis'] || ''} · ${ac.libelle}`.trim(),
     });
+    warnings.push(...avertirReference(inv));
 
     // 6) Persiste l'id + le % sur le devis (idempotence + PDF par devis).
     //    Patch isolé : un champ Airtable absent ne doit pas faire perdre la facture
