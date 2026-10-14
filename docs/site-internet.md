@@ -1,6 +1,6 @@
 # Site internet Tanguy Design
 
-Version de validation : https://tanguydesign.958.fr/site/ — publique, sans connexion, noindex.
+Version de validation : https://tanguydesign.958.fr/site/ — identifiant et mot de passe partagés, sans compte ChatGPT, noindex. Les accès sont transmis séparément, jamais enregistrés dans Git.
 Gestion : https://tanguydesign.958.fr/gestion-site — connexion du cockpit, administrateurs uniquement. Menu Gestion > Site internet sur ordinateur, Plus > Site internet sur mobile.
 
 ## Modifier le site
@@ -17,6 +17,14 @@ Le contenu est durable dans le bucket Scaleway privé `tanguy-vitrine-958`, proj
 
 Configuration : `SITE_BUCKET`, `SITE_S3_ACCESS_KEY`, `SITE_S3_SECRET_KEY`, `SITE_S3_ENDPOINT` facultatif. Clés dans les secrets du conteneur uniquement. `SITE_ORIGIN` vaut par défaut https://tanguydesign.958.fr. Ne pas publier les fichiers d’environnement.
 
+## Accès de validation
+
+Activer `SITE_REVIEW_ENABLED=true` et définir `SITE_REVIEW_LOGIN`. Placer uniquement le hash bcrypt (10 tours) du mot de passe dans le secret `SITE_REVIEW_PASSWORD_HASH`. La connexion `/site/acces` accorde un accès de lecture pendant sept jours, sans créer de compte cockpit. Pages, médias, CSS, images et sitemap sont protégés ; les réponses sont privées et non indexables. Les administrateurs déjà connectés au cockpit conservent l’accès aux aperçus et aux images du CMS. Une modification de l’identifiant ou du hash invalide immédiatement les anciens accès de validation.
+
+Les formulaires utilisent un jeton de session et une limite de 20 échecs par IP sur 15 minutes par instance. Le cookie est signé, HttpOnly et Secure en production. La porte de validation reste active sur le sous-domaine 9·58 et sur l’adresse technique du conteneur après la mise en ligne commerciale. Le domaine commercial configuré par `SITE_PUBLIC_ORIGIN` devient public ; sa variante avec/sans www est redirigée en 301 vers la forme canonique.
+
+L’ancienne copie de présentation sur ChatGPT Sites a été rendue privée ; seul le lien de validation hébergé par 9·58 est à transmettre au client.
+
 ## Référencement et bascule commerciale
 
 Le site actuel `www.tanguydesign.com` reste en place pendant la validation. Conserver ce domaine pour sa continuité SEO. L’hébergement sera celui de 9·58 : domaine et hébergeur sont indépendants.
@@ -24,7 +32,7 @@ Le site actuel `www.tanguydesign.com` reste en place pendant la validation. Cons
 Après validation des pages, des mentions légales et de la migration historique :
 
 1. Terminer la reprise des galeries et pages de marques restantes dans `../migration-plan.csv` du dossier de livraison ; ne pas basculer en perdant ces URL.
-2. Relier le domaine commercial au conteneur (DNS + certificat) ; choisir un domaine canonique unique et rediriger l’autre variante.
+2. Relier `tanguydesign.com` et `www.tanguydesign.com` au conteneur (DNS Cloudflare + certificats Scaleway). Voir `dns-tanguydesign.txt`. Conserver `https://www.tanguydesign.com` comme adresse canonique, déjà utilisée par le site actuel ; la variante sans www sera redirigée en 301, chemin et paramètres conservés.
 3. Définir `SITE_PUBLIC_ORIGIN=https://www.tanguydesign.com` et `SITE_INDEXABLE=true`. Le routeur sert alors la vitrine à la racine uniquement sur ce domaine. Les routes du cockpit restent inaccessibles sur le domaine commercial. La copie /site/ reste noindex.
 4. Les redirections 301 de `website/redirects.json` ne s’appliquent que sur le domaine commercial. Les autres URL restent à compléter avant la bascule. Pas de redirection générale de toutes les anciennes pages vers l’accueil.
 5. Vérifier canoniques, robots, sitemap, 404, liens, images et performances sur le vrai domaine. Soumettre `/sitemap.xml` à Google Search Console et Bing Webmaster Tools. Contrôler les erreurs de couverture et les pages exclues.
