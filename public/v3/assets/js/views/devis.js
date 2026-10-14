@@ -11,6 +11,7 @@ import {
   pushEcheancesFactures, echeancePdfUrl,
   fetchDevisGeneres, supprimerDevisGeneres,
   calculEcoContribution, fetchEcoReferentiel,
+  fetchLignesSansCommande, creerCommandeLignes,
 } from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 
@@ -44,6 +45,7 @@ function renderFiche(app, data) {
   const isSigned = statut === 'Signé';
   const type = f['Type devis'] || 'Principal';
   const plQuote = f['Pennylane quote ID'];
+  const ecoTtc = Number(f['Éco-participation']) || 0;
 
   // Resolve projet + client depuis state (déjà chargé via navigation)
   const projetId = (f.Projet || [])[0];
@@ -106,6 +108,8 @@ function renderFiche(app, data) {
 
     <!-- Artefacts laissés par une signature annulée (rempli après coup, cf. checkArtefactsGeneres) -->
     <div id="generes-banner"></div>
+    <!-- Devis signé : lignes qu'aucun bon de commande ne porte (rempli après coup, cf. checkLignesSansCommande) -->
+    <div id="sans-commande-banner"></div>
 
     ${plQuote ? `<div class="card" style="margin-bottom:16px;display:flex;align-items:center;gap:8px">
       ${icon('check-circle', 16)}<span>Brouillon dans Pennylane${f['Pennylane numéro'] ? ` · ${esc(f['Pennylane numéro'])}` : ''}. Virginie l'envoie depuis Pennylane ou télécharge le PDF pour l'envoyer depuis sa boîte mail.</span>
@@ -114,7 +118,7 @@ function renderFiche(app, data) {
     <!-- Totaux KPIs -->
     <div class="kpi-row" style="margin-bottom:24px;display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
       <div class="kpi-card"><div class="kpi-value">${euros(f['Total HT final'] || f['Total HT après remise'] || f['Total HT articles'])}</div><div class="kpi-label">Total HT</div></div>
-      <div class="kpi-card"><div class="kpi-value">${euros(f['Total TTC'])}</div><div class="kpi-label">Total TTC</div></div>
+      <div class="kpi-card"><div class="kpi-value">${euros(f['Total TTC'])}</div><div class="kpi-label">Total TTC${ecoTtc > 0 ? ` · dont éco-participation ${euros(ecoTtc)}` : ''}</div></div>
     </div>
 
     <!-- Éco-participation (dont, hors CA) -->
@@ -123,6 +127,9 @@ function renderFiche(app, data) {
         <div>
           <div style="font-weight:600;display:flex;align-items:center;gap:6px">${icon('leaf', 15)} Éco-participation</div>
           <div class="muted" style="font-size:12px;margin-top:2px">Comprise dans le prix (« dont »), sortie du chiffre d'affaires au moment du brouillon Pennylane. Mobilier + électroménager.</div>
+          <div id="eco-etat" style="font-size:13px;margin-top:6px">${ecoTtc > 0
+            ? `${icon('check-circle', 13)} Enregistrée : <strong>${euros(ecoTtc)} TTC</strong>, portée sur une ligne « Éco-participation » dans le brouillon Pennylane.`
+            : `<span class="muted">Aucun montant enregistré : le brouillon Pennylane n'aura pas de ligne éco-participation.</span>`}</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <input id="eco-input" type="number" step="0.01" min="0" inputmode="decimal" value="${f['Éco-participation'] != null ? esc(f['Éco-participation']) : ''}" placeholder="0,00" aria-label="Montant éco-participation TTC" style="width:110px;text-align:right;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r-sm)"> € TTC
@@ -186,6 +193,7 @@ function renderFiche(app, data) {
   // Un devis non signé qui a laissé des BC derrière lui → bandeau de nettoyage.
   // Asynchrone et non bloquant : la fiche s'affiche sans l'attendre.
   checkArtefactsGeneres(devis, statut);
+  if (isSigned) checkLignesSansCommande(devis);
 
   // Bindings
   document.getElementById('btn-edit-devis')?.addEventListener('click', () => openModalEditDevis(devis));
@@ -210,8 +218,22 @@ function renderFiche(app, data) {
     if (!Number.isFinite(val) || val < 0) { toast('Montant d\'éco-participation invalide', 'error'); return; }
     if (btn) { btn.disabled = true; btn.innerHTML = 'Enregistrement…'; }
     try {
-      await patchDevis(devis.id, { 'Éco-participation': val });
-      toast('Éco-participation enregistrée', 'success');
+      const r = await patchDevis(devis.id, { 'Éco-participation': val });
+      // Preuve : on relit la valeur que la base a VRAIMENT gardée (jusqu'au 14/10,
+      // le serveur la jetait et l'écran disait « enregistrée » quand même).
+      const enBase = Math.round((Number(r?.record?.fields?.['Éco-participation']) || 0) * 100) / 100;
+      if (enBase !== Math.round(val * 100) / 100) {
+        throw new Error(`la base a gardé ${euros(enBase)} au lieu de ${euros(val)}`);
+      }
+      toast(`Éco-participation enregistrée : ${euros(enBase)} TTC`, 'success', 5000);
+      // Un brouillon Pennylane déjà créé ne se met pas à jour tout seul : on propose
+      // de le refaire tout de suite, plutôt que de laisser un brouillon sans l'éco.
+      if (plQuote && enBase !== Math.round(ecoTtc * 100) / 100) {
+        const regen = await confirmModal(
+          `Le brouillon Pennylane${f['Pennylane numéro'] ? ` ${f['Pennylane numéro']}` : ''} ne se met pas à jour tout seul.\n\nLe régénérer maintenant pour y porter l'éco-participation (${euros(enBase)} TTC) ?\nUn NOUVEAU brouillon est créé ; l'ancien reste dans Pennylane, à supprimer à la main.`,
+          { okLabel: 'Régénérer', danger: false });
+        if (regen) return pennylaneFlow(devis, { force: true });
+      }
       renderDevis(document.getElementById('app'), devis.id);
     } catch (err) {
       toast('Erreur : ' + err.message, 'error', 5000);
@@ -267,9 +289,16 @@ async function pennylaneFlow(devis, opts = {}) {
     if (r && r.already) {
       toast('Ce devis est déjà dans Pennylane', 'info', 5000);
     } else {
-      toast('Brouillon créé dans Pennylane' + (r.customerCreated ? ' · client créé' : ''), 'success', 6000);
+      toast('Brouillon créé dans Pennylane' + (r.customerCreated ? ' · client créé' : '')
+        + (r.eco ? ` · éco-participation ${euros(r.eco.ttc)} TTC sur une ligne dédiée` : ''), 'success', 7000);
       if (r.reconciliation && r.reconciliation.ok === false) {
         toast(`⚠️ Écart TTC ${r.reconciliation.diff} € — vérifie le devis dans Pennylane avant envoi`, 'error', 9000);
+      }
+      // Avertissements de construction : jamais tus. L'écart TTC a déjà son message
+      // ci-dessus ; une éco non imputée est une erreur à voir avant d'envoyer.
+      for (const w of (r.warnings || [])) {
+        if (/^TTC recalculé/.test(w)) continue;
+        toast(`⚠️ ${w}`, /éco-participation/i.test(w) ? 'error' : 'info', 9000);
       }
     }
     // Re-render pour afficher « ouvrir / télécharger »
@@ -383,6 +412,114 @@ async function checkArtefactsGeneres(devis, statut) {
     </div>`;
   hydrateIcons(slot);
   document.getElementById('btn-nettoyer-generes')?.addEventListener('click', () => openModalNettoyage(devis.id, r));
+}
+
+// Devis signé : lignes restées hors de tout bon de commande (retour Virginie 14/10,
+// devis 650/1/1 : 3 lignes « Divers » jamais commandées, sans que rien ne le dise).
+// Une panne n'est pas une liste vide : si la vérification échoue, on le dit.
+async function checkLignesSansCommande(devis) {
+  const slot = document.getElementById('sans-commande-banner');
+  if (!slot) return;
+  let r;
+  try {
+    r = await fetchLignesSansCommande(devis.id);
+  } catch (e) {
+    slot.innerHTML = `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--accent)">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="flex:1;min-width:0">${icon('alert', 14)} Impossible de vérifier les bons de commande de ce devis : ${esc(e.message)}</span>
+        <button class="btn btn-ghost btn-sm" id="btn-sans-commande-retry">Réessayer</button>
+      </div></div>`;
+    hydrateIcons(slot);
+    document.getElementById('btn-sans-commande-retry')?.addEventListener('click', () => checkLignesSansCommande(devis));
+    return;
+  }
+  if (r.indetermine) {
+    slot.innerHTML = `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--line)"><p class="muted" style="margin:0">${esc(r.indetermine)}</p></div>`;
+    return;
+  }
+  const lignes = r.lignes || [];
+  const douteux = (r.bcSansListe || 0) + (r.bcIllisibles || 0);
+  if (!lignes.length) { slot.innerHTML = ''; return; }
+  const n = lignes.length;
+  // Une raison commune à toutes les lignes se dit une fois, pas sous chacune.
+  const raisons = [...new Set(lignes.map(l => l.raison || ''))];
+  const raisonCommune = raisons.length === 1 ? raisons[0] : '';
+  slot.innerHTML = `
+    <div class="card" style="margin-bottom:16px;border-left:3px solid var(--accent)">
+      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <span>${icon('alert', 16)}</span>
+        <div style="flex:1 1 260px;min-width:0">
+          <strong>${n} ligne${n > 1 ? 's' : ''} de ce devis ${n > 1 ? 'ne sont' : 'n\'est'} dans aucun bon de commande</strong>
+          ${raisonCommune ? `<div class="muted" style="font-size:12px;margin-top:2px">${esc(raisonCommune)}</div>` : ''}
+          <ul style="margin:6px 0 0 16px;padding:0;font-size:13px">
+            ${lignes.map(l => `<li style="word-break:break-word">${esc(l.position)}${l.code ? ` · ${esc(l.code)}` : ''} · ${esc(l.designation.split('\n')[0].slice(0, 80))}${l.raison && !raisonCommune ? ` <span class="muted">(${esc(l.raison)})</span>` : ''}</li>`).join('')}
+          </ul>
+          ${douteux ? `<p class="muted" style="font-size:12px;margin:6px 0 0">${douteux} bon${douteux > 1 ? 's' : ''} de ce devis sans liste de lignes lisible : vérifie-les avant de recréer une commande.</p>` : ''}
+        </div>
+        <button class="btn btn-primary btn-sm" id="btn-creer-commande">${icon('plus', 14)} Créer la commande</button>
+      </div>
+    </div>`;
+  hydrateIcons(slot);
+  document.getElementById('btn-creer-commande')?.addEventListener('click', () => openModalCommandeLignes(devis, r));
+}
+
+function openModalCommandeLignes(devis, r) {
+  const lignes = r.lignes || [];
+  const categories = r.categories || ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence', 'Accessoires', 'À classer'];
+  // Famille par défaut : celle que toutes les lignes partagent dans la grille, sinon « À classer ».
+  const familles = [...new Set(lignes.filter(l => l.famille !== 'Dépose').map(l => l.famille))];
+  const defaut = familles.length === 1 && categories.includes(familles[0]) ? familles[0] : 'À classer';
+  const modal = document.createElement('div');
+  modal.className = 'modal-bg';
+  modal.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true">
+      <h2>Créer la commande</h2>
+      <p class="muted" style="margin-top:0">Un bon de commande avec les lignes cochées, comme ceux créés à la signature (sans montants pour le fournisseur). La Dépose n'est pas cochée : ce n'est pas une commande fournisseur.</p>
+      <form id="form-commande-lignes">
+        <div style="max-height:40vh;overflow:auto;margin-bottom:12px">
+          ${lignes.map(l => `
+            <label style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);margin-bottom:6px;cursor:pointer">
+              <input type="checkbox" name="ligne" value="${esc(l.id)}" ${l.famille === 'Dépose' ? '' : 'checked'} style="margin-top:3px">
+              <span style="flex:1;min-width:0">
+                <strong style="display:block;word-break:break-word">${esc(l.position)}${l.code ? ` · ${esc(l.code)}` : ''} · ${esc(l.designation.split('\n')[0].slice(0, 90))}</strong>
+                <span class="muted" style="font-size:12px">${esc(l.categorie || 'sans catégorie')} · ${euros(l.montantHT)} HT</span>
+              </span>
+            </label>`).join('')}
+        </div>
+        <label>Famille du bon de commande
+          <select name="categorie">
+            ${categories.map(c => `<option value="${esc(c)}" ${c === defaut ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+          </select>
+        </label>
+        <p class="muted" style="font-size:12px">Le fournisseur est rattaché tout seul s'il est le seul de la grille pour cette famille ; sinon il se choisit sur le bon.</p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="cmdl-cancel">Annuler</button>
+          <button type="submit" class="btn btn-primary" id="cmdl-submit">Créer la commande</button>
+        </div>
+      </form>
+    </div>`;
+  document.body.appendChild(modal);
+  const close = () => modal.remove();
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  modal.querySelector('#cmdl-cancel').onclick = close;
+  modal.querySelector('#form-commande-lignes').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const ligneIds = fd.getAll('ligne');
+    const categorie = fd.get('categorie');
+    if (!ligneIds.length) { toast('Coche au moins une ligne', 'error'); return; }
+    const btn = modal.querySelector('#cmdl-submit');
+    btn.disabled = true; btn.innerHTML = 'Création…';
+    try {
+      const out = await creerCommandeLignes(devis.id, { ligneIds, categorie });
+      close();
+      toast(`Commande créée : ${out.commande.numero} (${out.commande.lignes} ligne${out.commande.lignes > 1 ? 's' : ''})${out.commande.fournisseur ? ` · ${out.commande.fournisseur}` : ''}`, 'success', 7000);
+      location.hash = '#commande/' + out.commande.id;
+    } catch (err) {
+      toast('Erreur : ' + err.message, 'error', 7000);
+      btn.disabled = false; btn.innerHTML = 'Créer la commande';
+    }
+  });
 }
 
 function ligneArtefact(kind, a, libelle, meta) {
@@ -548,10 +685,13 @@ function openModalEditDevis(devis) {
   });
 }
 
-// Re-import PDF Winner (remplace les zones/lignes existantes)
+// Re-import PDF Winner : crée un NOUVEAU devis à côté de celui-ci. Rien n'est
+// remplacé ni supprimé (ni l'ancien devis, ni ses commandes) : on le dit tel quel.
+// Retour Virginie 14/10 : l'option s'appelait « Principal (remplace) » et le même
+// PDF, reconnu par l'anti-doublon, affichait « Nouveau devis importé » sans rien créer.
 async function openReimportDevis(devis, projet) {
   const ok = await confirmModal(
-    'Re-importer un PDF Winner va créer un NOUVEAU devis à côté de celui-ci (l\'ancien reste). Pour remplacer les lignes, supprime d\'abord l\'ancien depuis Airtable. Continuer ?',
+    'Re-importer crée un NOUVEAU devis à côté de celui-ci, depuis un PDF Winner MODIFIÉ. Le même PDF est reconnu et rien n\'est recréé.\n\nL\'ancien devis et ses commandes restent : une fois le nouveau signé, passe l\'ancien en « Refusé » pour nettoyer ses commandes. Les commandes fournisseurs du nouveau devis se créent à sa signature.\n\nContinuer ?',
     { okLabel: 'Continuer', danger: false }
   );
   if (!ok) return;
@@ -566,10 +706,10 @@ async function openReimportDevis(devis, projet) {
     <div class="modal" role="dialog" aria-modal="true">
       <h2>Re-importer devis Winner</h2>
       <form id="form-reimport">
-        <p class="muted" style="margin-top:0">Le nouveau devis sera lié au même projet. Choisis "Additif" si c'est une augmentation de scope, "Principal" pour remplacer.</p>
+        <p class="muted" style="margin-top:0">Le nouveau devis sera lié au même projet. « Additif » pour une augmentation de scope, « Principal » pour une nouvelle version du devis (l'ancien reste, à passer en « Refusé »).</p>
         <label>Type
           <select name="type">
-            <option value="Principal">Principal (remplace)</option>
+            <option value="Principal">Principal (nouvelle version)</option>
             <option value="Additif" selected>Additif (s'ajoute)</option>
           </select>
         </label>
@@ -597,9 +737,19 @@ async function openReimportDevis(devis, projet) {
     btn.disabled = true;
     btn.innerHTML = 'Parsing (1-2 min)…';
     try {
-      await importDevisClient({ file, projetId, type });
-      toast(`Nouveau devis ${type} importé`, 'success', 5000);
+      const result = await importDevisClient({ file, projetId, type });
       close();
+      if (result.deduplicated) {
+        // Même PDF : l'anti-doublon renvoie le devis existant, RIEN n'est créé.
+        const memeDevis = result.devisId === devis.id;
+        toast(memeDevis
+          ? 'Ce PDF est exactement celui de ce devis : rien n\'a été réimporté. Pour une nouvelle version, exporte le PDF modifié depuis Winner.'
+          : `Ce PDF est déjà importé (devis ${result.numero_devis || ''}) : rien n'a été recréé. Ouverture de ce devis.`, 'info', 9000);
+        if (memeDevis) renderDevis(document.getElementById('app'), devis.id);
+        else location.hash = '#devis/' + result.devisId;
+        return;
+      }
+      toast(`Nouveau devis ${type} importé`, 'success', 5000);
       // Retour à la fiche projet pour voir les 2 devis
       location.hash = '#projet/' + projetId;
     } catch (err) {
@@ -625,6 +775,13 @@ async function signFlow(devis, projet) {
     const fe = result.factures_echeances;
     const feMsg = fe && fe.created ? ` · ${fe.created} facture(s) brouillon Pennylane` : '';
     toast(`Devis signé · ${result.commandes_creees} commande(s) · ${result.taches_creees} tâche(s)${feMsg}`, 'success', 6500);
+    // Jamais de silence : Dépose / Divers ne font pas de BC automatique. On le dit,
+    // et la fiche devis propose « Créer la commande » pour ces lignes si besoin.
+    const sansCmd = (result.sans_commande || []).filter(x => x.lignes > 0);
+    if (sansCmd.length) {
+      const nb = sansCmd.reduce((t, x) => t + x.lignes, 0);
+      toast(`${nb} ligne(s) ${sansCmd.map(x => x.type).join(' / ')} sans commande fournisseur : la fiche du devis permet de les commander.`, 'info', 10000);
+    }
     // Retour fiche projet pour voir les BC générés
     if (projet?.id) {
       location.hash = '#projet/' + projet.id;

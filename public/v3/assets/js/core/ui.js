@@ -42,7 +42,7 @@ export function confirmModal(message, { okLabel = 'OK', cancelLabel = 'Annuler',
     modal.className = 'modal-bg';
     modal.innerHTML = `
       <div class="modal modal-confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-msg">
-        <p id="confirm-msg" style="margin:8px 0 16px">${String(message).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}</p>
+        <p id="confirm-msg" style="margin:8px 0 16px;white-space:pre-line">${String(message).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}</p>
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" data-action="cancel">${cancelLabel}</button>
           <button type="button" class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-action="ok">${okLabel}</button>

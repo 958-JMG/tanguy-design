@@ -9,7 +9,9 @@
  *  - '*'      : tout user authentifié
  *
  * canAccess(role, tableKey, verb) → boolean
- * pickAllowedFields(tableKey, fields) → filtré (champs hors whitelist supprimés silencieusement)
+ * pickAllowedFields(tableKey, fields) → filtré (champs hors whitelist retirés)
+ * splitAllowedFields(tableKey, fields) → { allowed, refused } : les routes DISENT ce
+ *   qu'elles ont refusé, jamais un « OK » sur une écriture qui n'a pas eu lieu.
  */
 
 const TABLE_ACL = {
@@ -72,7 +74,10 @@ const FIELD_WHITELIST = {
   fournisseurs:        ['Nom', 'Famille', 'Email', 'Téléphone', 'Adresse', 'Notes', 'Catégories'],
   'devis-artisans':    ['Numéro devis', 'Statut', 'Montant HT', 'Montant TTC', 'Rétro-commission HT', 'Notes', 'Projet', 'Artisan', 'Date devis', 'Description travaux', 'Adresse chantier', 'Date démarrage prévue'],
   stock:               ['Nom', 'Quantité', 'Prix unitaire', 'Famille', 'Notes'],
-  devis:               ['Statut', 'Type devis', 'Notes', "Valable jusqu'au", 'Numéro devis', 'Date devis'],
+  // « Éco-participation » (TTC, le « dont » client) : saisie depuis la fiche devis.
+  // Absente de cette liste du 08/10 au 14/10/2026, elle était jetée sans bruit à
+  // l'enregistrement → jamais transmise à Pennylane (retour Virginie du 14/10).
+  devis:               ['Statut', 'Type devis', 'Notes', "Valable jusqu'au", 'Numéro devis', 'Date devis', 'Éco-participation'],
   'zones-devis':       ['Nom', 'Ordre', 'Notes'],
   'lignes-devis':      ['Notes', 'Alertes'],
   'echeances-devis':   ['Statut', 'Date prévue', 'Date règlement', 'Montant règlé', 'Mode règlement', 'Notes', 'Montant prévu', 'Libellé', 'Ordre'],
@@ -110,20 +115,36 @@ function canAccess(role, tableKey, verb) {
 }
 
 /**
+ * Sépare les champs autorisés pour la table de ceux qu'elle refuse.
+ * Table sans liste blanche → tout est autorisé.
+ * @param {string} tableKey
+ * @param {object} fields
+ * @returns {{ allowed: object, refused: string[] }}
+ */
+function splitAllowedFields(tableKey, fields) {
+  const wl = FIELD_WHITELIST[tableKey];
+  if (!fields || typeof fields !== 'object') return { allowed: {}, refused: [] };
+  if (!wl) return { allowed: fields, refused: [] };
+  const allowed = {};
+  const refused = [];
+  for (const k of Object.keys(fields)) {
+    if (wl.includes(k)) allowed[k] = fields[k];
+    else refused.push(k);
+  }
+  return { allowed, refused };
+}
+
+/**
  * Filtre un objet de champs pour ne garder que ceux whitelisted pour la table.
- * Les champs non listés sont supprimés silencieusement (pas d'erreur 403).
+ * Les champs non listés sont retirés ; pour savoir LESQUELS, utiliser
+ * splitAllowedFields (les routes d'écriture le font et le disent).
  * @param {string} tableKey
  * @param {object} fields
  * @returns {object}
  */
 function pickAllowedFields(tableKey, fields) {
-  const wl = FIELD_WHITELIST[tableKey];
-  if (!wl || !fields || typeof fields !== 'object') return fields || {};
-  const out = {};
-  for (const k of Object.keys(fields)) {
-    if (wl.includes(k)) out[k] = fields[k];
-  }
-  return out;
+  if (!FIELD_WHITELIST[tableKey] || !fields || typeof fields !== 'object') return fields || {};
+  return splitAllowedFields(tableKey, fields).allowed;
 }
 
-module.exports = { TABLE_ACL, FIELD_WHITELIST, canAccess, pickAllowedFields };
+module.exports = { TABLE_ACL, FIELD_WHITELIST, canAccess, pickAllowedFields, splitAllowedFields };
