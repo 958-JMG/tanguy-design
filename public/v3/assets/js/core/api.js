@@ -396,6 +396,23 @@ export async function genererFactureEcheance(devisId, echId, opts = {}) {
 
 // Devis express (P-H4) : crée le devis client à partir du chiffrage.
 // Rattachement à un projet existant, ou à un client dont le projet est créé.
+// Devis express électroménager : lecture d'un projet FINDIS (PDF imprimé lu par
+// son texte, ou captures lues par l'IA). Ne crée rien. Réponse en keep-alive :
+// on lit `error` dans le corps, le statut HTTP étant déjà parti.
+export async function lireProjetFindis(files, { signal = null } = {}) {
+  const fd = new FormData();
+  for (const f of files) fd.append('fichiers', f);
+  const r = await fetch('/api/devis-express/findis/lire', { method: 'POST', credentials: 'same-origin', body: fd, signal });
+  const j = await r.json().catch(() => ({ error: `Réponse illisible (${r.status})` }));
+  if (!r.ok || !j || j.error || j.ok === false) throw new Error((j && j.error) || r.statusText || 'lecture impossible');
+  return j;
+}
+
+// Crée le devis client électroménager (une ligne par article retenu).
+export async function creerDevisElectro(payload) {
+  return api('/api/devis-express/findis/creer-devis', { method: 'POST', body: JSON.stringify(payload) });
+}
+
 export async function creerDevisClientExpress(payload) {
   return api('/api/devis-express/creer-devis', { method: 'POST', body: JSON.stringify(payload) });
 }

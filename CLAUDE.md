@@ -53,4 +53,6 @@ Le tab Plaud autonome a été retiré. R1/R2 se créent depuis la fiche projet. 
 - Distinction artisan contractuel / non contractuel
 - Calcul marge temps réel (fournisseurs + 5% artisans)
 - Plateforme fournisseurs : Fundis (et autres)
+- **Devis express électroménager (FINDIS, 14/10/2026)** : onglet « Électroménager (FINDIS) » du Devis express. PDF « Imprimer mon projet » lu par son TEXTE (`unpdf` + `services/findis-texte.js`, exact, rien ne sort du serveur) ; captures lues par l'IA niveau premium (`services/findis-parser.js`). Calculs purs : `services/devis-electro.js` (promo = prix d'achat, comparatifs, marge = vente HT hors éco − achat). Une ligne de devis par article avec « Prix achat HT » et « Fournisseur » (migration `node scripts/setup-prix-achat-fields.js --apply`). À la signature, les lignes au fournisseur connu partent dans SON BC (montant = achat + éco). Jeux d'essai : 6 projets réels, articles seulement (`services/fixtures/findis/`).
+- Banc d'essai de bout en bout : `services/fixtures/banc-serveur.js` (vrai serveur, session cookie-session signée, Airtable et Pennylane simulés).
 - Intégration PLAUD pour réunions chantier (R1 découverte / R2 chantier)

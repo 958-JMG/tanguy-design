@@ -37,6 +37,14 @@ const { lignesDevisTexte } = require('./services/description-devis-helper');
 const { retroTotale } = require('./services/retro-artisans-helper');
 // Devis client issu du Devis express (P-H4) : numérotation et construction.
 const { numeroDevisExpress, construireDevisClient, referenceProjet } = require('./services/devis-express-helper');
+// Devis express électroménager (projets FINDIS) : lecture et construction du devis.
+const { lireProjetFindis } = require('./services/findis-parser');
+const { nomFichier } = require('./services/nom-fichier');   // nom d'un fichier reçu, accents réparés
+// Marge de chaque partie d'un projet (meubles, électroménager…) — fiche projet et Admin marges.
+const { margeParParties } = require('./services/marge-parties');
+// Règle unique de la marge globale (fiche projet ET Admin marges).
+const { computeMarge } = require('./services/couts-helper');
+const { normaliserArticles, construireDevisElectro } = require('./services/devis-electro');
 const { buildRetroApporteurs, TAUX_RETRO } = require('./services/retro-apporteurs-helper');
 const { canAccess, pickAllowedFields, splitAllowedFields } = require('./services/acl');
 const logger = require('./services/logger');
@@ -657,20 +665,24 @@ app.get('/health/connecteurs', async (_req, res) => {
   }
 });
 
-// --- Admin : tableau marges par projet (Sprint 5) ---
-// Pour chaque projet : CA HT, coût fournisseurs (commandes), coût artisans (devis-artisans),
-// rétro-commission 5 % sur tous les devis artisans, marge € + %.
+// --- Admin : tableau marges par projet (Sprint 5, aligné sur la fiche le 14/10/2026) ---
+// MÊME règle que la marge de la fiche projet (services/couts-helper.js computeMarge) :
+//   CA HT = devis SIGNÉS (Total HT final), à défaut le budget prévisionnel ;
+//   fournisseurs = montants confirmés par les AR (« 0 strict » validé par JMG) ;
+//   + rétro 5 % artisans − coûts chantier « sur marge » − retenue abandonnée.
+// Avant, cet écran prenait le budget prévi, le « Montant HT » des commandes (un prix
+// de VENTE estimé) et retranchait les devis artisans (que le client paie) : deux
+// marges différentes pour le même chantier.
 app.get('/api/admin/marges', requireAuth, async (req, res) => {
   if (!ADMIN_LOGINS.has(req.session?.user)) return res.status(403).json({ error: 'admin requis' });
   try {
-    // La table Artisans n'est plus chargée : elle ne servait qu'au filtre
-    // « Contractuel », retiré du calcul de la rétro. Un appel Airtable de moins
-    // sur un écran qui balaie déjà toute la base.
-    const [projets, commandes, devisArtisans, clients] = await Promise.all([
+    const [projets, commandes, devisArtisans, clients, devis, couts] = await Promise.all([
       atFetchAll(TABLES.projets.id),
       atFetchAll(TABLES.commandes.id),
       atFetchAll(TABLES['devis-artisans'].id),
       atFetchAll(TABLES.clients.id),
+      atFetchAll(TABLES.devis.id),
+      COUTS_TBL_READY ? atFetchAll(TABLES['couts-chantier'].id).catch(e => { logger.warn({ err: e.message }, '[admin/marges] coûts chantier KO'); return []; }) : [],
     ]);
     const clientById = new Map(clients.map(c => [c.id, c]));
 
@@ -678,16 +690,21 @@ app.get('/api/admin/marges', requireAuth, async (req, res) => {
       const f = p.fields || {};
       const projetCmds = commandes.filter(c => (c.fields?.Projet || []).includes(p.id));
       const projetDA = devisArtisans.filter(d => (d.fields?.Projet || []).includes(p.id));
-      const caHT = f['Budget HT'] || 0;
-      const coutFourn = projetCmds.reduce((s, c) => s + (c.fields?.['Montant HT'] || 0), 0);
-      const coutArtisans = projetDA.reduce((s, d) => s + (d.fields?.['Montant HT'] || 0), 0);
-      // Règle unique (29/07/2026) : 5 % sur TOUS les devis artisans, doublons
-      // d'import écartés, et « Rétro-commission HT » stockée prioritaire. Cet
-      // écran filtrait encore sur « Contractuel » et affichait donc une marge
-      // différente de celle de la fiche projet, pour le même chantier.
+      const signes = devis.filter(d => (d.fields?.Projet || []).includes(p.id) && d.fields?.Statut === 'Signé');
+      const caReel = signes.reduce((s, d) => s + (Number(d.fields?.['Total HT final']) || 0), 0);
+      const caEstReel = signes.length > 0 && caReel > 0;
+      const caHT = caEstReel ? caReel : (Number(f['Budget HT']) || 0);
+      const coutFourn = projetCmds.reduce((s, c) => s + (Number(c.fields?.['Montant AR']) || 0), 0);
+      const coutFournEstime = projetCmds.reduce((s, c) => s + (Number(c.fields?.['Montant HT']) || 0), 0);
+      const arManquants = projetCmds.filter(c => !(Number(c.fields?.['Montant AR']) > 0)).length;
       const retro = retroTotale(projetDA).total;
-      const margeAbs = caHT - coutFourn - coutArtisans + retro;
-      const margePct = caHT > 0 ? (margeAbs / caHT) * 100 : null;
+      const coutsProjet = couts
+        .filter(c => (c.fields?.Projets || []).includes(p.id))
+        .map(c => ({ montant: c.fields?.['Montant HT'], imputation: c.fields?.['Payé par'] }));
+      const m = computeMarge({
+        caHT, coutFourn, retro, couts: coutsProjet,
+        retenue: { montant: f['Retenue montant'], statut: f['Retenue statut'] },
+      });
       const clientNom = clientById.get((f.Client || [])[0])?.fields?.Nom || '?';
       return {
         id: p.id,
@@ -695,8 +712,9 @@ app.get('/api/admin/marges', requireAuth, async (req, res) => {
         client: clientNom,
         phase: f['Phase commerciale'] || f.Statut,
         chantier: f['Statut chantier'] || '',
-        caHT, coutFourn, coutArtisans, retro,
-        margeAbs, margePct,
+        caHT, caEstReel, coutFourn, coutFournEstime, arManquants, retro,
+        coutsSurMarge: m.coutsSurMarge, retenuePerte: m.retenuePerte,
+        margeAbs: m.margeAbs, margePct: m.margePct,
       };
     });
     res.json({ ok: true, rows });
@@ -1543,10 +1561,21 @@ app.get('/api/projets/:id', requireAuth, async (req, res) => {
     ]);
 
     // Sprint v3.5 — Échéances liées aux devis (pour section Facturation client)
+    // + lignes des devis SIGNÉS (marge par partie, 14/10/2026), en parallèle.
     const echeanceIds = devis.flatMap(d => d.fields?.['Échéances devis'] || []);
-    const echeances = echeanceIds.length
-      ? await atFetchByIds(TABLES['echeances-devis'].id, echeanceIds)
-      : [];
+    const ligneIdsSignes = devis.filter(d => d.fields?.Statut === 'Signé').flatMap(d => d.fields?.['Lignes devis'] || []);
+    const [echeances, lignesSignees] = await Promise.all([
+      echeanceIds.length ? atFetchByIds(TABLES['echeances-devis'].id, echeanceIds) : [],
+      ligneIdsSignes.length ? atFetchByIds(TABLES['lignes-devis'].id, ligneIdsSignes) : [],
+    ]);
+    // Marge de chaque partie (meubles, électroménager…). Jamais bloquant pour la
+    // fiche : un échec de calcul est renvoyé comme tel, pas tu.
+    let margeParties;
+    try { margeParties = margeParParties({ devis, lignes: lignesSignees, commandes }); }
+    catch (e) {
+      logger.warn({ err: e.message, projetId }, '[projets/:id] marge par partie KO');
+      margeParties = { erreur: e.message, parties: [], total: null, alertes: [] };
+    }
 
     // Paquet Coûts chantier — coûts additionnels liés (lien inverse « Coûts chantier »
     // sur Projets). Défensif : tant que la migration n'est pas passée (COUTS_TBL_READY
@@ -1570,7 +1599,7 @@ app.get('/api/projets/:id', requireAuth, async (req, res) => {
       } catch (e) { /* fallback silencieux */ }
     }
 
-    res.json({ ok: true, projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans, echeances, couts });
+    res.json({ ok: true, projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans, echeances, couts, margeParties });
   } catch (e) {
     logger.error({ err: e.message, projetId }, '[projets/:id] error');
     res.status(500).json({ error: e.message });
@@ -2540,9 +2569,41 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     // n'est pas reconnue part dans une commande « À classer » VISIBLE (avec la raison) ;
     // le rattachement fournisseur n'est posé que s'il est certain (un seul candidat).
     const fournisseursGrille = await atFetchAll(TABLES.fournisseurs.id).catch(() => []);
+    // 3a. Lignes au fournisseur CONNU (Devis express électroménager, 14/10/2026 :
+    // Findis) → SON bon de commande, avant la grille par famille : un mitigeur
+    // acheté chez FINDIS part chez Findis, pas chez le fournisseur de plans de
+    // travail. Montant du BC = prix d'achat + éco (ce que le fournisseur facture),
+    // pour que le contrôle de sa facture compare des choses comparables. Les
+    // lignes sans fournisseur (Winner) gardent exactement le chemin d'avant.
+    const parFournisseur = new Map();
+    const lignesGrille = [];
+    for (const l of lignes) {
+      const fid = (l.fields?.Fournisseur || [])[0];
+      const fiche = fid && fournisseursGrille.find(f => f.id === fid);
+      if (fiche) {
+        if (!parFournisseur.has(fid)) parFournisseur.set(fid, { fiche, lignes: [] });
+        parFournisseur.get(fid).lignes.push(l);
+      } else lignesGrille.push(l);
+    }
+    const groupesFournisseur = [...parFournisseur.entries()].map(([fid, { fiche, lignes: ls }]) => {
+      const nom = String(fiche.fields?.Nom || 'Fournisseur');
+      const auPrixAchat = ls.every(l => Number(l.fields?.['Prix achat HT']) > 0);
+      const montant = Math.round(ls.reduce((t, l) => t + (auPrixAchat
+        ? Number(l.fields['Prix achat HT']) + (Number(l.fields?.['Eco-participation']) || 0)
+        : (Number(l.fields?.['Montant HT']) || 0)), 0) * 100) / 100;
+      return {
+        canon: null, type: nom, ref: nom.toUpperCase().replace(/[^A-Z0-9]+/g, '_').slice(0, 20),
+        commande: true, grille: false, aClasser: false, parFournisseur: true, auPrixAchat,
+        lignes: ls, montant, fournisseurId: fid, fournisseurNom: nom, raison: null, candidats: [],
+      };
+    });
     // `forcer` : toujours un BC « Plan de travail » (JMG 2026-05-21), même sans ligne PT
-    // (le PT est mesuré sur chantier après pose meubles, BC complété à la main par Virginie).
-    const groupes = routeCommandesGrille(lignes, fournisseursGrille, { forcer: ['Plan de travail & crédence'] });
+    // (le PT est mesuré sur chantier après pose meubles, BC complété à la main par Virginie)
+    // — sauf pour un devis sans aucune ligne « grille » (ex. électroménager seul).
+    const groupes = [
+      ...groupesFournisseur,
+      ...routeCommandesGrille(lignesGrille, fournisseursGrille, { forcer: lignesGrille.length ? ['Plan de travail & crédence'] : [] }),
+    ];
 
     // 4. Création des commandes fournisseurs (Sprint v3.1 — BC structurés et modifiables)
     // Pour chaque groupe, on peuple les champs structurés (Contremarque, Contact Tanguy,
@@ -2583,6 +2644,7 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       // absent de la grille) — pour qu'elle route à la main en connaissance de cause.
       const enteteNote = [];
       if (g.aClasser) enteteNote.push(`⚠️ À CLASSER — ${g.raison || `catégorie « ${g.categorieBrute || '—'} » non reconnue`}. Rattacher au bon fournisseur / BC à la main.`);
+      else if (g.parFournisseur) enteteNote.push(`Fournisseur (devis) : ${g.fournisseurNom}.${g.auPrixAchat ? ' Montant HT = prix d\'achat + éco-participation, à rapprocher de sa facture.' : ''}`);
       else if (g.fournisseurNom) enteteNote.push(`Fournisseur (grille) : ${g.fournisseurNom}.`);
       else if (g.grille && g.raison) enteteNote.push(`⚠️ Fournisseur à choisir — ${g.raison}.`);
       const notesPrefill = (enteteNote.length ? enteteNote.join('\n') + '\n\n' : '') + (isPlanTravailVide
@@ -2688,47 +2750,82 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
 // requireAuth et non requireAdmin : le Devis express est ouvert à toute
 // l'équipe, et le devis créé part en BROUILLON. À restreindre si Virginie
 // préfère que seule elle puisse créer des devis.
+// ── Devis express : briques partagées (fournisseur ET électroménager) ──────
+// Projet du devis : existant, ou créé à la volée pour le client choisi (choix
+// JMG 27/08). Renvoie { erreur: {status, message} } plutôt que de lever.
+async function projetPourDevisExpress({ projetId, clientId, libelle, budgetHt, description }) {
+  if (projetId) {
+    const [p] = await atFetchByIds(TABLES.projets.id, [projetId]);
+    if (!p) return { erreur: { status: 404, message: 'Projet introuvable' } };
+    return { projetId, clientId: (p.fields?.Client || [])[0] || clientId || null, projet: p, projetCree: false };
+  }
+  const [c] = await atFetchByIds(TABLES.clients.id, [clientId]);
+  if (!c) return { erreur: { status: 404, message: 'Client introuvable' } };
+  const np = await atCreate(TABLES.projets.id, {
+    'Référence': referenceProjet(c.fields?.Nom, libelle),
+    'Client': [clientId],
+    'Statut': 'Devis',
+    'Description': description || 'Projet créé depuis le Devis express',
+    'Budget HT': Math.round(Number(budgetHt) * 100) / 100,
+  });
+  logger.info({ projetId: np.id }, '[devis-express] projet créé');
+  return { projetId: np.id, clientId, projet: np, projetCree: true };
+}
+
+// Type du nouveau devis : « Additif » si le projet a déjà un devis principal en
+// vie (non refusé). Avant, le Devis express posait TOUJOURS « Principal » : le
+// projet LAGO s'est retrouvé avec deux devis principaux (EXP-2026-002, 13/10).
+async function typeDevisParDefaut(projet) {
+  const ids = projet?.fields?.Devis || [];
+  if (!ids.length) return 'Principal';
+  const devis = await atFetchByIds(TABLES.devis.id, ids);
+  const principalVivant = devis.some(d => (d.fields?.['Type devis'] || 'Principal') === 'Principal' && d.fields?.Statut !== 'Refusé');
+  return principalVivant ? 'Additif' : 'Principal';
+}
+
+// Numéro séquentiel EXP-AAAA-NNN, calculé sur les numéros RÉELLEMENT présents
+// (et non sur un compteur, qui rendrait un numéro déjà pris après une suppression).
+async function prochainNumeroExpress() {
+  const tousDevis = await atFetchAll(TABLES.devis.id);
+  return numeroDevisExpress(tousDevis.map(d => d.fields?.['Numéro devis']), new Date().getFullYear());
+}
+
+// Création de lignes tolérante aux champs pas encore migrés (« Prix achat HT »,
+// « Fournisseur » : scripts/setup-prix-achat-fields.js). Airtable refuse le lot
+// entier sur un champ inconnu : on retire CE champ et on recommence, et on le DIT.
+async function atCreateBatchTolerant(tableId, records) {
+  let restants = records.map(r => ({ ...r }));
+  const ignores = [];
+  for (let i = 0; i < 6; i++) {
+    try {
+      return { records: await atCreateBatch(tableId, restants), ignores };
+    } catch (e) {
+      const m = /Unknown field name:\s*"([^"]+)"/i.exec(e.message || '');
+      if (!m || !restants.some(r => m[1] in r)) throw e;
+      restants = restants.map(r => { const c = { ...r }; delete c[m[1]]; return c; });
+      ignores.push(m[1]);
+    }
+  }
+  return { records: await atCreateBatch(tableId, restants), ignores };
+}
+const avertirChampsIgnores = ignores => ignores.length
+  ? [`Champ(s) absent(s) d'Airtable, non enregistré(s) : ${ignores.join(', ')} — lancer scripts/setup-prix-achat-fields.js`]
+  : [];
+
 app.post('/api/devis-express/creer-devis', requireAdmin, async (req, res) => {
   const b = req.body || {};
-  const { projetId, clientId, designation, prixClientHt, tvaTaux, ecoHt, origine } = b;
+  const { projetId, clientId, designation, prixClientHt, tvaTaux, ecoHt, origine, famille, prixAchatHt } = b;
   try {
     if (!projetId && !clientId) return res.status(400).json({ error: 'projetId ou clientId requis' });
     if (!(Number(prixClientHt) > 0)) return res.status(422).json({ error: 'Prix client HT requis' });
 
     // 1. Projet : existant, ou créé à la volée pour le client choisi.
-    let resolvedProjetId = projetId || null;
-    let resolvedClientId = clientId || null;
-    let projetCree = false;
+    const pr = await projetPourDevisExpress({ projetId, clientId, libelle: designation, budgetHt: prixClientHt });
+    if (pr.erreur) return res.status(pr.erreur.status).json({ error: pr.erreur.message });
+    const typeDevis = ['Principal', 'Additif'].includes(b.typeDevis) ? b.typeDevis : await typeDevisParDefaut(pr.projet);
 
-    if (resolvedProjetId) {
-      const [p] = await atFetchByIds(TABLES.projets.id, [resolvedProjetId]);
-      if (!p) return res.status(404).json({ error: 'Projet introuvable' });
-      resolvedClientId = (p.fields?.Client || [])[0] || resolvedClientId;
-    } else {
-      const [c] = await atFetchByIds(TABLES.clients.id, [resolvedClientId]);
-      if (!c) return res.status(404).json({ error: 'Client introuvable' });
-      const np = await atCreate(TABLES.projets.id, {
-        'Référence': referenceProjet(c.fields?.Nom, designation),
-        'Client': [resolvedClientId],
-        'Statut': 'Devis',
-        'Description': 'Projet créé depuis le Devis express',
-        'Budget HT': Math.round(Number(prixClientHt) * 100) / 100,
-      });
-      resolvedProjetId = np.id;
-      projetCree = true;
-      logger.info({ projetId: resolvedProjetId }, '[devis-express] projet créé');
-    }
-
-    // 2. Numéro séquentiel EXP-AAAA-NNN, calculé sur les numéros RÉELLEMENT
-    //    présents (et non sur un compteur, qui rendrait un numéro déjà pris
-    //    après une suppression).
-    const tousDevis = await atFetchAll(TABLES.devis.id);
-    const numero = numeroDevisExpress(
-      tousDevis.map(d => d.fields?.['Numéro devis']),
-      new Date().getFullYear(),
-    );
-
-    // 3. Champs du devis + ligne unique.
+    // 2. Numéro + 3. champs du devis et ligne unique.
+    const numero = await prochainNumeroExpress();
     const { fields, ligne, coherence, avertissements } = construireDevisClient({
       numero,
       designation,
@@ -2737,6 +2834,9 @@ app.post('/api/devis-express/creer-devis', requireAdmin, async (req, res) => {
       ecoHt: Number(ecoHt) || 0,
       dateDevis: todayISO(),
       origine,
+      typeDevis,
+      categorie: famille || '',
+      prixAchatHt: Number(prixAchatHt) || null,
     });
     // Un devis dont le TTC ne se retrouve pas depuis les bases casserait la
     // facturation des semaines plus tard, sans bruit. On refuse tout de suite.
@@ -2744,8 +2844,8 @@ app.post('/api/devis-express/creer-devis', requireAdmin, async (req, res) => {
       return res.status(422).json({ error: 'Totaux incohérents — devis non créé', avertissements, coherence });
     }
 
-    fields['Projet'] = [resolvedProjetId];
-    if (resolvedClientId) fields['Client'] = [resolvedClientId];
+    fields['Projet'] = [pr.projetId];
+    if (pr.clientId) fields['Client'] = [pr.clientId];
     Object.keys(fields).forEach(k => { if (fields[k] === null || fields[k] === '') delete fields[k]; });
 
     const devisRec = await atCreate(TABLES.devis.id, fields);
@@ -2756,25 +2856,186 @@ app.post('/api/devis-express/creer-devis', requireAdmin, async (req, res) => {
     try {
       const lf = { ...ligne, 'Devis': [devisRec.id] };
       Object.keys(lf).forEach(k => { if (lf[k] === null || lf[k] === '') delete lf[k]; });
-      await atCreate(TABLES['lignes-devis'].id, lf);
+      const { ignores } = await atCreateBatchTolerant(TABLES['lignes-devis'].id, [lf]);
+      avertissements.push(...avertirChampsIgnores(ignores));
     } catch (e) {
       ligneCreee = false;
       avertissements.push('La ligne du devis n\'a pas pu être créée : ' + e.message);
       logger.warn({ err: e.message, devisId: devisRec.id }, '[devis-express] ligne non créée');
     }
 
-    logger.info({ devisId: devisRec.id, numero, projetCree }, '[devis-express] devis client créé');
+    logger.info({ devisId: devisRec.id, numero, projetCree: pr.projetCree, typeDevis }, '[devis-express] devis client créé');
     res.json({
       ok: true,
       devisId: devisRec.id,
       numero,
-      projetId: resolvedProjetId,
-      projetCree,
+      projetId: pr.projetId,
+      projetCree: pr.projetCree,
+      typeDevis,
       ligneCreee,
       avertissements,
     });
   } catch (e) {
     logger.error({ err: e.message }, '[devis-express] création KO');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Devis express ÉLECTROMÉNAGER (projets FINDIS) — demande JMG 14/10/2026 ──
+// 1) /lire : PDF imprimé depuis FINDIS (lu par son TEXTE, exact) ou captures
+//    d'écran (lues par l'IA premium). Ne crée rien : renvoie les articles à cocher.
+// 2) /creer-devis : un devis client, une ligne par article retenu, avec prix
+//    d'achat et fournisseur Findis → marge par partie + BC Findis à la signature.
+const uploadFindis = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024, files: 8 },
+  fileFilter: (req, file, cb) => {
+    if (/^(application\/pdf|image\/(png|jpeg|webp|gif))$/.test(file.mimetype)) cb(null, true);
+    else cb(new Error('Seuls les PDF et les images (PNG, JPEG, WebP) sont acceptés'));
+  },
+});
+
+app.post('/api/devis-express/findis/lire', requireAdmin, (req, res, next) => {
+  uploadFindis.array('fichiers', 8)(req, res, err => {
+    if (err) return res.status(400).json({ error: err.message });
+    next();
+  });
+}, async (req, res) => {
+  // Noms accentués réparés (busboy les décode en latin1 : « nÂ° ») — même module que la PR #119.
+  const fichiers = (req.files || []).map(f => ({ ...f, originalname: nomFichier(f) }));
+  if (!fichiers.length) return res.status(400).json({ error: 'Dépose le PDF du projet FINDIS ou ses captures d\'écran' });
+  await withKeepAlive(req, res, async () => {
+    const t0 = Date.now();
+    const lu = await lireProjetFindis(fichiers);
+    const { articles, alertes, comparatifs } = normaliserArticles(lu, { nbFichiers: fichiers.length });
+    let fournisseurFindis = null;
+    try { fournisseurFindis = await fournisseurParNom('Findis'); } catch (e) { /* dit plus bas */ }
+    logger.info({ fichiers: fichiers.length, articles: articles.length, lectures: lu.lectures, ms: Date.now() - t0 }, '[findis/lire] projet lu');
+    return {
+      ok: true,
+      projetFindis: lu.projet_findis || null,
+      articles,
+      comparatifs,
+      lectures: lu.lectures,
+      alertes: [
+        ...alertes,
+        ...lu.alertes,
+        ...(fournisseurFindis ? [] : ['Aucune fiche « Findis » dans les Fournisseurs : les lignes partiront sans fournisseur (ajoute-la dans Admin).']),
+      ],
+    };
+  });
+});
+
+// Fiche Fournisseurs par nom (casse et accents ignorés).
+async function fournisseurParNom(nom) {
+  const cible = String(nom).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  const tous = await atFetchAll(TABLES.fournisseurs.id);
+  return tous.find(f => String(f.fields?.Nom || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim() === cible) || null;
+}
+
+// Contrôle serveur des articles renvoyés par l'écran (jamais cru sur parole).
+const FAMILLES_ELECTRO = ['Électroménager', 'Robinetterie', 'Luminaire'];
+function articlesValidesElectro(liste) {
+  const erreurs = [];
+  const articles = (Array.isArray(liste) ? liste : []).map((a, i) => {
+    const n = v => (v == null || v === '' ? null : Number(v));
+    const art = {
+      reference: String(a.reference || '').slice(0, 60),
+      marque: String(a.marque || '').slice(0, 80),
+      libelle: String(a.libelle || '').slice(0, 200),
+      typeFindis: String(a.typeFindis || '').slice(0, 120),
+      famille: FAMILLES_ELECTRO.includes(a.famille) ? a.famille : 'Électroménager',
+      quantite: Math.round(n(a.quantite) || 0),
+      venteTtcUnit: n(a.venteTtcUnit),
+      achatHtUnit: n(a.achatHtUnit),
+      promoHtUnit: n(a.promoHtUnit),
+      promoRetenue: !!a.promoRetenue,
+      achatRetenuHtUnit: n(a.achatRetenuHtUnit),
+      ecoHtUnit: n(a.ecoHtUnit) || 0,
+      notes: Array.isArray(a.notes) ? a.notes.map(x => String(x).slice(0, 200)).slice(0, 8) : [],
+    };
+    const nom = art.reference || art.libelle || `article ${i + 1}`;
+    if (!(art.quantite >= 1)) erreurs.push(`${nom} : quantité invalide`);
+    if (!(art.venteTtcUnit > 0)) erreurs.push(`${nom} : prix de vente invalide`);
+    if (!(art.achatRetenuHtUnit >= 0)) erreurs.push(`${nom} : prix d'achat invalide`);
+    if (!(art.ecoHtUnit >= 0)) erreurs.push(`${nom} : éco-participation invalide`);
+    return art;
+  });
+  if (!articles.length) erreurs.push('Aucun article retenu');
+  return { articles, erreurs };
+}
+
+app.post('/api/devis-express/findis/creer-devis', requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  try {
+    if (!b.projetId && !b.clientId) return res.status(400).json({ error: 'projetId ou clientId requis' });
+    const { articles, erreurs } = articlesValidesElectro(b.articles);
+    if (erreurs.length) return res.status(422).json({ error: erreurs.join(' · ') });
+    const tvaTaux = [5.5, 10, 20].includes(Number(b.tvaTaux)) ? Number(b.tvaTaux) : 20;
+
+    const libelle = articles.length === 1 ? `${articles[0].marque} ${articles[0].libelle}`.trim() : 'Électroménager';
+    const totalTtc = articles.reduce((t, a) => t + a.venteTtcUnit * a.quantite, 0);
+    const pr = await projetPourDevisExpress({
+      projetId: b.projetId, clientId: b.clientId, libelle,
+      budgetHt: totalTtc / (1 + tvaTaux / 100), description: 'Projet créé depuis le Devis express électroménager',
+    });
+    if (pr.erreur) return res.status(pr.erreur.status).json({ error: pr.erreur.message });
+    const typeDevis = ['Principal', 'Additif'].includes(b.typeDevis) ? b.typeDevis : await typeDevisParDefaut(pr.projet);
+    const findis = await fournisseurParNom('Findis').catch(() => null);
+
+    const numero = await prochainNumeroExpress();
+    const r = construireDevisElectro({
+      numero, articles, tvaTaux, dateDevis: todayISO(), typeDevis,
+      projetFindis: String(b.projetFindis || '').replace(/\D/g, '').slice(0, 12),
+      fournisseurId: findis ? findis.id : null,
+    });
+    if (!r.coherence.ok) return res.status(422).json({ error: 'Totaux incohérents — devis non créé', avertissements: r.avertissements, coherence: r.coherence });
+
+    const avertissements = [...r.avertissements];
+    if (!findis) avertissements.push('Aucune fiche « Findis » dans les Fournisseurs : lignes sans fournisseur, le BC passera par la grille.');
+    // Double compte possible : l'électroménager figure parfois déjà dans le devis
+    // Winner du projet (ex. SMEG du 678/1/1). On le DIT, on ne bloque pas.
+    try {
+      const autres = pr.projet?.fields?.Devis || [];
+      if (autres.length) {
+        const devisAutres = await atFetchByIds(TABLES.devis.id, autres);
+        const vivants = devisAutres.filter(d => d.fields?.Statut !== 'Refusé');
+        const lignesIds = vivants.flatMap(d => d.fields?.['Lignes devis'] || []);
+        const lignesAutres = lignesIds.length ? await atFetchByIds(TABLES['lignes-devis'].id, lignesIds) : [];
+        const electro = lignesAutres.filter(l => /lectro/i.test(l.fields?.['Catégorie'] || '') && !(l.fields?.Fournisseur || []).length);
+        if (electro.length) {
+          const num = vivants.filter(d => (d.fields?.['Lignes devis'] || []).some(id => electro.some(l => l.id === id))).map(d => d.fields?.['Numéro devis']).join(', ');
+          avertissements.push(`Le devis ${num} de ce projet contient déjà ${electro.length} ligne(s) d'électroménager : vérifie qu'il n'est pas compté deux fois.`);
+        }
+      }
+    } catch (e) { logger.warn({ err: e.message }, '[findis/creer-devis] contrôle double compte impossible'); }
+
+    const fields = { ...r.fields, 'Projet': [pr.projetId], ...(pr.clientId ? { 'Client': [pr.clientId] } : {}) };
+    Object.keys(fields).forEach(k => { if (fields[k] === null || fields[k] === '') delete fields[k]; });
+    const devisRec = await atCreate(TABLES.devis.id, fields);
+
+    const lignes = r.lignes.map(l => {
+      const lf = { ...l, 'Devis': [devisRec.id] };
+      Object.keys(lf).forEach(k => { if (lf[k] === null || lf[k] === '') delete lf[k]; });
+      return lf;
+    });
+    let lignesCreees = 0;
+    try {
+      const { records, ignores } = await atCreateBatchTolerant(TABLES['lignes-devis'].id, lignes);
+      lignesCreees = records.length;
+      avertissements.push(...avertirChampsIgnores(ignores));
+    } catch (e) {
+      avertissements.push(`Les lignes du devis n'ont pas pu être créées : ${e.message}`);
+      logger.warn({ err: e.message, devisId: devisRec.id }, '[findis/creer-devis] lignes non créées');
+    }
+
+    logger.info({ devisId: devisRec.id, numero, lignes: lignesCreees, typeDevis, projetFindis: b.projetFindis }, '[findis/creer-devis] devis électroménager créé');
+    res.json({
+      ok: true, devisId: devisRec.id, numero, projetId: pr.projetId, projetCree: pr.projetCree,
+      typeDevis, lignesCreees, totaux: r.totaux, avertissements,
+    });
+  } catch (e) {
+    logger.error({ err: e.message }, '[findis/creer-devis] création KO');
     res.status(500).json({ error: e.message });
   }
 });

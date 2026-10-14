@@ -231,7 +231,7 @@ export async function renderProjet(app, projetId) {
 }
 
 function renderFiche(app, data) {
-  const { projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans: allArtisans, echeances = [], couts = [] } = data;
+  const { projet, client, taches, commandes, devis, reunionsPlaud, devisArtisans, fournisseurs, artisans: allArtisans, echeances = [], couts = [], margeParties = null } = data;
   const pf = projet.fields || {};
   const phase = pf['Phase commerciale'] || pf.Statut || '—';
   const chantier = pf['Statut chantier'] || '';
@@ -397,6 +397,9 @@ function renderFiche(app, data) {
         `).join('')}
       </ul>
     </section>` : ''}
+
+    <!-- Marge de chaque partie (14/10/2026) : le détail de la marge du haut -->
+    ${renderMargeParties(margeParties)}
 
     <!-- Sprint v3.17 — Facturation client en pleine largeur (vs col droite étroite avant) -->
     ${renderFacturationSection(facturationGroups, taches)}
@@ -2186,4 +2189,56 @@ function openModalPlaud(projet, client) {
       btn.innerHTML = 'Importer & parser';
     }
   });
+}
+
+// ── Marge par partie (demande JMG 14/10/2026) ─────────────────────────────────
+// Calculée côté serveur (services/marge-parties.js), une seule règle pour la
+// fiche et l'écran Admin. Ne s'affiche qu'avec au moins un devis signé ; un
+// échec de calcul est dit, jamais remplacé par une section vide.
+function renderMargeParties(mp) {
+  if (!mp) return '';
+  if (mp.erreur) {
+    return `<section class="projet-section" aria-label="Marge par partie"><p class="muted" style="margin:0">${icon('alert', 14)} Marge par partie indisponible : ${esc(mp.erreur)}</p></section>`;
+  }
+  const parties = mp.parties || [];
+  const alertes = mp.alertes || [];
+  if (!parties.length && !alertes.length) return '';
+  if (!parties.length) {
+    return `<section class="projet-section" aria-label="Marge par partie" style="margin-bottom:20px">
+      <div class="projet-section-header"><h2>Marge par partie</h2></div>
+      <ul style="margin:0 0 0 18px;padding:0;font-size:13px;color:var(--accent)">${alertes.map(a => `<li>${esc(a)}</li>`).join('')}</ul>
+    </section>`;
+  }
+  const e = n => (n ? euros(n) : '—');
+  const pct = n => (n == null ? '—' : `${String(Number(n).toFixed(1)).replace('.', ',')} %`);
+  return `
+    <section class="projet-section" aria-label="Marge par partie" style="margin-bottom:20px">
+      <div class="projet-section-header"><h2>Marge par partie</h2></div>
+      <div class="table-scroll">
+        <table class="pipeline-table" style="min-width:600px">
+          <thead><tr>
+            <th>Partie</th><th class="num">CA HT</th>
+            <th class="num" title="Prix d'achat des lignes (Devis express), éco comprise">Coût prévu</th>
+            <th class="num" title="Montants confirmés par les AR des commandes">Coût réel (AR)</th>
+            <th class="num">Marge</th><th class="num">Marge %</th>
+          </tr></thead>
+          <tbody>
+            ${parties.map(p => `
+              <tr>
+                <td>${esc(p.partie)}</td>
+                <td class="num">${e(p.ca)}</td>
+                <td class="num">${e(p.coutPrevu)}${p.prevuPartiel ? ' <span class="muted" style="font-size:11px" title="Certaines lignes de cette partie n\'ont pas de prix d\'achat">partiel</span>' : ''}</td>
+                <td class="num">${e(p.coutReel)}</td>
+                <td class="num" style="white-space:nowrap">${p.marge == null ? '<span class="muted" title="Ni prix d\'achat ni AR : coût inconnu">—</span>' : `<strong style="${p.marge < 0 ? 'color:var(--accent)' : ''}">${euros(p.marge)}</strong> <span class="muted" style="font-size:11px">${esc(p.base)}</span>`}</td>
+                <td class="num">${pct(p.margePct)}</td>
+              </tr>`).join('')}
+            <tr style="font-weight:600">
+              <td>Total</td><td class="num">${e(mp.total?.ca)}</td><td class="num">${e(mp.total?.coutPrevu)}</td><td class="num">${e(mp.total?.coutReel)}</td><td></td><td></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">CA : devis signés, répartis par leurs lignes (remise appliquée). Marge <em>réelle</em> dès qu'un AR existe, sinon <em>prévue</em> d'après les prix d'achat. L'éco-participation est comptée des deux côtés : elle s'annule. La marge du haut ajoute la rétro artisans et retire les coûts chantier.</p>
+      ${alertes.length ? `<ul style="margin:6px 0 0 18px;padding:0;font-size:12px;color:var(--accent)">${alertes.map(a => `<li>${esc(a)}</li>`).join('')}</ul>` : ''}
+    </section>`;
 }
