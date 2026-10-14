@@ -50,6 +50,7 @@
         <span class="nav-icon" data-icon="chevronDown" data-icon-size="14"></span>
       </button>
       <div class="nav-dropdown-menu">
+        <a class="nav-item" href="/gestion-site"><span class="nav-icon" data-icon="home"></span><span class="nav-label">Site internet</span></a>
         <button class="nav-item" data-route="gestion" onclick="navigateTo('gestion')">
           <span class="nav-icon" data-icon="landmark"></span><span class="nav-label">Gestion</span>
         </button>
@@ -96,6 +97,7 @@
 <!-- Feuille « Plus » (mobile) : items secondaires + admin -->
 <div class="nav-sheet-backdrop" id="nav-sheet-backdrop" onclick="toggleMoreNav()"></div>
 <nav class="nav-sheet" id="nav-sheet" aria-hidden="true">
+  <a class="nav-sheet-item nav-admin-only" href="/gestion-site"><span data-icon="home"></span><span>Site internet</span></a>
   <button class="nav-sheet-item" data-route="calendar" onclick="navigateTo('calendar'); toggleMoreNav()"><span data-icon="calendar"></span><span>Calendar</span></button>
   <button class="nav-sheet-item" data-route="pose" onclick="navigateTo('pose'); toggleMoreNav()"><span data-icon="hammer"></span><span>Pose</span></button>
   <button class="nav-sheet-item" data-route="sav" onclick="navigateTo('sav'); toggleMoreNav()"><span data-icon="wrench"></span><span>SAV</span></button>
