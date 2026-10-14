@@ -121,13 +121,18 @@ test('créer : avant la migration Airtable, lignes créées sans les nouveaux ch
   } finally { champsInconnus.delete(T.lignes); }
 });
 
-test('Pennylane : vente + ligne « Éco-participation » hors CA (54,13 € HT), total inchangé', async () => {
+test('Pennylane : vente + ligne « Éco-participation » hors CA (54,13 € HT), TTC client inchangé', async () => {
   const r = await banc.appel('POST', `/api/devis/${devisElectroId}/pennylane`, {});
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.deepEqual(r.json.eco, { ttc: 64.96, ht: 54.13 });
   const q = pennylaneRecu.at(-1);
-  const totalHt = q.invoice_lines.reduce((t, l) => t + Number(l.raw_currency_unit_price) * (Number(l.quantity) || 1), 0);
-  assert.equal(Math.round(totalHt * 100) / 100, 4430.67);
+  // TTC tel que Pennylane le calcule (TVA arrondie ligne par ligne, constaté le 14/10
+  // sur D-2026-10-21) : le client paie exactement les 5 316,80 € des prix FINDIS. La
+  // ligne produit cède un centime de HT pour y arriver (4 430,66 € HT au total).
+  const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
+  const ttcPennylane = r2(q.invoice_lines.reduce((t, l) => t + r2(Number(l.raw_currency_unit_price) * (Number(l.quantity) || 1) * 1.2), 0));
+  assert.equal(ttcPennylane, 5316.8);
+  assert.deepEqual(q.invoice_lines.map(l => l.raw_currency_unit_price), ['4376.53', '54.13']);
   assert.match(q.invoice_lines[0].description, /SCD90IMX9-1/, 'la description liste les articles');
 });
 

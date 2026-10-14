@@ -140,3 +140,46 @@ test('carve — taux réduit 10 % : HT éco cohérent avec le taux de la ligne s
   const { lines } = carveEcoParticipation(base, 11);
   assert.strictEqual(ttc(lines), avantTtc);
 });
+
+// ── Arrondi RÉEL de Pennylane : TVA arrondie ligne par ligne ───────────────────
+// Le TTC « sur la somme » des tests ci-dessus ne voyait pas l'écart : Pennylane
+// arrondit chaque ligne. Constaté en vrai le 14/10/2026, devis D-2026-10-21
+// (FINDIS 35789) : 5 316,81 € TTC au lieu de 5 316,80 €.
+const ttcPennylane = lines => r2(lines.reduce((s, l) => s + r2(Number(l.raw_currency_unit_price) * (Number(l.quantity) || 1) * (1 + enumPct[l.vat_rate] / 100)), 0));
+
+test('carve — TTC Pennylane (arrondi ligne par ligne) inchangé : cas réel D-2026-10-21', () => {
+  const base = [ligneProduit(4430.67)];
+  assert.strictEqual(ttcPennylane(base), 5316.8);
+  const { lines, ecoLine, warnings } = carveEcoParticipation(base, 64.96);
+  assert.strictEqual(ecoLine.raw_currency_unit_price, '54.13', 'éco exacte (somme des montants FINDIS)');
+  assert.strictEqual(ttcPennylane(lines), 5316.8, 'le client paie toujours 5 316,80 €');
+  assert.strictEqual(lines[0].raw_currency_unit_price, '4376.53', 'la ligne produit absorbe le centime');
+  assert.deepStrictEqual(warnings, []);
+});
+
+test('carve — cas réel D-2026-10-20 (meuble, 10 %) : aucun ajustement nécessaire', () => {
+  const base = [ligneProduit(15645.21, 'FR_100')];
+  const { lines } = carveEcoParticipation(base, 133.33);
+  assert.strictEqual(lines[0].raw_currency_unit_price, '15524.00');
+  assert.strictEqual(lines[1].raw_currency_unit_price, '121.21');
+  assert.strictEqual(ttcPennylane(lines), 17209.73);
+});
+
+test('carve — 2 000 cas au hasard : TTC Pennylane conservé, ou écart DIT (jamais de silence)', () => {
+  let graine = 7;
+  const alea = () => { graine = (graine * 16807) % 2147483647; return graine / 2147483647; };
+  let exacts = 0, total = 0;
+  for (let i = 0; i < 2000; i++) {
+    const vat = ['FR_200', 'FR_100', 'FR_055'][i % 3];
+    const base = [ligneProduit(r2(100 + alea() * 20000), vat)];
+    const eco = r2(0.01 + alea() * 80);
+    const { lines, ecoLine, warnings } = carveEcoParticipation(base, eco);
+    if (!ecoLine) continue;
+    total++;
+    if (ttcPennylane(lines) === ttcPennylane(base)) exacts++;
+    else assert.ok(warnings.some(w => /Arrondi de TVA de Pennylane/.test(w)), `cas ${i} : écart non signalé`);
+    assert.strictEqual(ecoLine.raw_currency_unit_price, r2(eco / (1 + enumPct[vat] / 100)).toFixed(2), 'l\'éco reste exacte');
+  }
+  // Avant la correction du 14/10 : ~73 % de TTC exacts. Après : ~90 %.
+  assert.ok(exacts / total > 0.85, `TTC exact dans ${(100 * exacts / total).toFixed(1)} % des cas`);
+});

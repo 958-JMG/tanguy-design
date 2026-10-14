@@ -361,7 +361,27 @@ function carveEcoParticipation(lines, ecoTtc, opts = {}) {
 
   // On retire l'éco HT du prix unitaire de la ligne support. Côté Tanguy la quantité
   // est toujours 1 (le prix unitaire porte tout le HT) : total préservé au centime.
-  support.raw_currency_unit_price = round2((supportHt - ecoHt) / qte).toFixed(2);
+  let resteHt = round2(supportHt - ecoHt);
+  // Pennylane arrondit la TVA LIGNE PAR LIGNE. Couper une ligne en deux peut donc
+  // déplacer le TTC d'un centime — constaté en vrai le 14/10/2026 sur le devis
+  // D-2026-10-21 : 4 376,54 + 54,13 € HT à 20 % → 5 316,81 € TTC au lieu des
+  // 5 316,80 € du devis (875,31 + 10,83 de TVA). L'éco reste EXACTE (montant
+  // réglementaire) ; la ligne produit bouge d'un ou deux centimes pour que le TTC
+  // payé par le client ne change pas.
+  if (qte === 1) {
+    const ttcLigne = h => round2(h * (1 + pct / 100));
+    const cible = ttcLigne(supportHt);
+    const ajuste = [0, -0.01, 0.01, -0.02, 0.02]
+      .map(d => round2(resteHt + d))
+      .find(h => round2(ttcLigne(h) + ttcLigne(ecoHt)) === cible);
+    if (ajuste != null) resteHt = ajuste;
+    else {
+      // Inatteignable sans toucher à l'éco (≈ 1 cas sur 6 à 20 %) : on le DIT, montants à l'appui.
+      const obtenu = round2(ttcLigne(resteHt) + ttcLigne(ecoHt));
+      warnings.push(`Arrondi de TVA de Pennylane (ligne par ligne) : ${obtenu.toFixed(2).replace('.', ',')} € TTC au lieu de ${cible.toFixed(2).replace('.', ',')} € — écart de ${Math.abs(round2(obtenu - cible)).toFixed(2).replace('.', ',')} €, à corriger dans Pennylane avant envoi si besoin`);
+    }
+  }
+  support.raw_currency_unit_price = (qte === 1 ? resteHt : round2(resteHt / qte)).toFixed(2);
   const mention = `dont éco-participation : ${eco.toFixed(2)} € TTC`;
   support.description = support.description ? `${support.description}\n${mention}`.slice(0, 1000) : mention;
 
