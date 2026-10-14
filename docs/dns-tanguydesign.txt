@@ -1,0 +1,32 @@
+TANGUY DESIGN — BASCULE DNS APRÈS VALIDATION DU SITE
+Vérifié le 14 octobre 2026. Aucun changement DNS commercial effectué.
+
+Domaine conservé : tanguydesign.com
+Adresse canonique retenue : https://www.tanguydesign.com
+Validation : https://tanguydesign.958.fr/site/ (accès partagé)
+
+À transmettre à la personne qui gère la zone DNS Cloudflare :
+
+Type    Nom    Cible                                                        TTL    Proxy
+CNAME   @      cockpits68691d55-tanguy.functions.fnc.fr-par.scw.cloud       Auto   DNS uniquement (nuage gris)
+CNAME   www    cockpits68691d55-tanguy.functions.fnc.fr-par.scw.cloud       Auto   DNS uniquement (nuage gris)
+
+La cible ne contient ni https:// ni /site/ ni chemin.
+Remplacer uniquement les entrées web A/AAAA/CNAME existantes de @ et www qui entreraient en conflit. Cloudflare réalise automatiquement l’aplatissement du CNAME à la racine (@), compatible avec les autres enregistrements de la zone.
+
+Conserver les serveurs DNS actuels : graham.ns.cloudflare.com et wanda.ns.cloudflare.com. Aucun changement de registrar ou de serveurs NS n’est nécessaire.
+Conserver les MX, TXT (SPF, DKIM, DMARC et vérifications), autodiscover et tous les autres enregistrements de messagerie. Le MX actuellement observé est de priorité 5, cible tanguydesign-com.mail.protection.outlook.com. Ne pas le remplacer.
+Ne pas utiliser les IP publiques Cloudflare actuelles ni une IP résolue ponctuellement du conteneur comme nouvelle cible A : le routage du conteneur est géré par son nom DNS.
+
+COORDINATION 9·58 LE JOUR DE LA BASCULE
+
+1. Obtenir la validation client, compléter les mentions légales et la migration des anciennes URL/galeries encore en attente. Sauvegarder/exporter la zone DNS avant modification.
+2. Préparer le conteneur avec SITE_PUBLIC_ORIGIN=https://www.tanguydesign.com et SITE_INDEXABLE=true. Vérifier les redirections 301, le domaine sans www, sitemap et canoniques. Conserver SITE_REVIEW_ENABLED=true pour protéger la version 9·58.
+3. Au créneau convenu avec 9·58, appliquer les deux CNAME ci-dessus puis vérifier leur résolution publique. Ne pas modifier les DNS dès réception de ce document.
+4. Côté Scaleway, associer les deux domaines personnalisés au conteneur tanguy (ID e5df4178-a619-43e3-8808-9009986bc837). Attendre l’état ready et les certificats HTTPS valides pour les deux noms. Cette opération est indispensable : les DNS seuls ne suffisent pas. La validation Scaleway nécessite les DNS déjà propagés ; prévoir un créneau de bascule coordonné et vérifier immédiatement le service.
+5. Vérifier les pages et liens en HTTPS, la redirection tanguydesign.com vers www.tanguydesign.com avec conservation des chemins, les anciennes URL, robots.txt, sitemap.xml et la messagerie inchangée. Soumettre le sitemap dans Google Search Console et Bing Webmaster Tools.
+6. En cas d’échec de la bascule, rétablir uniquement les anciennes entrées web sauvegardées et conserver le site actuel jusqu’à résolution.
+
+Sources techniques :
+https://www.scaleway.com/en/docs/serverless-containers/how-to/add-a-custom-domain-to-a-container/
+https://developers.cloudflare.com/dns/cname-flattening/set-up-cname-flattening/

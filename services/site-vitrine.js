@@ -15,14 +15,17 @@ function fields(obj,prefix=''){return Object.entries(obj).flatMap(([k,v])=>{cons
 const isImage=(k,v)=>/\.(hero|image|detail|gallery|conceptImage|approachImage)$|\.images\.\d+$/.test(k);
 function validate(content,key,value){const all=fields(content);const field=all.find(x=>x.key===key);if(!field||typeof value!=='string'||value.length>6000)throw Object.assign(Error('Champ ou longueur invalide'),{status:400});if(isImage(key,field.value)&&!/^\/(assets\/[a-zA-Z0-9._-]+|media\/[a-f0-9-]+\.(jpg|png|webp))$/.test(value))throw Object.assign(Error('Image invalide'),{status:400});if(/\.email$/.test(key)&&!/^\S+@\S+\.\S+$/.test(value))throw Object.assign(Error('Adresse e-mail invalide'),{status:400});const parts=key.split('.');get(content,parts.slice(0,-1).join('.'))[parts.at(-1)]=value;}
 function layout(title,body){return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${esc(title)} · Tanguy Design</title><link rel="stylesheet" href="/gestion-site/ui.css"><script src="/gestion-site/ui.js" defer></script></head><body><header><a href="/">← Cockpit</a><strong>Tanguy Design · Site internet</strong><a href="/site/" target="_blank" rel="noopener">Voir le site ↗</a></header><main>${body}</main></body></html>`;}
-function createVitrine({requireAuth,requireAdmin,store=createStore(),origin=process.env.SITE_ORIGIN||'https://tanguydesign.958.fr',publicOrigin=process.env.SITE_PUBLIC_ORIGIN||'',indexable=process.env.SITE_INDEXABLE==='true'}={}){
+function createVitrine({requireAuth,requireAdmin,store=createStore(),origin=process.env.SITE_ORIGIN||'https://tanguydesign.958.fr',publicOrigin=process.env.SITE_PUBLIC_ORIGIN||'',indexable=process.env.SITE_INDEXABLE==='true',reviewAccess}={}){
  const router=express.Router();let cache=null;
  const read=async()=>await store.read()||{value:initial(),etag:''};
  const published=async()=>{if(cache&&cache.until>Date.now())return cache.value;const s=await read();cache={value:s.value.published,until:Date.now()+10000};return cache.value;};
  const save=async(s,etag)=>{s.updatedAt=new Date().toISOString();await store.write(s,etag);cache=null;};
  const finalOrigin=publicOrigin?new URL(publicOrigin).origin:'';
  const redirects=require('../website/redirects.json');
- router.use((req,res,next)=>{req.sitePublic=Boolean(finalOrigin&&req.hostname===new URL(finalOrigin).hostname);if(req.sitePublic){const target=redirects[req.path];if(target)return res.redirect(301,finalOrigin+target);req.url='/site'+req.url;}next();});
+ const finalHost=finalOrigin?new URL(finalOrigin).hostname:'';
+ const alternateHost=finalHost?(finalHost.startsWith('www.')?finalHost.slice(4):'www.'+finalHost):'';
+ router.use((req,res,next)=>{const host=req.hostname.toLowerCase();if(alternateHost&&host===alternateHost)return res.redirect(301,finalOrigin+req.originalUrl);req.sitePublic=Boolean(finalHost&&host===finalHost);if(req.sitePublic){const target=redirects[req.path];if(target)return res.redirect(301,finalOrigin+target);req.url='/site'+req.url;}next();});
+ router.use('/site',require('./site-review-access').createReviewAccess(reviewAccess));
  const checkWrite=(req,res,next)=>{if(!req.session.siteCsrf||req.get('x-csrf-token')!==req.session.siteCsrf)return res.status(403).json({error:'Session expirée. Rechargez la page.'});if(req.get('sec-fetch-site')==='cross-site')return res.status(403).end();next();};
  router.use('/gestion-site',requireAuth,requireAdmin,(req,res,next)=>{res.set('Cache-Control','no-store');res.set('X-Robots-Tag','noindex, nofollow');next();});
  router.get('/gestion-site/ui.css',(_,res)=>res.sendFile(root+'/admin.css'));
@@ -40,7 +43,7 @@ function createVitrine({requireAuth,requireAdmin,store=createStore(),origin=proc
  router.post('/gestion-site/image',checkWrite,upload.single('image'),wrap(async(req,res)=>{const b=req.file?.buffer;if(!b)return res.status(400).end();let ext,type;if(b.subarray(0,3).equals(Buffer.from([255,216,255]))){ext='jpg';type='image/jpeg';}else if(b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))){ext='png';type='image/png';}else if(b.toString('ascii',0,4)==='RIFF'&&b.toString('ascii',8,12)==='WEBP'){ext='webp';type='image/webp';}else return res.status(400).json({error:'Utilisez une image JPG, PNG ou WebP.'});const id=crypto.randomUUID()+'.'+ext;await store.upload(id,b,type);res.json({url:'/media/'+id});}));
  router.get('/site/media/:id',wrap(async(req,res)=>{if(!/^[a-f0-9-]+\.(jpg|png|webp)$/.test(req.params.id))return res.status(404).end();const publicContent=await published();if(!JSON.stringify(publicContent).includes('/media/'+req.params.id)){if(!req.session?.user)return res.status(404).end();return requireAdmin(req,res,()=>sendMedia(req,res).catch(e=>res.status(503).end()));}await sendMedia(req,res);}));
  async function sendMedia(req,res){const r=await store.media(req.params.id);res.set('Cache-Control','private, max-age=300');res.type(r.ContentType||'application/octet-stream');r.Body.pipe(res);}
- router.use('/site/assets',express.static(root+'/assets',{maxAge:'1h',fallthrough:false}));
+ router.use('/site/assets',express.static(root+'/assets',{maxAge:'1h',fallthrough:false,setHeaders:(res)=>{if(res.req.siteReviewProtected)res.set('Cache-Control','private, no-store');}}));
  router.get([/^\/site$/,/^\/gestion-site\/apercu$/],(req,res)=>res.redirect(308,req.path+'/'));
  router.get('/site/robots.txt',(req,res)=>res.type('text').send('User-agent: *\nAllow: /\nDisallow: /gestion-site\n'+(req.sitePublic&&indexable?'Sitemap: '+finalOrigin+'/sitemap.xml\n':'')));
  router.get('/site/sitemap.xml',wrap(async(req,res)=>{const c=await published(),base=req.sitePublic?finalOrigin:origin+'/site';const slugs=[...routes.map(r=>r.slug),...c.projects.map(p=>'realisations/galerie-'+p.id)];res.type('xml').send('<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+[...new Set(slugs)].map(slug=>`<url><loc>${esc(base)}/${slug?slug+'/':''}</loc></url>`).join('')+'</urlset>');}));
@@ -51,7 +54,7 @@ function createVitrine({requireAuth,requireAdmin,store=createStore(),origin=proc
   let html=render(template,content,{origin:req.sitePublic?finalOrigin:origin,basePath,indexable:req.sitePublic&&indexable,slug});
   if(slug==='realisations'){html=html.replace('<!--EXTRA_PROJECTS-->',content.projects.filter(p=>!templates['realisations/galerie-'+p.id]).map(p=>`<a class="project-card" data-category="agencement" href="${basePath}/realisations/galerie-${esc(p.id)}/"><img src="${basePath}${esc(p.images[0])}" alt="${esc(p.title)}" loading="lazy"><h2>${esc(p.title)}</h2></a>`).join(''));}
   if(preview)html=html.replace(/href="\/site\/(?!assets\/|media\/)/g,'href="/gestion-site/apercu/');
-  if(!req.sitePublic||!indexable)res.set('X-Robots-Tag','noindex, follow');res.set('Cache-Control',preview?'no-store':'public, max-age=0, must-revalidate');res.type('html').send(html);
+  if(!req.sitePublic||!indexable)res.set('X-Robots-Tag',req.siteReviewProtected?'noindex, nofollow':'noindex, follow');res.set('Cache-Control',preview||req.siteReviewProtected?'private, no-store':'public, max-age=0, must-revalidate');res.type('html').send(html);
  });
  router.get('/gestion-site/apercu/*',serve(true));router.get('/site/*',serve(false));
  router.use((req,res,next)=>req.sitePublic?res.status(404).send('Page introuvable'):next());
