@@ -23,6 +23,7 @@ const { recapPaieMois, alertesVisitesMedicales, joursOuvres } = require('./servi
 const { compteursEquipe: compteursCongesEquipe } = require('./services/conges-helper');
 const { joursRetard, niveauRelanceSuggere, buildEmailRelance, buildEmailRelanceFournisseur, buildMailto } = require('./services/relances-helper');
 const pennylane = require('./services/pennylane');
+const { dateFr, jourMoisHeureFr, horodatageJournal } = require('./services/date-fr');
 const { DEVIS_IMPORT_HASH_FIELD, computeImportHash, buildHashFilterFormula } = require('./services/devis-idempotency');
 // Artefacts générés par une signature de devis (BC + tâches) — nettoyage à la
 // coche quand un devis signé repasse à « Refusé » (dossier MORALES).
@@ -1737,8 +1738,7 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
     // (« External reference has already been taken »). À la régénération (force), on
     // suffixe la réf. du devis pour la rendre unique — sinon 422.
     const refBase = f['Numéro devis'] || '';
-    const pad = n => String(n).padStart(2, '0');
-    const stamp = `${pad(today.getDate())}/${pad(today.getMonth() + 1)} ${pad(today.getHours())}:${pad(today.getMinutes())}:${pad(today.getSeconds())}`;
+    const stamp = jourMoisHeureFr(today);
     const externalRef = (body.force && refBase) ? `${refBase} (régén. ${stamp})` : refBase;
     const quote = await pennylane.createDraftQuote({ customer_id: customerId, date: iso(today), deadline: iso(deadline), lines, external_reference: externalRef });
     warnings.push(...avertirReference(quote));
@@ -2664,8 +2664,8 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       else if (g.fournisseurNom) enteteNote.push(`Fournisseur (grille) : ${g.fournisseurNom}.`);
       else if (g.grille && g.raison) enteteNote.push(`⚠️ Fournisseur à choisir — ${g.raison}.`);
       const notesPrefill = (enteteNote.length ? enteteNote.join('\n') + '\n\n' : '') + (isPlanTravailVide
-        ? `[Auto-généré depuis devis ${numero} signé le ${new Date().toLocaleDateString('fr-FR')}]\n\nBC à compléter APRÈS prise de mesures sur chantier :\n• Matériau / Coloris / Finition / Épaisseur\n• Dimensions exactes (longueur, largeur, profondeur, découpes évier/plaque)\n• Fournisseur final (Inalco, Compac, Silestone, Caesarstone, etc.)\n• Délai de livraison\n\nUne fois mesures prises, mettre à jour ce BC puis l'envoyer au fournisseur.`
-        : `[Auto-généré depuis devis ${numero} signé le ${new Date().toLocaleDateString('fr-FR')}]\n\nContenu prévisionnel (à valider/ajuster avant envoi au fournisseur, SANS MONTANTS) :\n\n${tableauTexte}`);
+        ? `[Auto-généré depuis devis ${numero} signé le ${dateFr(new Date())}]\n\nBC à compléter APRÈS prise de mesures sur chantier :\n• Matériau / Coloris / Finition / Épaisseur\n• Dimensions exactes (longueur, largeur, profondeur, découpes évier/plaque)\n• Fournisseur final (Inalco, Compac, Silestone, Caesarstone, etc.)\n• Délai de livraison\n\nUne fois mesures prises, mettre à jour ce BC puis l'envoyer au fournisseur.`
+        : `[Auto-généré depuis devis ${numero} signé le ${dateFr(new Date())}]\n\nContenu prévisionnel (à valider/ajuster avant envoi au fournisseur, SANS MONTANTS) :\n\n${tableauTexte}`);
       const cf = champsCommande({
         numCmd, groupe: g, notes: notesPrefill, clientNom, projetId,
         dateEnvoi: dateEnvoiCommande, modele: { modeleHeader, detailsModele },
@@ -3331,7 +3331,7 @@ app.post('/api/devis/:id/commande-lignes', requireAuth, requireAdmin, async (req
       : groupe.raison ? `⚠️ Fournisseur à choisir — ${groupe.raison}.` : '';
     const { texte: tableauTexte } = buildBcTableau(choisies);
     const notes = (enTete ? enTete + '\n\n' : '') +
-      `[Auto-généré depuis devis ${numero} — lignes ajoutées le ${new Date().toLocaleDateString('fr-FR')} depuis la fiche devis]\n\n` +
+      `[Auto-généré depuis devis ${numero} — lignes ajoutées le ${dateFr(new Date())} depuis la fiche devis]\n\n` +
       `Contenu prévisionnel (à valider/ajuster avant envoi au fournisseur, SANS MONTANTS) :\n\n${tableauTexte}`;
 
     const cf = champsCommande({ numCmd, groupe: { ...groupe, lignes: choisies }, notes, clientNom, projetId, dateEnvoi, modele, today });
@@ -3850,9 +3850,7 @@ app.get('/api/commandes/:id/pdf', requireAuth, async (req, res) => {
 // Helper rendu HTML BC (format Tanguy)
 function renderBcHtml({ commande, fournisseur, lignes }) {
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-  const dateCreaFr = commande['Date création']
-    ? new Date(commande['Date création']).toLocaleDateString('fr-FR')
-    : '—';
+  const dateCreaFr = dateFr(commande['Date création'], '—');
   const refCourte = commande['Référence courte'] || (fournisseur?.Nom || '').toUpperCase().slice(0, 12);
   const contremarque = commande['Contremarque'] || '';
   const numero = commande['Numéro'] || '';
@@ -3993,7 +3991,7 @@ function renderBcHtml({ commande, fournisseur, lignes }) {
     Siret : 33447506800022<br>
     Email : admin@tanguydesign.com<br>
     Site : www.tanguydesign.com<br>
-    <span style="font-size:10px;color:#888;display:block;margin-top:12px">Réf. : ${esc(numDevis)} &nbsp;&nbsp; Imprimé : ${esc(new Date().toLocaleDateString('fr-FR'))}</span>
+    <span style="font-size:10px;color:#888;display:block;margin-top:12px">Réf. : ${esc(numDevis)} &nbsp;&nbsp; Imprimé : ${esc(dateFr(new Date()))}</span>
   </div>
 </div>
 `.trim();
@@ -4149,8 +4147,7 @@ app.post('/api/projets/:id/journal', requireAuth, async (req, res) => {
       { headers: { Authorization: `Bearer ${AT_KEY}` } });
     if (!pr.ok) throw new Error('projet introuvable');
     const current = ((await pr.json()).fields?.['Journal chantier']) || '';
-    const now = new Date();
-    const stamp = `${now.toISOString().slice(0,10)} ${now.toTimeString().slice(0,5)}`;
+    const stamp = horodatageJournal(new Date());
     const author = req.session.user ? req.session.user.charAt(0).toUpperCase() + req.session.user.slice(1) : 'Équipe';
     const entry = `[${stamp} — ${author}] ${text}`;
     const next = entry + (current ? '\n' + current : ''); // plus récent en haut

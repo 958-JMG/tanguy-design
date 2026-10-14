@@ -15,6 +15,7 @@ const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const s3 = require('./s3-transfert');
 const logger = require('./logger');
+const { partiesParis, dateFr, dateHeureFr } = require('./date-fr');
 
 const TTL_MS = 24 * 60 * 60 * 1000;
 const PREFIX = 'exports/';
@@ -26,10 +27,13 @@ const CRC_TABLE = (() => {
   return t;
 })();
 function crc32(buf) { let c = 0xFFFFFFFF; for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+// Date DOS : sans fuseau, lue comme heure locale par le Finder ou Windows → heure de Paris.
 function dosDateTime(d) {
-  const time = ((d.getHours() & 0x1f) << 11) | ((d.getMinutes() & 0x3f) << 5) | ((Math.floor(d.getSeconds() / 2)) & 0x1f);
-  const yr = Math.max(0, d.getFullYear() - 1980);
-  const date = ((yr & 0x7f) << 9) | (((d.getMonth() + 1) & 0xf) << 5) | (d.getDate() & 0x1f);
+  const p = partiesParis(d);
+  const [an, mois, jour, h, min, s] = [p.annee, p.mois, p.jour, p.heure, p.minute, p.seconde].map(Number);
+  const time = ((h & 0x1f) << 11) | ((min & 0x3f) << 5) | ((Math.floor(s / 2)) & 0x1f);
+  const yr = Math.max(0, an - 1980);
+  const date = ((yr & 0x7f) << 9) | ((mois & 0xf) << 5) | (jour & 0x1f);
   return { time, date };
 }
 function buildZip(entries, when = new Date()) {
@@ -139,7 +143,7 @@ async function collect(opts) {
 function buildReadme({ cabinet, when, tables, totalRows }) {
   const liste = tables.map(t => `  - ${t.table} : ${t.lignes} ligne(s)`).join('\n');
   return `EXPORT DE VOS DONNÉES — ${cabinet}
-Généré le ${when.toLocaleString('fr-FR')}
+Généré le ${dateHeureFr(when)}
 
 Ce dossier contient l'intégralité des données de votre cockpit, à vous.
 Vous pouvez le conserver, le relire et le ré-importer sans aucun outil de 9·58.
@@ -163,7 +167,7 @@ CE QUI N'EST PAS DANS CE FICHIER, ET POURQUOI
 `;
 }
 function buildReversibilite({ cabinet, when, tables, totalRows }) {
-  const d = when.toLocaleDateString('fr-FR');
+  const d = dateFr(when);
   const rows = tables.map(t => `<tr><td>${t.table}</td><td style="text-align:right">${t.lignes}</td></tr>`).join('');
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Réversibilité — ${cabinet}</title>

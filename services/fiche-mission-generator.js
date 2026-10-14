@@ -14,17 +14,11 @@
  */
 
 const PDFDocument = require('pdfkit');
+const { dateFr } = require('./date-fr');
 
 function euros(n) {
   if (n == null || isNaN(n)) return '—';
   return Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
-}
-
-function formatDate(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (isNaN(d)) return iso;
-  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 /**
@@ -82,7 +76,7 @@ function generateFicheMission(opts) {
       keyValue(doc, 'Référence projet', opts.projetRef || '—');
       keyValue(doc, 'Client', opts.clientNom || '—');
       keyValue(doc, 'Adresse chantier', opts.adresseChantier || '—');
-      if (opts.dateDemarrage) keyValue(doc, 'Démarrage prévu', formatDate(opts.dateDemarrage));
+      if (opts.dateDemarrage) keyValue(doc, 'Démarrage prévu', dateFr(opts.dateDemarrage, '—'));
       doc.moveDown(0.6);
 
       // --- Bloc Artisan ---
@@ -97,7 +91,7 @@ function generateFicheMission(opts) {
       if (opts.numeroDevis || opts.dateDevis || opts.descriptionTravaux) {
         sectionTitle(doc, 'PRESTATION', GOLD);
         if (opts.numeroDevis) keyValue(doc, 'Devis artisan', opts.numeroDevis);
-        if (opts.dateDevis) keyValue(doc, 'Daté du', formatDate(opts.dateDevis));
+        if (opts.dateDevis) keyValue(doc, 'Daté du', dateFr(opts.dateDevis, '—'));
         if (opts.descriptionTravaux) {
           doc.moveDown(0.2);
           doc.fillColor(MUTED).font('Helvetica-Bold').fontSize(9).text('Description des travaux');
@@ -117,7 +111,7 @@ function generateFicheMission(opts) {
       // --- Pied de page ---
       doc
         .fillColor(MUTED).font('Helvetica').fontSize(8)
-        .text(`Fiche générée le ${formatDate(new Date().toISOString())} par le cockpit Tanguy Design`,
+        .text(`Fiche générée le ${dateFr(new Date())} par le cockpit Tanguy Design`,
           50, doc.page.height - 60, { align: 'center', width: doc.page.width - 100 });
 
       doc.end();

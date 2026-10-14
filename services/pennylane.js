@@ -17,6 +17,7 @@
 const BASE = 'https://app.pennylane.com/api/external/v2';
 
 const { payloadIndividuPennylane } = require('./nom-client-helper');
+const { jourMoisHeureFr } = require('./date-fr');
 
 function apiKey() {
   const k = process.env.PENNYLANE_API_KEY;
@@ -85,9 +86,7 @@ async function apiPostReference(path, body) {
     return { j: await apiPost(path, body), referenceDejaPrise: null, reference: body.external_reference || null };
   } catch (e) {
     if (!body.external_reference || !/already been taken/i.test(e.message || '')) throw e;
-    const d = new Date();
-    const pad = n => String(n).padStart(2, '0');
-    const ref = `${body.external_reference} · ${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`.slice(0, 190);
+    const ref = `${body.external_reference} · ${jourMoisHeureFr(new Date())}`.slice(0, 190);
     return { j: await apiPost(path, { ...body, external_reference: ref }), referenceDejaPrise: body.external_reference, reference: ref };
   }
 }

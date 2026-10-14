@@ -12,17 +12,11 @@
  */
 
 const PDFDocument = require('pdfkit');
+const { dateFr } = require('./date-fr');
 
 function euros(n) {
   if (n == null || isNaN(n)) return '';
   return Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
-}
-
-function formatDate(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (isNaN(d)) return iso;
-  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 function safe(s) { return String(s ?? ''); }
@@ -53,10 +47,10 @@ function generateBcPdf(opts) {
       const numero    = safe(commande['Numéro']);
       const ref       = safe(commande['Référence courte']);
       const contremarque = safe(commande['Contremarque']);
-      const dateCrea  = formatDate(commande['Date création'] || new Date().toISOString());
+      const dateCrea  = dateFr(commande['Date création'] || new Date(), '—');
       const livSemaine = safe(commande['Livraison semaine']);
-      const dateLivPrev = formatDate(commande['Date livraison prévue']);
-      const dateEnvoi  = formatDate(commande['Date envoi']);
+      const dateLivPrev = dateFr(commande['Date livraison prévue'], '—');
+      const dateEnvoi  = dateFr(commande['Date envoi'], '—');
       const modele    = safe(commande['Modèle choisi']);
       const details   = safe(commande['Détails modèle']);
       const fournNom  = safe(fournisseur?.fields?.Nom);
