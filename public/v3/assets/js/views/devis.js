@@ -263,6 +263,9 @@ async function pennylaneEcheancesFlow(devis, opts = {}) {
     toast(`${created} facture(s) brouillon créée(s)${already ? ` · ${already} déjà présente(s)` : ''}${skipped ? ` · ${skipped} encaissée(s) ignorée(s)` : ''}`, 'success', 7000);
     if (errs.length) toast(`⚠️ ${errs.length} échéance(s) sans montant exploitable`, 'error', 8000);
     if (reconKo.length) toast(`⚠️ écart TVA sur ${reconKo.length} facture(s) — vérifie dans Pennylane`, 'error', 9000);
+    // Avertissements par facture (référence déjà prise, arrondi, éco…) : jamais tus, dits une fois.
+    const avert = [...new Set((r.results || []).flatMap(x => x.warnings || []).filter(w => !/^Facture recalculée/.test(w)))];
+    for (const w of avert) toast(`⚠️ ${w}`, /éco-participation|Référence|Arrondi/i.test(w) ? 'error' : 'info', 9000);
     renderDevis(document.getElementById('app'), devis.id);
   } catch (err) {
     toast('Erreur factures Pennylane : ' + err.message, 'error', 8000);

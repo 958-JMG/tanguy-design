@@ -75,6 +75,23 @@ function detailErreur(j) {
   return '';
 }
 
+// Pennylane refuse une external_reference déjà utilisée, même sur un document
+// archivé ou supprimé (« External reference has already been taken »). Cas réel :
+// les numéros EXP sont recalculés sur les devis existants, un numéro libéré par
+// une suppression revient — et Pennylane garde l'ancien. On réessaie UNE fois
+// avec une référence horodatée, et l'appelant le dit.
+async function apiPostReference(path, body) {
+  try {
+    return { j: await apiPost(path, body), referenceDejaPrise: null, reference: body.external_reference || null };
+  } catch (e) {
+    if (!body.external_reference || !/already been taken/i.test(e.message || '')) throw e;
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const ref = `${body.external_reference} · ${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`.slice(0, 190);
+    return { j: await apiPost(path, { ...body, external_reference: ref }), referenceDejaPrise: body.external_reference, reference: ref };
+  }
+}
+
 async function apiPost(path, body) {
   for (let attempt = 0; attempt < 3; attempt++) {
     await throttle();
@@ -136,6 +153,66 @@ const enumPct = { FR_200: 20, FR_100: 10, FR_055: 5.5, FR_021: 2.1, exempt: 0 };
 // Surchargeable sans redéploiement via PENNYLANE_LIBELLE_PRODUIT.
 const LIBELLE_PRODUIT = () => process.env.PENNYLANE_LIBELLE_PRODUIT || 'Produit cuisine';
 
+// ── Libellés de ligne : ce que la ligne contient, en mots de client ──────────
+// Demande JMG (14/10/2026) : « les clients doivent comprendre ce à quoi correspond
+// quoi ». Un devis d'électroménager partait en « Produit cuisine », un dressing en
+// « Produit cuisine — pose et prestations ». Chaque ligne Pennylane (une par taux
+// de TVA) est désormais nommée d'après les catégories des lignes du devis à ce
+// taux, par montant décroissant (+ pose / livraison du devis à ce taux). Sans
+// catégorie connue, l'ancien libellé reste. Fonction PURE.
+const normCat = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+function natureDeCategorie(cat) {
+  const n = normCat(cat);
+  if (!n) return null;
+  if (n.includes('electro')) return 'Électroménager';
+  if (n.includes('evier') && n.includes('robinet')) return 'Évier et robinetterie';
+  if (/robinet|mitigeur/.test(n)) return 'Robinetterie';
+  if (n.includes('evier')) return 'Évier';
+  if (n.includes('plan') && n.includes('travail')) return 'Plan de travail';
+  if (n.includes('credence')) return 'Crédence';
+  if (/meuble|mobilier|panneau|caisson/.test(n)) return 'Mobilier';
+  if (/luminaire|eclairage/.test(n)) return 'Luminaires';
+  if (/accessoire|produits de vente/.test(n)) return 'Accessoires';
+  if (n.includes('sanitaire')) return 'Sanitaires';
+  if (n.includes('depose')) return 'Dépose';
+  return null;
+}
+const joindreFr = mots => mots.length <= 1 ? (mots[0] || '') : `${mots.slice(0, -1).join(', ')} et ${mots[mots.length - 1]}`;
+
+/**
+ * @param {Array} lignes - lignes du devis (records ou fields) : Catégorie, Montant HT, TVA pourcentage
+ * @param {object} f     - fields du devis (TVA taux 1 pourcentage, Pose HT, Pose TVA taux, Livraison…)
+ * @returns {Object<string,string>} taux (en %) → libellé ; taux absent = ancien libellé
+ */
+function libellesParTaux(lignes = [], f = {}) {
+  const tauxDefaut = f['TVA taux 1 pourcentage'] != null ? num(f['TVA taux 1 pourcentage']) : 20;
+  const poids = new Map(); // taux → Map(nature → montant)
+  const ajouter = (taux, nature, montant) => {
+    if (!nature || !(montant > 0)) return;
+    if (!poids.has(taux)) poids.set(taux, new Map());
+    const m = poids.get(taux);
+    m.set(nature, (m.get(nature) || 0) + montant);
+  };
+  for (const l of lignes || []) {
+    const lf = (l && l.fields) || l || {};
+    const taux = lf['TVA pourcentage'] != null && lf['TVA pourcentage'] !== '' ? num(lf['TVA pourcentage']) : tauxDefaut;
+    ajouter(taux, natureDeCategorie(lf['Catégorie']), num(lf['Montant HT']) + num(lf['Eco-participation']));
+  }
+  ajouter(f['Pose TVA taux'] != null ? num(f['Pose TVA taux']) : tauxDefaut, 'pose', num(f['Pose HT']));
+  ajouter(f['Livraison TVA taux'] != null ? num(f['Livraison TVA taux']) : tauxDefaut, 'livraison', num(f['Livraison HT']));
+  const out = {};
+  for (const [taux, m] of poids) {
+    const natures = [...m.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n);
+    if (!natures.some(n => n !== 'pose' && n !== 'livraison')) continue; // pose seule : libellé historique
+    const enMots = ns => ns.map((n, i) => (i === 0 ? n : n.charAt(0).toLowerCase() + n.slice(1)));
+    // Jusqu'à 4 natures en entier ; au-delà, les 3 principales « et autres ».
+    let lib = natures.length <= 4 ? joindreFr(enMots(natures)) : `${enMots(natures.slice(0, 3)).join(', ')} et autres`;
+    lib = lib.charAt(0).toUpperCase() + lib.slice(1);
+    out[String(taux)] = lib.slice(0, 200);
+  }
+  return out;
+}
+
 /**
  * @param {object} f            - fields du devis
  * @param {object} [opts]
@@ -163,8 +240,9 @@ function buildInvoiceLines(f = {}, opts = {}) {
   // Le libellé ne porte plus la nature ni le taux : la TVA est déjà portée par
   // vat_rate et s'affiche dans Pennylane. Seule la pose (taux réduit) garde une
   // mention, sans quoi deux lignes seraient strictement indiscernables.
-  const labelFor = pct => pct >= 20 ? LIBELLE_PRODUIT()
-    : `${LIBELLE_PRODUIT()} — pose et prestations`;
+  const libelles = opts.libelles || {};
+  const labelFor = pct => libelles[String(pct)] || (pct >= 20 ? LIBELLE_PRODUIT()
+    : `${LIBELLE_PRODUIT()} — pose et prestations`);
 
   // 1) Une ligne par taux de TVA renseigné (source fiable et réconciliable).
   for (const r of [
@@ -202,8 +280,8 @@ function buildInvoiceLines(f = {}, opts = {}) {
 }
 
 // Libellé de nature selon le taux (partagé) — préfixé du libellé d'échéance.
-function natureLabel(pct) {
-  return pct >= 20 ? LIBELLE_PRODUIT() : `${LIBELLE_PRODUIT()} — pose et prestations`;
+function natureLabel(pct, libelles = {}) {
+  return libelles[String(pct)] || (pct >= 20 ? LIBELLE_PRODUIT() : `${LIBELLE_PRODUIT()} — pose et prestations`);
 }
 
 // ── Acompte à pourcentage libre ────────────────────────────────────────────
@@ -262,12 +340,12 @@ function buildEcheanceInvoiceLines(devisFields = {}, echMontantTtc, echLibelle =
 
   if (bases.length && totalTtc > 0) {
     const fraction = montant / totalTtc;                 // part de l'échéance dans le devis
-    for (const b of bases) push(natureLabel(b.pct), round2(fraction * b.base), b.pct);
+    for (const b of bases) push(natureLabel(b.pct, opts.libelles), round2(fraction * b.base), b.pct);
   } else {
     // Repli : pas de bases TVA exploitables → 1 ligne, HT = TTC / (1 + tva1) @ tva1 (défaut 20 %).
     const pct = devisFields['TVA taux 1 pourcentage'] != null ? num(devisFields['TVA taux 1 pourcentage']) : 20;
     warnings.push('Bases TVA du devis absentes : échéance en 1 ligne @ TVA taux 1');
-    push(natureLabel(pct), round2(montant / (1 + pct / 100)), pct);
+    push(natureLabel(pct, opts.libelles), round2(montant / (1 + pct / 100)), pct);
   }
 
   // Réconciliation : la facture d'échéance doit totaliser le montant TTC de l'échéance.
@@ -477,7 +555,7 @@ async function createDraftQuote({ customer_id, date, deadline, lines, external_r
   // vivent sur invoice_lines). On reporte la réf. du devis Tanguy via external_reference.
   const body = { customer_id, date, deadline, invoice_lines: lines };
   if (external_reference) body.external_reference = String(external_reference).slice(0, 190);
-  const j = await apiPost('/quotes', body);
+  const { j, referenceDejaPrise, reference } = await apiPostReference('/quotes', body);
   const q = j.quote || j;
   // Un brouillon non finalisé a quote_number = 0 (numéroté par Pennylane à l'envoi) → on ne le remonte pas.
   const rawNum = q.quote_number ?? q.number;
@@ -486,6 +564,7 @@ async function createDraftQuote({ customer_id, date, deadline, lines, external_r
     number: (rawNum && String(rawNum) !== '0') ? String(rawNum) : null,
     status: q.status || 'draft',
     public_file_url: q.public_file_url || null,
+    referenceDejaPrise, reference,
     raw: j,
   };
 }
@@ -498,7 +577,7 @@ async function createDraftInvoice({ customer_id, date, deadline, lines, external
   if (!Array.isArray(lines) || lines.length === 0) throw new Error('aucune ligne à facturer');
   const body = { customer_id, date, deadline, draft: true, invoice_lines: lines };
   if (external_reference) body.external_reference = String(external_reference).slice(0, 190);
-  const j = await apiPost('/customer_invoices', body);
+  const { j, referenceDejaPrise, reference } = await apiPostReference('/customer_invoices', body);
   const inv = j.invoice || j.customer_invoice || j;
   const rawNum = inv.invoice_number ?? inv.number;
   return {
@@ -506,6 +585,7 @@ async function createDraftInvoice({ customer_id, date, deadline, lines, external
     number: (rawNum && String(rawNum) !== '0') ? String(rawNum) : null,
     status: inv.status || 'draft',
     public_file_url: inv.public_file_url || null,
+    referenceDejaPrise, reference,
     raw: j,
   };
 }
@@ -537,7 +617,7 @@ async function fetchInvoicePdf(invoiceId) {
 module.exports = {
   detailErreur,
   // purs (testables sans réseau)
-  buildInvoiceLines, buildEcheanceInvoiceLines, calcAcompte, normalizeName, vatEnum,
+  buildInvoiceLines, buildEcheanceInvoiceLines, calcAcompte, normalizeName, vatEnum, libellesParTaux, natureDeCategorie,
   carveEcoParticipation, ecoLineImputation,
   // réseau
   findCustomerByName, createCustomer, createDraftQuote, createDraftInvoice,

@@ -134,6 +134,21 @@ test('Pennylane : vente + ligne « Éco-participation » hors CA (54,13 € HT),
   assert.equal(ttcPennylane, 5316.8);
   assert.deepEqual(q.invoice_lines.map(l => l.raw_currency_unit_price), ['4376.53', '54.13']);
   assert.match(q.invoice_lines[0].description, /SCD90IMX9-1/, 'la description liste les articles');
+  assert.equal(q.invoice_lines[0].label, 'Électroménager et robinetterie', 'le client comprend ce qu\'il achète (demande JMG 14/10)');
+  assert.equal(q.invoice_lines[1].label, 'Éco-participation');
+});
+
+test('Pennylane : numéro EXP déjà pris (devis de test supprimé) → créé sous une référence horodatée, et dit', async () => {
+  const numero = get(T.devis, devisElectroId).fields['Numéro devis'];
+  banc.referencesPrises.add(`${numero}`);
+  try {
+    // Repartir d'un devis sans brouillon, comme un numéro EXP réutilisé après suppression.
+    get(T.devis, devisElectroId).fields['Pennylane quote ID'] = '';
+    const r = await banc.appel('POST', `/api/devis/${devisElectroId}/pennylane`, {});
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.ok(r.json.warnings.some(w => new RegExp(`Référence « ${numero} » déjà prise`).test(w)), JSON.stringify(r.json.warnings));
+    assert.match(pennylaneRecu.at(-1).external_reference, new RegExp(`^${numero} · `));
+  } finally { banc.referencesPrises.clear(); }
 });
 
 test('signature : UN bon Findis (mitigeur compris), au prix d\'achat + éco, sans BC « Plan de travail » vide', async () => {

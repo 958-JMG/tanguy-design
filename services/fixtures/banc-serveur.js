@@ -98,9 +98,16 @@ module.exports = function creerBanc({ secret = 'secret-de-test-banc-serveur-tang
 
   // ── Pennylane simulé : on garde ce qu'il reçoit ───────────────────────────
   const pennylaneRecu = [];
+  // Références externes déjà prises (document supprimé ou archivé) : le vrai
+  // Pennylane les refuse — constaté et documenté dans server.js.
+  const referencesPrises = new Set();
   function pennylane(u, opts) {
     if ((opts.method || 'GET').toUpperCase() === 'POST' && u.pathname === '/api/external/v2/quotes') {
-      pennylaneRecu.push(JSON.parse(opts.body));
+      const body = JSON.parse(opts.body);
+      if (referencesPrises.has(body.external_reference)) {
+        return json(422, { message: 'External reference has already been taken' });
+      }
+      pennylaneRecu.push(body);
       return json(201, { id: 777000 + pennylaneRecu.length, quote_number: 0, status: 'draft' });
     }
     return json(404, { message: `route Pennylane non simulée : ${u.pathname}` });
@@ -124,7 +131,7 @@ module.exports = function creerBanc({ secret = 'secret-de-test-banc-serveur-tang
 
   let base, srv;
   return {
-    T, table, put, get, lier, champsInconnus, pennylaneRecu, cookiePour,
+    T, table, put, get, lier, champsInconnus, pennylaneRecu, referencesPrises, cookiePour,
     async demarrer() {
       const app = require('../../server');
       srv = http.createServer(app);
