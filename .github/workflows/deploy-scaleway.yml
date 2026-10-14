@@ -11,6 +11,7 @@ on:
       - 'Dockerfile'
       - 'public/**'
       - 'services/**'
+      - 'website/**'
       - 'scripts/**'
       - '.github/workflows/deploy-scaleway.yml'
 

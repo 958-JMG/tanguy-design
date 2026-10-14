@@ -338,6 +338,9 @@ function requireAdmin(req, res, next) {
   }).catch(() => res.status(500).json({ error: 'auth check failed' }));
 }
 
+// Vitrine publique et gestion réservée aux administrateurs du cockpit.
+app.use(require('./services/site-vitrine').createVitrine({requireAuth,requireAdmin}));
+
 // === Rôle POSEUR (accès terrain restreint) ========================================
 // Un poseur se connecte comme les autres (identifiant + TOTP) mais n'a accès QU'À
 // l'espace /poseur et ses endpoints /api/poseur/* : documents des chantiers + ajout

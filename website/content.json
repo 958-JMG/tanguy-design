@@ -1,0 +1,387 @@
+{
+  "brand": {
+    "name": "Tanguy Design",
+    "email": "contact@tanguydesign.com",
+    "phone": "02 97 56 28 53",
+    "address": "4, rue Louis Blériot",
+    "town": "56400 Auray",
+    "area": "ZA de Toul Garros"
+  },
+  "home": {
+    "seo": "Cuisiniste à Auray, près de Vannes | Tanguy Design",
+    "description": "Tanguy Design, cuisiniste et agenceur à Auray : cuisines haut de gamme, design contemporain et intérieurs sur mesure près de Vannes et du Golfe du Morbihan.",
+    "title": "Des espaces à vivre.\nDes intérieurs à vous.",
+    "hero": "/assets/home-hero.webp",
+    "heroAlt": "Cuisine contemporaine avec îlot sombre, bois naturel et assises ocre",
+    "conceptTitle": "L’art de penser\nvotre intérieur.",
+    "conceptText": "Un intérieur réussi commence par vous. Vos habitudes, vos envies, votre manière de recevoir ou de vous retrouver. À Auray, Tanguy Design imagine des cuisines et des agencements sur mesure où les lignes, les matières et les usages trouvent leur juste place.",
+    "conceptImage": "/assets/concept.webp",
+    "statementTitle": "Le beau se vit au quotidien.",
+    "statementText": "Une cuisine ouverte sur la maison, un séjour qui respire, des rangements à leur place. Nous regardons chaque pièce comme une partie d’un ensemble, avec le goût du design contemporain et une attention particulière portée à votre façon de vivre.",
+    "approachTitle": "À vos côtés,\ndès la première idée.",
+    "approachImage": "/assets/accompagnement.webp",
+    "steps": [
+      {
+        "title": "Vous écouter",
+        "text": "Partagez vos envies, vos habitudes et vos priorités. Un plan, des photos et vos inspirations sont un bon point de départ pour parler de votre projet."
+      },
+      {
+        "title": "Donner forme à vos envies",
+        "text": "Implantation, volumes, matériaux et rangements : chaque choix contribue à un intérieur cohérent. Nous les abordons à partir de votre espace et de votre budget."
+      },
+      {
+        "title": "Imaginer chaque détail",
+        "text": "Une finition, une ouverture, un passage de lumière. Ce sont aussi les détails du quotidien qui donnent tout son sens à un projet d’aménagement."
+      }
+    ]
+  },
+  "universes": {
+    "cuisines": {
+      "label": "Cuisine",
+      "seo": "Cuisiniste haut de gamme Auray, Vannes | Tanguy Design",
+      "description": "Votre cuisine haut de gamme sur mesure à Auray, près de Vannes et du Golfe du Morbihan : implantation, matériaux, rangements. Rencontrons-nous au showroom.",
+      "title": "La cuisine,\nau cœur de la vie.",
+      "hero": "/assets/cuisine-hero.webp",
+      "heroAlt": "Cuisine avec îlot minéral, façades en bois et grande bibliothèque",
+      "introTitle": "Un lieu pour cuisiner.\nUn espace pour partager.",
+      "intro": "La cuisine accompagne vos journées : le café du matin, les repas en famille, les soirées qui se prolongent. Cuisiniste à Auray, Tanguy Design conçoit des cuisines haut de gamme sur mesure pour les intérieurs d’Auray, de Vannes et du Golfe du Morbihan. L’implantation, les rangements et les matières se répondent pour créer une pièce aussi agréable à vivre qu’à regarder. Chaque projet part de votre espace, de vos habitudes et de votre budget.",
+      "detail": "/assets/cuisine-detail.webp",
+      "detailAlt": "Passage entre un îlot de cuisine et des façades en bois, devant une baie vitrée",
+      "featuresTitle": "Le sens du détail.",
+      "features": [
+        {
+          "title": "Des volumes qui respirent",
+          "text": "L’implantation relie les différents usages et préserve les déplacements. Une cuisine ouverte, linéaire ou avec îlot se réfléchit d’abord à l’échelle de votre pièce.",
+          "image": "/assets/cuisine-detail.webp",
+          "alt": "Perspective de circulation autour de l’îlot"
+        },
+        {
+          "title": "Une place pour chaque chose",
+          "text": "Les rangements rapprochent les objets de leur usage. Couverts, vaisselle et provisions trouvent leur place selon vos habitudes.",
+          "image": "/assets/tiroirs.webp",
+          "alt": "Tiroirs de cuisine ouverts avec compartiments de rangement"
+        },
+        {
+          "title": "La matière au quotidien",
+          "text": "Un plan de travail se choisit autant pour son aspect que pour son usage. Lumière, entretien et associations de finitions nourrissent la réflexion.",
+          "image": "/assets/plan-travail.webp",
+          "alt": "Plan de travail minéral éclairé sous des meubles hauts"
+        },
+        {
+          "title": "Des gestes plus simples",
+          "text": "L’emplacement de l’évier, des prises et des équipements participe au confort. Chaque détail se pense dans la continuité de l’implantation.",
+          "image": "/assets/evier.webp",
+          "alt": "Évier intégré dans un plan de travail clair"
+        }
+      ],
+      "gallery": "/assets/inspiration.webp",
+      "galleryAlt": "Cuisine ouverte avec bibliothèque et table intégrée",
+      "faq": [
+        {
+          "q": "Où découvrir vos cuisines à Auray ?",
+          "a": "Retrouvez Tanguy Design au 4, rue Louis Blériot, ZA de Toul Garros, à Auray. Appelez le 02 97 56 28 53 pour préparer votre visite."
+        },
+        {
+          "q": "Où vous rencontrer pour un projet de cuisine à Vannes ?",
+          "a": "Notre showroom est situé à Auray, au 4 rue Louis Blériot, ZA de Toul Garros. Nous échangeons avec vous sur les projets à Vannes, à Auray et dans le Golfe du Morbihan. Contactez-nous au 02 97 56 28 53 pour préparer votre rendez-vous."
+        },
+        {
+          "q": "Comment choisir les matériaux d’une cuisine haut de gamme ?",
+          "a": "Partez de vos usages : fréquence de cuisine, entretien souhaité, lumière et lien avec le séjour. Le plan de travail, les façades et les finitions se choisissent ensemble. Comparer les matières et leur rendu aide à construire un projet cohérent avec votre budget."
+        },
+        {
+          "q": "Peut-on penser la cuisine avec l’agencement du séjour ?",
+          "a": "Oui, la cuisine peut être étudiée dans la continuité du séjour. Les volumes, les rangements et les matières sont abordés à l’échelle de l’espace de vie pour relier les fonctions et préserver la circulation."
+        },
+        {
+          "q": "Que préparer pour un premier échange ?",
+          "a": "Un plan, des dimensions et des photos de la pièce permettent de situer le projet. Vous pouvez aussi réunir vos inspirations et préciser votre budget."
+        },
+        {
+          "q": "Quel budget prévoir ?",
+          "a": "Le budget dépend de l’implantation, des matériaux et des équipements retenus. Un échange sur votre projet permet d’aborder une estimation adaptée."
+        }
+      ]
+    },
+    "cuisines-exterieures": {
+      "label": "Cuisine extérieure",
+      "seo": "Imaginer une cuisine extérieure | Tanguy Design Auray",
+      "description": "Prolongez votre réflexion d’aménagement vers la terrasse. Échangez avec Tanguy Design à Auray sur les usages et contraintes de votre cuisine extérieure.",
+      "title": "La cuisine\nprend l’air.",
+      "hero": "/assets/outdoor.webp",
+      "heroAlt": "Détail d’un îlot sombre et de façades texturées",
+      "introTitle": "Prolonger la maison.\nProfiter de l’extérieur.",
+      "intro": "Préparer un repas près de ses invités, faire de la terrasse un espace de partage : une cuisine extérieure invite à une autre façon de vivre la maison. Votre projet commence par le lieu, son exposition et les usages souhaités. Parlons ensemble des possibilités et des contraintes de votre espace.",
+      "detail": "/assets/concept.webp",
+      "detailAlt": "Détail de mobilier et de matières sombres",
+      "featuresTitle": "Penser un espace ouvert.",
+      "features": [
+        {
+          "title": "Les usages avant tout",
+          "text": "Cuisiner ponctuellement, recevoir ou préparer des repas complets : vos habitudes déterminent les fonctions à prévoir.",
+          "image": "/assets/accompagnement.webp",
+          "alt": "Espace de préparation et de repas contemporain"
+        },
+        {
+          "title": "La bonne implantation",
+          "text": "La proximité de la maison, les accès et les circulations orientent l’organisation. Les raccordements sont à examiner dans le projet.",
+          "image": "/assets/cuisine-detail.webp",
+          "alt": "Composition de volumes et circulation autour d’un îlot"
+        },
+        {
+          "title": "Des choix adaptés au lieu",
+          "text": "Les matériaux et équipements extérieurs se choisissent selon l’exposition et les conditions d’usage. Les solutions sont à définir lors de l’étude.",
+          "image": "/assets/plan-travail.webp",
+          "alt": "Détail de plan de travail et de rangement"
+        }
+      ],
+      "gallery": "/assets/home-hero.webp",
+      "galleryAlt": "Inspiration de composition pour un espace cuisine convivial",
+      "faq": []
+    },
+    "sejour": {
+      "label": "Séjour",
+      "seo": "Agencement de salon et séjour à Auray | Tanguy Design",
+      "description": "Bibliothèques, compositions murales et espaces de vie contemporains. Imaginez votre salon et votre séjour avec Tanguy Design à Auray.",
+      "title": "Le séjour,\nà votre rythme.",
+      "hero": "/assets/sejour.webp",
+      "heroAlt": "Pièce de vie ouverte sur le jardin, dans des tons clairs",
+      "introTitle": "Des espaces qui dialoguent.\nUne maison qui vous ressemble.",
+      "intro": "Recevoir, lire, se retrouver ou simplement prendre le temps. Le séjour réunit plusieurs façons de vivre dans une même pièce. Tanguy Design vous accompagne dans la réflexion autour du mobilier, des rangements et des volumes pour donner une cohérence à votre intérieur.",
+      "detail": "/assets/inspiration.webp",
+      "detailAlt": "Bibliothèque et espace repas dans une pièce de vie contemporaine",
+      "featuresTitle": "Faire place à la vie.",
+      "features": [
+        {
+          "title": "Les lignes du mobilier",
+          "text": "Une composition murale structure la pièce et accueille les objets utiles. Les pleins et les vides créent son rythme.",
+          "image": "/assets/dressing.webp",
+          "alt": "Composition murale sombre avec niches éclairées"
+        },
+        {
+          "title": "La continuité des matières",
+          "text": "Bois, finitions mates et surfaces minérales peuvent relier le salon, le séjour et la cuisine dans un même ensemble.",
+          "image": "/assets/accompagnement.webp",
+          "alt": "Association de bois, de blanc et de marbre dans une pièce de vie"
+        },
+        {
+          "title": "Les circulations",
+          "text": "Le mobilier se place aussi en fonction des passages et des perspectives. L’équilibre se construit à l’échelle de la pièce.",
+          "image": "/assets/sejour.webp",
+          "alt": "Passage dégagé dans une pièce ouverte sur une terrasse"
+        }
+      ],
+      "gallery": "/assets/inspiration.webp",
+      "galleryAlt": "Bibliothèque, table et cuisine dans une même pièce de vie",
+      "faq": []
+    },
+    "dressing": {
+      "label": "Dressing",
+      "seo": "Dressing et rangements sur mesure à Auray | Tanguy Design",
+      "description": "Imaginez des rangements adaptés à vos habitudes avec Tanguy Design à Auray : organisation, volumes et intégration dans votre intérieur.",
+      "title": "À chaque chose,\nsa juste place.",
+      "hero": "/assets/dressing.webp",
+      "heroAlt": "Mobilier sombre intégré avec rangements et éclairage",
+      "introTitle": "Des rangements pensés\npour votre quotidien.",
+      "intro": "Un rangement réussi commence par ce qu’il doit accueillir. Vêtements, accessoires et objets du quotidien donnent le point de départ. Dans une chambre, une entrée ou une pièce dédiée, Tanguy Design aborde l’agencement en relation avec les dimensions et les usages de votre intérieur.",
+      "detail": "/assets/cuisine-verte.webp",
+      "detailAlt": "Façades hautes et rangements intégrés dans un intérieur contemporain",
+      "featuresTitle": "Organiser, intégrer, simplifier.",
+      "features": [
+        {
+          "title": "Vos habitudes comme point de départ",
+          "text": "Penderies, étagères et compartiments ne répondent pas aux mêmes besoins. Faites le point sur les objets à ranger et leur fréquence d’utilisation.",
+          "image": "/assets/tiroirs.webp",
+          "alt": "Exemple de rangement intérieur compartimenté"
+        },
+        {
+          "title": "Une intégration dans la pièce",
+          "text": "La profondeur, les ouvertures et les passages participent à l’équilibre. Le rangement se pense avec le reste du mobilier.",
+          "image": "/assets/dressing.webp",
+          "alt": "Ensemble de rangements sombres intégrés"
+        },
+        {
+          "title": "Des finitions cohérentes",
+          "text": "Les façades et les poignées prolongent le caractère de l’intérieur. La lumière donne aussi de la présence aux matières.",
+          "image": "/assets/cuisine-detail.webp",
+          "alt": "Façades en bois naturel éclairées par une baie vitrée"
+        }
+      ],
+      "gallery": "/assets/accompagnement.webp",
+      "galleryAlt": "Inspiration d’aménagement associant matières et rangements",
+      "faq": []
+    },
+    "salles-de-bain": {
+      "label": "Salle de bain",
+      "seo": "Salle de bain contemporaine à Auray | Tanguy Design",
+      "description": "Mobilier, rangements et matières pour votre salle de bain. Explorez l’univers contemporain de Tanguy Design à Auray.",
+      "title": "Un espace\npour soi.",
+      "hero": "/assets/bain.webp",
+      "heroAlt": "Salle de bain contemporaine avec vasque, miroir et étagères",
+      "introTitle": "Le calme des lignes.\nLe confort des usages.",
+      "intro": "La salle de bain accompagne les gestes du matin et les moments de détente. Le mobilier, les rangements et les matières contribuent ensemble à son équilibre. Découvrez l’univers salle de bain de Tanguy Design et échangeons sur les possibilités de votre pièce.",
+      "detail": "/assets/bain.webp",
+      "detailAlt": "Vasque intégrée, miroir éclairé et étagères de salle de bain",
+      "featuresTitle": "L’essentiel, dans les détails.",
+      "features": [
+        {
+          "title": "Le mobilier et les volumes",
+          "text": "Les dimensions du meuble et l’espace autour de la vasque se réfléchissent en fonction de la pièce et du nombre d’utilisateurs.",
+          "image": "/assets/bain.webp",
+          "alt": "Meuble et vasque de salle de bain"
+        },
+        {
+          "title": "Les rangements utiles",
+          "text": "Les produits et le linge doivent trouver leur place sans encombrer les gestes. Une organisation adaptée participe au confort.",
+          "image": "/assets/tiroirs.webp",
+          "alt": "Principe de rangement intérieur compartimenté"
+        },
+        {
+          "title": "L’harmonie des finitions",
+          "text": "Les surfaces, les façades et la lumière construisent l’atmosphère. Leurs associations donnent une identité à la salle de bain.",
+          "image": "/assets/plan-travail.webp",
+          "alt": "Association de surfaces minérales et de lumière indirecte"
+        }
+      ],
+      "gallery": "/assets/bain.webp",
+      "galleryAlt": "Vue d’ensemble d’un aménagement de salle de bain",
+      "faq": []
+    }
+  },
+  "inspirations": [
+    {
+      "slug": "bois-et-mineral",
+      "title": "Bois & minéral",
+      "subtitle": "L’équilibre des matières",
+      "image": "/assets/inspiration.webp",
+      "alt": "Cuisine ouverte associant bois, surfaces minérales et bibliothèque",
+      "text": "Le bois apporte son grain et ses nuances. Les surfaces minérales donnent une présence plus sobre aux volumes. Leur rencontre peut créer une continuité entre la cuisine et le séjour. Observez la lumière, les textures et la place des rangements pour nourrir votre propre projet."
+    },
+    {
+      "slug": "lignes-sombres",
+      "title": "Lignes sombres",
+      "subtitle": "La force des contrastes",
+      "image": "/assets/home-hero.webp",
+      "alt": "Cuisine aux façades noires avec accents de bois et assises ocre",
+      "text": "Des façades sombres dessinent les lignes de la pièce. La lumière, les assises et le bois créent des points d’équilibre. Cette inspiration invite à réfléchir au contraste entre les matériaux, aux perspectives et au lien entre l’îlot et le reste de la maison."
+    },
+    {
+      "slug": "douceur-naturelle",
+      "title": "Douceur naturelle",
+      "subtitle": "Une autre idée du quotidien",
+      "image": "/assets/sejour.webp",
+      "alt": "Intérieur clair ouvert sur le jardin",
+      "text": "Des tonalités douces et une ouverture sur le jardin peuvent donner une autre respiration à la pièce de vie. Une implantation lisible et des matières cohérentes relient la préparation des repas, les rangements et les moments partagés."
+    }
+  ],
+  "concept": {
+    "title": "Votre intérieur,\npensé dans son ensemble.",
+    "intro": "À Auray, Tanguy Design réunit une sensibilité au design contemporain et une approche attentive des usages. Notre point de départ reste votre quotidien : la façon dont vous habitez les lieux, les changements que vous souhaitez et le budget de votre projet.",
+    "image": "/assets/concept.webp",
+    "sections": [
+      {
+        "title": "Le goût des lignes et des matières",
+        "text": "L’esthétique d’un intérieur se joue autant dans les volumes que dans les détails. Notre regard s’attache à la relation entre les pièces, aux associations de matières et à la place du mobilier."
+      },
+      {
+        "title": "Un projet construit avec vous",
+        "text": "Vos inspirations ouvrent la discussion. Les dimensions, les circulations et les rangements permettent ensuite d’examiner les possibilités. Chaque choix participe à un ensemble qui vous correspond."
+      },
+      {
+        "title": "Le showroom d’Auray",
+        "text": "Retrouvez-nous au 4, rue Louis Blériot, ZA de Toul Garros. Contactez l’équipe pour préparer votre visite et présenter votre projet."
+      }
+    ]
+  },
+  "showroom": {
+    "title": "Rencontrons-nous\nà Auray.",
+    "intro": "Une visite est l’occasion de mettre des matières, des volumes et des images sur vos idées. Le showroom Tanguy Design prolonge notre univers contemporain et permet d’échanger sur votre intérieur.",
+    "image": "/assets/accompagnement.webp"
+  },
+  "contact": {
+    "title": "Et si nous parlions\nde votre intérieur ?",
+    "intro": "Une première idée, un projet précis ou simplement l’envie de faire évoluer votre espace. Nous sommes à votre écoute."
+  },
+  "local": {
+    "title": "Votre projet de cuisine,\nd’Auray au Golfe du Morbihan.",
+    "intro": "Vous cherchez un cuisiniste à Vannes ou à Auray pour imaginer une cuisine haut de gamme ? Notre showroom se trouve à Auray, au 4 rue Louis Blériot. C’est le point de départ pour parler de votre maison, de votre appartement et de la place que vous souhaitez donner à la cuisine.",
+    "home": "Installé à Auray, Tanguy Design accompagne les projets de cuisine et d’agencement sur mesure à Auray, à Vannes et dans le Golfe du Morbihan. Une cuisine haut de gamme se construit autour des usages, de la qualité des matières et de la cohérence avec le reste de votre intérieur.",
+    "sections": [
+      {
+        "title": "Une cuisine haut de gamme qui vous correspond",
+        "text": "Le haut de gamme se joue dans la précision des choix : proportions, finitions, confort d’ouverture, plan de travail et rangements. Une belle matière ne suffit pas à elle seule. Nous regardons comment vous cuisinez, ce que vous rangez et la manière dont vous recevez pour donner une fonction à chaque détail."
+      },
+      {
+        "title": "Rénover ou aménager un nouvel espace",
+        "text": "Dans une rénovation, les ouvertures, les arrivées d’eau et les réseaux existants orientent l’implantation. Dans une construction, il est utile d’aborder la cuisine dès les premiers plans. Une cuisine avec îlot, un linéaire ou une pièce ouverte sur le séjour répondent à des contraintes différentes : le projet doit préserver les passages et les perspectives."
+      },
+      {
+        "title": "Un premier rendez-vous au showroom d’Auray",
+        "text": "Pour un projet à Vannes ou autour du Golfe du Morbihan, réunissez un plan coté si vous en avez un, des photos, vos inspirations et une enveloppe budgétaire. Ces éléments permettent d’aborder les matériaux, les équipements et le calendrier. Appelez-nous pour organiser votre visite et préciser les possibilités d’accompagnement sur votre commune."
+      }
+    ]
+  },
+  "projects": [
+    {
+      "id": "73",
+      "title": "Salles de bain",
+      "source": "https://www.tanguydesign.com/differentes-salles-de-bains_10_73.html",
+      "category": "bain",
+      "images": [
+        "/assets/projet-73-1.jpg",
+        "/assets/projet-73-2.jpg",
+        "/assets/projet-73-3.jpg",
+        "/assets/projet-73-4.jpg"
+      ]
+    },
+    {
+      "id": "75",
+      "title": "Cuisine",
+      "source": "https://www.tanguydesign.com/cuisine_10_75.html",
+      "category": "cuisine",
+      "images": [
+        "/assets/projet-75-1.jpg",
+        "/assets/projet-75-2.jpg",
+        "/assets/projet-75-3.jpg"
+      ]
+    },
+    {
+      "id": "74",
+      "title": "Aménagement d’un rez-de-chaussée",
+      "source": "https://www.tanguydesign.com/amenagement-rez-de-chaussee_10_74.html",
+      "category": "agencement",
+      "images": [
+        "/assets/projet-74-1.jpg",
+        "/assets/projet-74-2.jpg",
+        "/assets/projet-74-3.jpg",
+        "/assets/projet-74-4.jpg"
+      ]
+    },
+    {
+      "id": "79",
+      "title": "Salon & cuisine : du projet à la réalisation",
+      "source": "https://www.tanguydesign.com/agencement-salon-cuisine-avant-projet-et-realisation_10_79.html",
+      "category": "agencement",
+      "images": [
+        "/assets/projet-79-1.jpg",
+        "/assets/projet-79-2.jpg",
+        "/assets/projet-79-3.jpg",
+        "/assets/projet-79-4.jpg",
+        "/assets/projet-79-5.jpg",
+        "/assets/projet-79-6.jpg"
+      ]
+    },
+    {
+      "id": "57",
+      "title": "Aménagement d’une maison",
+      "source": "https://www.tanguydesign.com/amenagement-maison-complete_10_57.html",
+      "category": "agencement",
+      "images": [
+        "/assets/projet-57-1.jpg",
+        "/assets/projet-57-2.jpg",
+        "/assets/projet-57-3.jpg",
+        "/assets/projet-57-4.jpg"
+      ]
+    }
+  ]
+}

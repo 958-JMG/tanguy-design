@@ -10,6 +10,7 @@ on:
     paths:
       - 'server.js'
       - 'services/**'
+      - 'website/**'
       - 'scripts/**'
       - 'public/v3/assets/js/**'
       - 'package.json'

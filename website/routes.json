@@ -1,0 +1,128 @@
+[
+  {
+    "slug": "",
+    "title": "Cuisiniste à Auray, près de Vannes | Tanguy Design",
+    "description": "Tanguy Design, cuisiniste et agenceur à Auray : cuisines haut de gamme, design contemporain et intérieurs sur mesure près de Vannes et du Golfe du Morbihan.",
+    "template": "home.html"
+  },
+  {
+    "slug": "cuisines",
+    "title": "Cuisiniste haut de gamme Auray, Vannes | Tanguy Design",
+    "description": "Votre cuisine haut de gamme sur mesure à Auray, près de Vannes et du Golfe du Morbihan : implantation, matériaux, rangements. Rencontrons-nous au showroom.",
+    "template": "cuisines.html"
+  },
+  {
+    "slug": "cuisines-exterieures",
+    "title": "Imaginer une cuisine extérieure | Tanguy Design Auray",
+    "description": "Prolongez votre réflexion d’aménagement vers la terrasse. Échangez avec Tanguy Design à Auray sur les usages et contraintes de votre cuisine extérieure.",
+    "template": "cuisines-exterieures.html"
+  },
+  {
+    "slug": "sejour",
+    "title": "Agencement de salon et séjour à Auray | Tanguy Design",
+    "description": "Bibliothèques, compositions murales et espaces de vie contemporains. Imaginez votre salon et votre séjour avec Tanguy Design à Auray.",
+    "template": "sejour.html"
+  },
+  {
+    "slug": "dressing",
+    "title": "Dressing et rangements sur mesure à Auray | Tanguy Design",
+    "description": "Imaginez des rangements adaptés à vos habitudes avec Tanguy Design à Auray : organisation, volumes et intégration dans votre intérieur.",
+    "template": "dressing.html"
+  },
+  {
+    "slug": "salles-de-bain",
+    "title": "Salle de bain contemporaine à Auray | Tanguy Design",
+    "description": "Mobilier, rangements et matières pour votre salle de bain. Explorez l’univers contemporain de Tanguy Design à Auray.",
+    "template": "salles-de-bain.html"
+  },
+  {
+    "slug": "concept",
+    "title": "Notre approche | Tanguy Design à Auray",
+    "description": "Une approche du design contemporain attentive à vos usages, à vos envies et à votre budget. Découvrez Tanguy Design à Auray.",
+    "template": "concept.html"
+  },
+  {
+    "slug": "showroom",
+    "title": "Le showroom à Auray | Tanguy Design",
+    "description": "Retrouvez Tanguy Design au 4 rue Louis Blériot à Auray. Contactez le showroom pour préparer votre visite.",
+    "template": "showroom.html"
+  },
+  {
+    "slug": "contact",
+    "title": "Contact et rendez-vous | Tanguy Design Auray",
+    "description": "Présentez votre projet à Tanguy Design à Auray. Téléphone : 02 97 56 28 53. Email : contact@tanguydesign.com.",
+    "template": "contact.html"
+  },
+  {
+    "slug": "inspirations",
+    "title": "Inspirations et idées d’aménagement | Tanguy Design",
+    "description": "Matières, volumes et couleurs : des inspirations pour votre cuisine et votre intérieur contemporain.",
+    "template": "inspirations.html"
+  },
+  {
+    "slug": "inspirations/bois-et-mineral",
+    "title": "Bois &amp; minéral | Inspirations Tanguy Design",
+    "description": "L’équilibre des matières : une inspiration pour réfléchir aux matières et aux volumes de votre intérieur.",
+    "template": "inspirations--bois-et-mineral.html"
+  },
+  {
+    "slug": "inspirations/lignes-sombres",
+    "title": "Lignes sombres | Inspirations Tanguy Design",
+    "description": "La force des contrastes : une inspiration pour réfléchir aux matières et aux volumes de votre intérieur.",
+    "template": "inspirations--lignes-sombres.html"
+  },
+  {
+    "slug": "inspirations/douceur-naturelle",
+    "title": "Douceur naturelle | Inspirations Tanguy Design",
+    "description": "Une autre idée du quotidien : une inspiration pour réfléchir aux matières et aux volumes de votre intérieur.",
+    "template": "inspirations--douceur-naturelle.html"
+  },
+  {
+    "slug": "realisations",
+    "title": "Réalisations de cuisines et d’intérieurs | Tanguy Design",
+    "description": "Découvrez une sélection de cuisines, salles de bain et agencements présentés par Tanguy Design.",
+    "template": "realisations.html"
+  },
+  {
+    "slug": "realisations/galerie-73",
+    "title": "Salles de bain | Tanguy Design",
+    "description": "Galerie Salles de bain : découvrez les images présentées par Tanguy Design.",
+    "template": "realisations--galerie-73.html"
+  },
+  {
+    "slug": "realisations/galerie-75",
+    "title": "Cuisine | Tanguy Design",
+    "description": "Galerie Cuisine : découvrez les images présentées par Tanguy Design.",
+    "template": "realisations--galerie-75.html"
+  },
+  {
+    "slug": "realisations/galerie-74",
+    "title": "Aménagement d’un rez-de-chaussée | Tanguy Design",
+    "description": "Galerie Aménagement d’un rez-de-chaussée : découvrez les images présentées par Tanguy Design.",
+    "template": "realisations--galerie-74.html"
+  },
+  {
+    "slug": "realisations/galerie-79",
+    "title": "Salon &amp; cuisine : du projet à la réalisation | Tanguy Design",
+    "description": "Galerie Salon & cuisine : du projet à la réalisation : découvrez les images présentées par Tanguy Design.",
+    "template": "realisations--galerie-79.html"
+  },
+  {
+    "slug": "realisations/galerie-57",
+    "title": "Aménagement d’une maison | Tanguy Design",
+    "description": "Galerie Aménagement d’une maison : découvrez les images présentées par Tanguy Design.",
+    "template": "realisations--galerie-57.html"
+  },
+  {
+    "slug": "mentions-legales",
+    "title": "Mentions légales | Tanguy Design",
+    "description": "Informations sur l’éditeur et les contenus du site Tanguy Design.",
+    "template": "mentions-legales.html"
+  },
+  {
+    "slug": "confidentialite",
+    "title": "Confidentialité | Tanguy Design",
+    "description": "Informations sur le formulaire e-mail et la confidentialité de cette version du site.",
+    "template": "confidentialite.html"
+  }
+]
