@@ -16,7 +16,8 @@ const { generateBcPdf } = require('./services/bc-pdf-generator');
 const { enrichEcheancesAvecDates } = require('./services/echeances-helper');
 const { parseFactureFournisseurPdf } = require('./services/facture-fournisseur-parser');
 const { parseDevisFournisseurPdf } = require('./services/devis-fournisseur-parser');
-const { routeCommandes: routeCommandesGrille } = require('./services/fournisseur-grille');
+const { routeCommandes: routeCommandesGrille, CANON_BC } = require('./services/fournisseur-grille');
+const { buildBcTableau, dateEnvoiDepuisPose, modeleDepuisZone, champsCommande, lignesSansCommande, prochainIndexBc, numeroBc } = require('./services/commande-bc');
 const { buildPlanTresorerie, echeancesFacturees, mondayOf, addDays, toCsv } = require('./services/tresorerie-helper');
 const { recapPaieMois, alertesVisitesMedicales, joursOuvres } = require('./services/rh-helper');
 const { compteursEquipe: compteursCongesEquipe } = require('./services/conges-helper');
@@ -25,7 +26,7 @@ const pennylane = require('./services/pennylane');
 const { DEVIS_IMPORT_HASH_FIELD, computeImportHash, buildHashFilterFormula } = require('./services/devis-idempotency');
 // Artefacts générés par une signature de devis (BC + tâches) — nettoyage à la
 // coche quand un devis signé repasse à « Refusé » (dossier MORALES).
-const { resumeGeneres, commandesGenereesPar, tachesGenereesPar, filtrerIdsAutorises } = require('./services/devis-generes-helper');
+const { resumeGeneres, commandesGenereesPar, tachesGenereesPar, filtrerIdsAutorises, matchNumero, estAutoGenerePar } = require('./services/devis-generes-helper');
 // Barème éco-contribution des tablettes et panneaux (à la dimension, pas au poids).
 const eco2026 = require('./services/eco-contribution-2026');
 // Descriptif commercial d'un devis (zones : marque, modèle, coloris, finitions) —
@@ -37,7 +38,7 @@ const { retroTotale } = require('./services/retro-artisans-helper');
 // Devis client issu du Devis express (P-H4) : numérotation et construction.
 const { numeroDevisExpress, construireDevisClient, referenceProjet } = require('./services/devis-express-helper');
 const { buildRetroApporteurs, TAUX_RETRO } = require('./services/retro-apporteurs-helper');
-const { canAccess, pickAllowedFields } = require('./services/acl');
+const { canAccess, pickAllowedFields, splitAllowedFields } = require('./services/acl');
 const logger = require('./services/logger');
 const usersStore = require('./services/users-store');
 const s3Transfert = require('./services/s3-transfert');
@@ -1145,19 +1146,38 @@ app.get('/api/data/:table', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Champs écrivables d'une requête POST/PATCH générique. Jamais de silence : un
+// champ hors liste blanche était retiré sans bruit et la route répondait « OK »
+// sur une écriture qui n'avait pas eu lieu (Éco-participation, 08→14/10/2026 :
+// « enregistrée » à l'écran, vide en base, absente de Pennylane). Désormais :
+//   - tous les champs refusés → 422 qui les nomme, rien n'est écrit ;
+//   - une partie refusée → le reste est écrit, les refusés sont journalisés et
+//     renvoyés dans `ignores` (le front les affiche).
+function champsEcrivables(req, res) {
+  const { allowed, refused } = splitAllowedFields(req.params.table, req.body?.fields);
+  if (refused.length && !Object.keys(allowed).length) {
+    logger.warn({ table: req.params.table, refused, user: req.session?.user }, '[data] écriture refusée : champ(s) hors liste blanche');
+    res.status(422).json({ error: `Champ non modifiable depuis le cockpit : ${refused.join(', ')}`, refused });
+    return null;
+  }
+  if (refused.length) logger.warn({ table: req.params.table, refused, user: req.session?.user }, '[data] champ(s) hors liste blanche non écrit(s)');
+  return { fields: allowed, ignores: refused };
+}
+
 app.post('/api/data/:table', requireAuth, async (req, res) => {
   const t = await requireTableAccess(req, res, 'POST'); if (!t) return;
   try {
-    const fields = pickAllowedFields(req.params.table, req.body.fields);
-    const rec = await atCreate(t.id, fields);
-    res.json({ ok: true, record: rec });
+    const ec = champsEcrivables(req, res); if (!ec) return;
+    const rec = await atCreate(t.id, ec.fields);
+    res.json({ ok: true, record: rec, ...(ec.ignores.length ? { ignores: ec.ignores } : {}) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.patch('/api/data/:table/:id', requireAuth, async (req, res) => {
   const t = await requireTableAccess(req, res, 'PATCH'); if (!t) return;
   try {
-    const fields = pickAllowedFields(req.params.table, req.body.fields);
+    const ec = champsEcrivables(req, res); if (!ec) return;
+    const fields = ec.fields;
     // Projets : tolérant aux champs pas encore migrés (Équipe pose / Note pose
     // avant la migration) — on écrit les champs connus plutôt que de tout rater.
     let rec;
@@ -1174,7 +1194,7 @@ app.patch('/api/data/:table/:id', requireAuth, async (req, res) => {
     // (présence d'une tâche liée terminée). Le passage à "Encaissé" reste une
     // action manuelle explicite via le bouton "Marquer encaissée" (modale).
 
-    res.json({ ok: true, record: rec });
+    res.json({ ok: true, record: rec, ...(ec.ignores.length ? { ignores: ec.ignores } : {}) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1698,6 +1718,8 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
       ok: true, quoteId: quote.id, number: quote.number, status: quote.status,
       openUrl: pennylaneQuoteUrl(quote.raw, quote.id),
       customerId, customerCreated, reconciliation, warnings,
+      // Preuve de ce qui est parti : la ligne éco réellement posée (null = aucune).
+      eco: eco.ecoLine ? { ttc: eco.ecoTtc, ht: eco.ecoHt } : null,
     });
   } catch (e) {
     logger.error({ err: e.message, devisId }, 'échec push devis Pennylane');
@@ -2450,49 +2472,8 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
 // Le routage catégorie → fournisseur vit désormais dans services/fournisseur-grille.js
 // (grille éditable + « jamais de silence »), remplaçant l'ancien mapping figé.
 
-// Sprint 2 — Format BC en tableau structuré (Pos | Code | Description | SENS | Cote | Qté)
-// SANS MONTANTS, à la demande JMG. Retour : string ASCII alignée + version HTML pour mail.
-function buildBcTableau(lignes) {
-  if (!lignes || lignes.length === 0) return { texte: '— Pas de ligne disponible —', html: '<p>Pas de ligne disponible.</p>' };
-
-  const rows = lignes.map(l => {
-    const f = l.fields || {};
-    return {
-      pos:   String(f['Position'] || ''),
-      code:  String(f['Code produit'] || f['Code'] || ''),
-      desc:  String(f['Désignation'] || f['Description'] || '').replace(/\s+/g, ' ').slice(0, 80),
-      sens:  String(f['Sens'] || ''),
-      cote:  String(f['Côté visible'] || f['Cote visible'] || ''),
-      qte:   String(f['Quantité'] || ''),
-      unite: String(f['Unité'] || ''),
-    };
-  }).filter(r => r.code || r.desc); // ignorer les lignes vides
-
-  // Largeurs auto (alignement texte)
-  const widths = {
-    pos: Math.max(3, ...rows.map(r => r.pos.length)),
-    code: Math.max(4, ...rows.map(r => r.code.length)),
-    desc: Math.min(50, Math.max(11, ...rows.map(r => r.desc.length))),
-    sens: Math.max(4, ...rows.map(r => r.sens.length)),
-    cote: Math.max(4, ...rows.map(r => r.cote.length)),
-    qte: Math.max(3, ...rows.map(r => r.qte.length)),
-  };
-  const pad = (s, n, right = false) => right ? String(s).padStart(n) : String(s).padEnd(n);
-
-  const header = `${pad('Pos', widths.pos)} | ${pad('Code', widths.code)} | ${pad('Description', widths.desc)} | ${pad('SENS', widths.sens)} | ${pad('Cote', widths.cote)} | ${pad('Qté', widths.qte, true)}`;
-  const sep    = `${'-'.repeat(widths.pos)}-+-${'-'.repeat(widths.code)}-+-${'-'.repeat(widths.desc)}-+-${'-'.repeat(widths.sens)}-+-${'-'.repeat(widths.cote)}-+-${'-'.repeat(widths.qte)}`;
-  const body   = rows.map(r => `${pad(r.pos, widths.pos)} | ${pad(r.code, widths.code)} | ${pad(r.desc, widths.desc)} | ${pad(r.sens, widths.sens)} | ${pad(r.cote, widths.cote)} | ${pad(r.qte + (r.unite ? ' ' + r.unite : ''), widths.qte, true)}`).join('\n');
-
-  const texte = [header, sep, body].join('\n');
-
-  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-  const html = `<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-family:monospace;font-size:12px">
-  <thead><tr style="background:#f4f4f4"><th>Pos</th><th>Code</th><th>Description</th><th>SENS</th><th>Cote visible</th><th>Qté</th></tr></thead>
-  <tbody>${rows.map(r => `<tr><td>${esc(r.pos)}</td><td>${esc(r.code)}</td><td>${esc(r.desc)}</td><td>${esc(r.sens)}</td><td>${esc(r.cote)}</td><td style="text-align:right">${esc(r.qte)}${r.unite ? ' ' + esc(r.unite) : ''}</td></tr>`).join('')}</tbody>
-</table>`;
-
-  return { texte, html };
-}
+// Tableau BC, lignes structurées, rétro-planning, numéro : services/commande-bc.js
+// (une seule forme de BC pour la signature et pour « Créer la commande »).
 
 app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
   const devisId = req.params.id;
@@ -2545,14 +2526,7 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     }
     // Rétro-planning : date envoi prévue commandes = date pose - 105 jours (3,5 mois).
     // Si la date calculée est dans le passé, on fallback à today (le BC sort tout de suite).
-    let dateEnvoiCommande = null;
-    if (datePose) {
-      const d = new Date(datePose + 'T00:00:00Z');
-      d.setUTCDate(d.getUTCDate() - 105);
-      const todayIso = new Date().toISOString().slice(0, 10);
-      const calculated = d.toISOString().slice(0, 10);
-      dateEnvoiCommande = calculated < todayIso ? todayIso : calculated;
-    }
+    const dateEnvoiCommande = dateEnvoiDepuisPose(datePose, new Date().toISOString().slice(0, 10));
 
     // 2. Récup les lignes du devis (par IDs liés depuis le devis, évite le scan complet de la table)
     const ligneIds = dv['Lignes devis'] || [];
@@ -2585,26 +2559,7 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       const zoneIds = Array.isArray(dv['Zones devis']) ? dv['Zones devis'] : [];
       const zones = (await atFetchByIds(TABLES['zones-devis'].id, zoneIds))
         .sort((a, b) => (a.fields?.Ordre ?? 999) - (b.fields?.Ordre ?? 999));
-      const z0 = zones[0]?.fields;
-      if (z0) {
-        modeleHeader = [z0['Marque'], z0['Modèle']].filter(Boolean).join(' — ') +
-          (z0['Porte épaisseur'] ? `\nPorte épaisseur ${z0['Porte épaisseur']}` : '');
-        const lines = [];
-        if (z0['Modularité'])              lines.push(`Modularité : ${z0['Modularité']}`);
-        if (z0['Exécution façade'])        lines.push(`Exécution façade : ${z0['Exécution façade']}`);
-        if (z0['Coloris façade'])          lines.push(`Coloris façade : ${z0['Coloris façade']}`);
-        if (z0['Chant façade'])            lines.push(`Chant façade : ${z0['Chant façade']}`);
-        if (z0['Coloris caisson'])         lines.push(`Coloris caisson : ${z0['Coloris caisson']}`);
-        if (z0['Exécution côté finition']) lines.push(`Exécution côté finition : ${z0['Exécution côté finition']}`);
-        if (z0['Coloris côté finition'])   lines.push(`Coloris côté finition : ${z0['Coloris côté finition']}`);
-        if (z0['Type de gorge'])           lines.push(`Type de gorge : ${z0['Type de gorge']}`);
-        if (z0['Exécution gorges'])        lines.push(`Exécution gorges : ${z0['Exécution gorges']}`);
-        if (z0['Finition gorges'])         lines.push(`Finition gorges : ${z0['Finition gorges']}`);
-        if (z0['Profondeur'])              lines.push(`Profondeur : ${z0['Profondeur']}`);
-        if (z0['Option ouverture'])        lines.push(`Option ouverture : ${z0['Option ouverture']}`);
-        if (z0['Finition socle'])          lines.push(`Finition socle : ${z0['Finition socle']}`);
-        detailsModele = lines.join('\n');
-      }
+      ({ modeleHeader, detailsModele } = modeleDepuisZone(zones[0]?.fields));
     } catch (e) { /* best effort — la signature ne doit jamais bloquer sur ces métadonnées */ }
 
     for (const g of groupes) {
@@ -2615,29 +2570,10 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       // On crée le BC dès qu'il y a des lignes, ou pour le « Plan de travail » (BC vide
       // à compléter sur chantier), ou pour un groupe « À classer » (lignes à router).
       if (montant <= 0 && g.canon !== 'Plan de travail & crédence' && g.lignes.length === 0) continue;
-      const numCmd = clientNom
-        ? `${clientNom} · ${type.toUpperCase()} · ${numero}-${idx}`
-        : `${numero}-${type.slice(0,3).toUpperCase()}-${idx}`;
+      const numCmd = numeroBc({ clientNom, type, numeroDevis: numero, idx });
       const lignesType = g.lignes;
       const { texte: tableauTexte } = buildBcTableau(lignesType);
       const isPlanTravailVide = g.canon === 'Plan de travail & crédence' && lignesType.length === 0;
-      // Lignes structurées JSON pour édition future (front v3)
-      const lignesStructured = lignesType.map(l => {
-        const f = l.fields || {};
-        return {
-          pos: String(f.Position || ''),
-          code: String(f['Code produit'] || ''),
-          description: String(f['Désignation'] || ''),
-          sens: String(f.Sens || ''),
-          coteVisible: String(f['Côté visible'] || ''),
-          quantite: f.Quantité != null ? Number(f.Quantité) : null,
-          unite: String(f.Unité || ''),
-          largeurMm: f['Largeur mm'] || null,
-          hauteurMm: f['Hauteur mm'] || null,
-          profondeurMm: f['Profondeur mm'] || null,
-          notes: String(f.Notes || ''),
-        };
-      });
       // En-tête de note : jamais de silence. On dit explicitement à Virginie le
       // fournisseur retenu, OU pourquoi il n'a pas pu l'être (À classer, ambiguïté,
       // absent de la grille) — pour qu'elle route à la main en connaissance de cause.
@@ -2648,29 +2584,11 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       const notesPrefill = (enteteNote.length ? enteteNote.join('\n') + '\n\n' : '') + (isPlanTravailVide
         ? `[Auto-généré depuis devis ${numero} signé le ${new Date().toLocaleDateString('fr-FR')}]\n\nBC à compléter APRÈS prise de mesures sur chantier :\n• Matériau / Coloris / Finition / Épaisseur\n• Dimensions exactes (longueur, largeur, profondeur, découpes évier/plaque)\n• Fournisseur final (Inalco, Compac, Silestone, Caesarstone, etc.)\n• Délai de livraison\n\nUne fois mesures prises, mettre à jour ce BC puis l'envoyer au fournisseur.`
         : `[Auto-généré depuis devis ${numero} signé le ${new Date().toLocaleDateString('fr-FR')}]\n\nContenu prévisionnel (à valider/ajuster avant envoi au fournisseur, SANS MONTANTS) :\n\n${tableauTexte}`);
-      const cf = {
-        'Numéro': numCmd,
-        // "À compléter" pas dans le singleSelect Statut (PATCH choices 422), on garde
-        // "Créée" + mention explicite dans Notes pour le BC Plan de travail vide.
-        'Statut': 'Créée',
-        'Date création': new Date().toISOString().slice(0, 10),
-        ...(montant > 0 ? { 'Montant HT': Math.round(montant * 100) / 100 } : {}),
-        'Notes': notesPrefill,
-        'Contremarque': clientNom || '',
-        'Contact Tanguy': 'Solène',
-        'Référence courte': g.ref || type.toUpperCase(),
-        // Rattachement fournisseur AUTOMATIQUE depuis la grille, quand il est certain.
-        ...(g.fournisseurId ? { 'Fournisseur': [g.fournisseurId] } : {}),
-        // Modèle choisi + détails uniquement pour les commandes Meubles (utile sur le BC)
-        ...(g.canon === 'Mobilier' ? { 'Modèle choisi': modeleHeader, 'Détails modèle': detailsModele } : {}),
-        // Rétro-planning : date envoi = date pose - 3,5 mois (cf. demande JMG 2026-05-21).
-        // Si pas de date pose connue, le champ reste vide et Virginie le remplira manuellement.
-        ...(dateEnvoiCommande ? { 'Date envoi': dateEnvoiCommande } : {}),
-        'Lignes BC': JSON.stringify(lignesStructured, null, 2),
-      };
-      if (projetId) cf['Projet'] = [projetId];
-      // Nettoyage : retirer les champs vides
-      Object.keys(cf).forEach(k => { if (cf[k] === '' || cf[k] == null) delete cf[k]; });
+      const cf = champsCommande({
+        numCmd, groupe: g, notes: notesPrefill, clientNom, projetId,
+        dateEnvoi: dateEnvoiCommande, modele: { modeleHeader, detailsModele },
+        today: new Date().toISOString().slice(0, 10),
+      });
       const c = await atCreate(TABLES.commandes.id, cf);
       commandesCreees.push({ id: c.id, type, montant, numero: numCmd, fournisseur: g.fournisseurNom || null, aClasser: !!g.aClasser });
       if (g.aClasser) aClasserCreees.push({ id: c.id, numero: numCmd, categorie: g.categorieBrute, lignes: lignesType.length });
@@ -3016,6 +2934,131 @@ app.post('/api/devis/:id/generes/supprimer', requireAuth, requireAdmin, async (r
     });
   } catch (e) {
     logger.error({ err: e.message, devisId }, '[devis/generes/supprimer] error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- DEVIS SIGNÉ : lignes restées sans bon de commande (retour Virginie 14/10/2026) ---
+// Devis 650/1/1 (meuble LAGO) : ses 3 lignes, classées « Divers » à l'import, ne
+// sont parties dans aucun BC à la signature (Divers = pas de BC automatique), et
+// rien ne le disait. Le seul BC (« Plan de travail », vide par conception) supprimé,
+// il n'existait aucun moyen de refaire la commande d'un devis déjà signé. Ces deux
+// routes montrent ces lignes et les mettent dans un BC — même forme qu'à la signature.
+const CATEGORIES_COMMANDE_MANUELLE = [...Object.keys(CANON_BC), 'À classer'];
+
+// BC du devis = BC du projet que la signature (ou ce bouton) a générés pour CE
+// numéro de devis — même détection que le nettoyage des artefacts (Notes, Numéro).
+async function bcDuDevis(dv) {
+  const numero = dv['Numéro devis'] || '';
+  const projetId = (dv['Projet'] || [])[0] || null;
+  if (!numero || !projetId) return { numero, projetId, projet: null, commandes: [] };
+  const projet = (await atFetchByIds(TABLES.projets.id, [projetId]))[0] || null;
+  const cmdIds = projet?.fields?.['Commandes'] || [];
+  const toutes = cmdIds.length ? await atFetchByIds(TABLES.commandes.id, cmdIds) : [];
+  const commandes = toutes.filter(c =>
+    estAutoGenerePar(c.fields?.['Notes'], numero) || matchNumero(c.fields?.['Numéro'], numero));
+  return { numero, projetId, projet, commandes };
+}
+
+app.get('/api/devis/:id/lignes-sans-commande', requireAuth, async (req, res) => {
+  const devisId = req.params.id;
+  try {
+    const devis = (await atFetchByIds(TABLES.devis.id, [devisId]))[0];
+    if (!devis) return res.status(404).json({ error: 'Devis introuvable' });
+    const dv = devis.fields || {};
+    // Avant signature, les commandes n'existent pas encore : rien à comparer.
+    if (dv.Statut !== 'Signé') return res.json({ ok: true, signe: false, lignes: [], commandes: 0 });
+    const { numero, commandes } = await bcDuDevis(dv);
+    if (!numero) {
+      return res.json({ ok: true, signe: true, lignes: [], commandes: 0,
+        indetermine: 'Ce devis n\'a pas de numéro : impossible de retrouver ses bons de commande.' });
+    }
+    const lignes = await atFetchByIds(TABLES['lignes-devis'].id, dv['Lignes devis'] || []);
+    const r = lignesSansCommande(lignes, commandes.map(c => c.fields?.['Lignes BC']));
+    res.json({ ok: true, signe: true, numero, commandes: commandes.length, categories: CATEGORIES_COMMANDE_MANUELLE, ...r });
+  } catch (e) {
+    logger.error({ err: e.message, devisId }, '[devis/lignes-sans-commande] error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Crée UN bon de commande avec les lignes cochées. requireAdmin : aligné sur l'ACL
+// commandes (POST: admin). Les lignes sont re-vérifiées côté serveur : une ligne
+// déjà portée par un BC du devis, ou étrangère au devis, est REFUSÉE (pas de doublon).
+app.post('/api/devis/:id/commande-lignes', requireAuth, requireAdmin, async (req, res) => {
+  const devisId = req.params.id;
+  const { ligneIds = [], categorie } = req.body || {};
+  try {
+    if (!Array.isArray(ligneIds) || !ligneIds.length) return res.status(400).json({ error: 'Coche au moins une ligne' });
+    if (!CATEGORIES_COMMANDE_MANUELLE.includes(categorie)) {
+      return res.status(400).json({ error: `Famille de commande inconnue : « ${categorie || ''} »` });
+    }
+    const devis = (await atFetchByIds(TABLES.devis.id, [devisId]))[0];
+    if (!devis) return res.status(404).json({ error: 'Devis introuvable' });
+    const dv = devis.fields || {};
+    if (dv.Statut !== 'Signé') {
+      return res.status(409).json({ error: 'Ce devis n\'est pas signé : ses commandes se créent à la signature.' });
+    }
+    const { numero, projetId, projet, commandes } = await bcDuDevis(dv);
+    if (!numero) return res.status(409).json({ error: 'Ce devis n\'a pas de numéro : impossible de rattacher une commande.' });
+
+    const lignesDevis = await atFetchByIds(TABLES['lignes-devis'].id, dv['Lignes devis'] || []);
+    const { lignes: libres } = lignesSansCommande(lignesDevis, commandes.map(c => c.fields?.['Lignes BC']));
+    const libresIds = new Set(libres.map(l => l.id));
+    const refusees = ligneIds.filter(id => !libresIds.has(id));
+    if (refusees.length) {
+      return res.status(409).json({ error: `${refusees.length} ligne(s) déjà dans un bon de commande, ou hors de ce devis — recharge la fiche`, refusees });
+    }
+    const choisies = lignesDevis
+      .filter(l => ligneIds.includes(l.id))
+      .sort((a, b) => (parseFloat(a.fields?.Position) || 0) - (parseFloat(b.fields?.Position) || 0));
+
+    // Famille choisie par Virginie → fournisseur depuis la grille, posé seulement
+    // s'il est certain (un seul candidat), comme à la signature.
+    let groupe;
+    if (categorie === 'À classer') {
+      groupe = { canon: null, type: 'À classer', ref: 'A_CLASSER', aClasser: true, lignes: choisies,
+        montant: choisies.reduce((t, l) => t + (Number(l.fields?.['Montant HT']) || 0), 0) };
+    } else {
+      const fournisseurs = await atFetchAll(TABLES.fournisseurs.id).catch(() => []);
+      [groupe] = routeCommandesGrille(
+        choisies.map(l => ({ ...l, fields: { ...l.fields, 'Catégorie': categorie } })), fournisseurs);
+    }
+
+    // Contexte du BC : nom client (contremarque), date de pose (rétro-planning), modèle.
+    let clientNom = '';
+    const clientId = (projet?.fields?.Client || [])[0];
+    if (clientId) {
+      const c = (await atFetchByIds(TABLES.clients.id, [clientId]))[0];
+      clientNom = (c?.fields?.Nom || '').toUpperCase().trim();
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const dateEnvoi = dateEnvoiDepuisPose(projet?.fields?.['Date pose prévue'] || null, today);
+    let modele = null;
+    if (groupe.canon === 'Mobilier') {
+      const zoneIds = Array.isArray(dv['Zones devis']) ? dv['Zones devis'] : [];
+      const zones = (await atFetchByIds(TABLES['zones-devis'].id, zoneIds).catch(() => []))
+        .sort((a, b) => (a.fields?.Ordre ?? 999) - (b.fields?.Ordre ?? 999));
+      modele = modeleDepuisZone(zones[0]?.fields);
+    }
+
+    const idx = prochainIndexBc(commandes.map(c => c.fields?.['Numéro']), numero);
+    const numCmd = numeroBc({ clientNom, type: groupe.type, numeroDevis: numero, idx });
+    const enTete = groupe.aClasser
+      ? '⚠️ À CLASSER — rattacher au bon fournisseur / BC à la main.'
+      : groupe.fournisseurNom ? `Fournisseur (grille) : ${groupe.fournisseurNom}.`
+      : groupe.raison ? `⚠️ Fournisseur à choisir — ${groupe.raison}.` : '';
+    const { texte: tableauTexte } = buildBcTableau(choisies);
+    const notes = (enTete ? enTete + '\n\n' : '') +
+      `[Auto-généré depuis devis ${numero} — lignes ajoutées le ${new Date().toLocaleDateString('fr-FR')} depuis la fiche devis]\n\n` +
+      `Contenu prévisionnel (à valider/ajuster avant envoi au fournisseur, SANS MONTANTS) :\n\n${tableauTexte}`;
+
+    const cf = champsCommande({ numCmd, groupe: { ...groupe, lignes: choisies }, notes, clientNom, projetId, dateEnvoi, modele, today });
+    const rec = await atCreate(TABLES.commandes.id, cf);
+    logger.info({ devisId, commandeId: rec.id, numero: numCmd, lignes: choisies.length, categorie, user: req.session?.user }, '[devis/commande-lignes] BC créé depuis la fiche devis');
+    res.json({ ok: true, commande: { id: rec.id, numero: numCmd, lignes: choisies.length, fournisseur: groupe.fournisseurNom || null } });
+  } catch (e) {
+    logger.error({ err: e.message, devisId }, '[devis/commande-lignes] error');
     res.status(500).json({ error: e.message });
   }
 });

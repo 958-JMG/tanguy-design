@@ -1,6 +1,7 @@
 // API client v3 (Sprint 1) — wrappers fetch vers /api/*
 
 import { state } from './state.js';
+import { toast } from './ui.js';
 
 async function api(path, opts = {}) {
   const r = await fetch(path, {
@@ -12,7 +13,13 @@ async function api(path, opts = {}) {
     const e = await r.json().catch(() => ({}));
     throw new Error(e.error || `${r.status} ${r.statusText}`);
   }
-  return r.json();
+  const d = await r.json();
+  // Jamais de silence : un champ que le serveur n'a pas écrit est dit à l'écran,
+  // même quand le reste de l'enregistrement est passé.
+  if (d && Array.isArray(d.ignores) && d.ignores.length) {
+    toast(`Non enregistré (champ non modifiable ici) : ${d.ignores.join(', ')}`, 'error', 8000);
+  }
+  return d;
 }
 
 export async function fetchClients() {
@@ -398,6 +405,19 @@ export async function creerDevisClientExpress(payload) {
 // statut n'a aucun effet de bord côté Airtable, les BC restent (dossier MORALES).
 export async function fetchDevisGeneres(devisId) {
   return api(`/api/devis/${devisId}/generes`);
+}
+
+// Devis signé : lignes qu'aucun bon de commande du devis ne porte (Divers, BC supprimé…).
+export async function fetchLignesSansCommande(devisId) {
+  return api(`/api/devis/${devisId}/lignes-sans-commande`);
+}
+
+// Crée UN bon de commande avec les lignes cochées, dans la famille choisie.
+export async function creerCommandeLignes(devisId, { ligneIds, categorie }) {
+  return api(`/api/devis/${devisId}/commande-lignes`, {
+    method: 'POST',
+    body: JSON.stringify({ ligneIds, categorie }),
+  });
 }
 
 // Supprime les artefacts COCHÉS. Le serveur re-vérifie que chaque id appartient

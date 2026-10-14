@@ -5,7 +5,7 @@
  */
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { canAccess, pickAllowedFields, TABLE_ACL, FIELD_WHITELIST } = require('./acl');
+const { canAccess, pickAllowedFields, splitAllowedFields, TABLE_ACL, FIELD_WHITELIST } = require('./acl');
 
 describe('canAccess()', () => {
   test('admin peut tout faire sur les tables sensibles', () => {
@@ -106,5 +106,30 @@ describe('TABLE_ACL + FIELD_WHITELIST cohérence', () => {
       assert.ok(Array.isArray(FIELD_WHITELIST[tableKey]), `FIELD_WHITELIST[${tableKey}] doit être un array`);
       assert.ok(FIELD_WHITELIST[tableKey].length > 0, `FIELD_WHITELIST[${tableKey}] vide`);
     }
+  });
+});
+
+// Retour Virginie du 14/10/2026 : « Éco-participation » absente de la liste devis
+// → jetée sans bruit à l'enregistrement, jamais transmise à Pennylane.
+describe('splitAllowedFields() — un refus se dit', () => {
+  test('devis : « Éco-participation » est écrivable depuis la fiche devis', () => {
+    assert.ok(FIELD_WHITELIST.devis.includes('Éco-participation'));
+    assert.deepEqual(splitAllowedFields('devis', { 'Éco-participation': 2.38 }), { allowed: { 'Éco-participation': 2.38 }, refused: [] });
+  });
+
+  test('nomme les champs refusés au lieu de les taire', () => {
+    const r = splitAllowedFields('devis', { 'Notes': 'x', 'Total TTC': 1, 'Pennylane quote ID': '9' });
+    assert.deepEqual(r.allowed, { 'Notes': 'x' });
+    assert.deepEqual(r.refused, ['Total TTC', 'Pennylane quote ID']);
+  });
+
+  test('table sans liste blanche : tout passe ; entrée vide : rien', () => {
+    assert.deepEqual(splitAllowedFields('table-libre', { a: 1 }), { allowed: { a: 1 }, refused: [] });
+    assert.deepEqual(splitAllowedFields('devis', null), { allowed: {}, refused: [] });
+  });
+
+  test('pickAllowedFields garde son comportement (rétro-commission toujours filtrée)', () => {
+    assert.deepEqual(pickAllowedFields('artisans', { Nom: 'A', 'Rétro-commission': 0.5 }), { Nom: 'A' });
+    assert.deepEqual(pickAllowedFields('table-libre', { a: 1 }), { a: 1 });
   });
 });
