@@ -14,6 +14,7 @@ import { icon, hydrateIcons } from '../core/lucide.js';
 import { toast } from '../core/ui.js';
 import { parseDevisFournisseur, creerDevisClientExpress, calculEcoContribution } from '../core/api.js';
 import { state } from '../core/state.js';
+import { renderElectro } from './devis-electro.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const eur = (n) => (n == null || Number.isNaN(Number(n)))
@@ -23,17 +24,55 @@ const eur = (n) => (n == null || Number.isNaN(Number(n)))
 // État courant du dernier parsing (pour le recalcul live).
 let current = null;
 
+// Deux modes (demande JMG 14/10/2026) : le devis FOURNISSEUR d'avant (meubles,
+// plans de travail : total net × coefficient) et l'ÉLECTROMÉNAGER (projet FINDIS :
+// prix de vente, d'achat et éco article par article). Mode mémorisé par navigateur.
+const MODE_CLE = 'tanguy.devisExpress.mode';
+function modeMemorise() {
+  try { return localStorage.getItem(MODE_CLE) === 'electro' ? 'electro' : 'fournisseur'; } catch { return 'fournisseur'; }
+}
+
 export function renderDevisFournisseur(app) {
   if (!state.isAdmin) {
     app.innerHTML = `<div class="card"><h2>Accès réservé</h2><p class="muted">Devis express (import d'un devis fournisseur pour générer un devis client) est réservé aux administrateurs.</p></div>`;
     return;
   }
+  let mode = modeMemorise();
   app.innerHTML = `
     <div class="page-head">
       <h1 class="page-title">${icon('calculator', 22)} Devis express</h1>
-      <p class="muted">Déposez un devis fournisseur (PDF) → un devis client pré-rempli, avec votre marge et l'éco-participation.</p>
+      <p class="muted" id="dx-intro"></p>
     </div>
+    <div class="filter-chips" role="tablist" aria-label="Type de devis express" style="margin-bottom:14px">
+      <button class="chip" role="tab" data-mode="fournisseur">Devis fournisseur</button>
+      <button class="chip" role="tab" data-mode="electro">Électroménager (FINDIS)</button>
+    </div>
+    <div id="dx-panel"></div>
+  `;
+  hydrateIcons(app);
+  const afficher = () => {
+    app.querySelectorAll('[data-mode]').forEach(b => {
+      const actif = b.dataset.mode === mode;
+      b.classList.toggle('is-active', actif);
+      b.setAttribute('aria-selected', actif ? 'true' : 'false');
+    });
+    app.querySelector('#dx-intro').textContent = mode === 'electro'
+      ? 'Déposez le projet FINDIS → un devis client article par article, avec le prix d\'achat et la marge.'
+      : 'Déposez un devis fournisseur (PDF) → un devis client pré-rempli, avec votre marge et l\'éco-participation.';
+    const panel = app.querySelector('#dx-panel');
+    if (mode === 'electro') renderElectro(panel);
+    else renderPanelFournisseur(panel);
+  };
+  app.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
+    mode = b.dataset.mode;
+    try { localStorage.setItem(MODE_CLE, mode); } catch { /* navigation privée : sans mémoire */ }
+    afficher();
+  }));
+  afficher();
+}
 
+function renderPanelFournisseur(app) {
+  app.innerHTML = `
     <div class="card" id="df-dropzone" style="text-align:center;padding:32px 20px;border:2px dashed var(--line2);cursor:pointer">
       <div style="font-size:32px;color:var(--ink3)">${icon('upload', 32)}</div>
       <p style="margin-top:8px;font-weight:500">Déposer un devis fournisseur (PDF)</p>
@@ -300,6 +339,10 @@ function openModalCreerDevis(out) {
   const tva = Number(out.querySelector('#df-tva').value) || 0;
   const prixClientHt = Math.round((totalHt * coef + eco) * 100) / 100;
   const designation = out.querySelector('#df-designation')?.value || '';
+  // Famille proposée d'après le fournisseur lu : les plans de travail chez Granit
+  // Evolution, le reste en mobilier. Virginie corrige si besoin.
+  const nomFournisseur = String(current?.parsed?.fournisseur?.nom || current?.parsed?.fournisseur?.type_detecte || '');
+  const familleParDefaut = /granit|plan de travail|quartz|c[ée]ramique/i.test(nomFournisseur + ' ' + designation) ? 'Plan de travail & crédence' : 'Mobilier';
 
   const projets = (state.projets || []).slice().sort((a, b) =>
     String(a['Référence'] || '').localeCompare(String(b['Référence'] || ''), 'fr'));
@@ -345,6 +388,21 @@ function openModalCreerDevis(out) {
         <p class="muted" style="font-size:13px;margin-top:4px">Un projet sera créé automatiquement pour ce client.</p>
       </div>
 
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:10px">
+        <label>Famille (commande et marge)
+          <select id="cd-famille" style="width:100%">
+            ${['Mobilier', 'Plan de travail & crédence', 'Électroménager', 'Luminaire', 'Accessoires'].map(f => `<option ${f === familleParDefaut ? 'selected' : ''}>${f}</option>`).join('')}
+          </select>
+        </label>
+        <label>Type de devis
+          <select id="cd-type" style="width:100%">
+            <option value="">Automatique (Additif si le projet a déjà son principal)</option>
+            <option value="Principal">Principal</option>
+            <option value="Additif">Additif</option>
+          </select>
+        </label>
+      </div>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">Le total net fournisseur (${eur(totalHt)} HT) est gardé comme prix d'achat : il sert à la marge de cette partie.</p>
       <div class="modal-actions" style="margin-top:18px">
         <button type="button" class="btn btn-ghost" id="cd-cancel">Annuler</button>
         <button type="button" class="btn btn-primary" id="cd-ok">Créer le devis</button>
@@ -380,12 +438,15 @@ function openModalCreerDevis(out) {
         tvaTaux: tva,
         ecoHt: eco,
         origine: current?.parsed?.document?.numero || '',
+        famille: modal.querySelector('#cd-famille').value,
+        typeDevis: modal.querySelector('#cd-type').value || undefined,
+        prixAchatHt: totalHt || undefined,
       });
       close();
       // Jamais de silence : ce qui n'a pas pu être fait est annoncé, pas avalé
       // sous un message de succès.
       if (r.avertissements?.length) toast(r.avertissements.join(' · '), 'error', 7000);
-      toast(`Devis ${r.numero} créé${r.projetCree ? ' (projet créé)' : ''}`, 'success');
+      toast(`Devis ${r.numero} créé${r.typeDevis ? ` (${r.typeDevis})` : ''}${r.projetCree ? ' · projet créé' : ''}`, 'success');
       location.hash = `#devis/${r.devisId}`;
     } catch (err) {
       btn.disabled = false; btn.textContent = 'Créer le devis';

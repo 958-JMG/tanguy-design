@@ -51,9 +51,13 @@ function numeroDevisExpress(numerosExistants, annee) {
  * @param {string} [p.dateDevis]   - AAAA-MM-JJ ; obligatoire (aucune date « aujourd'hui »
  *                                   implicite : l'appelant la fournit, c'est testable)
  * @param {string} [p.origine]     - trace du devis fournisseur d'origine
+ * @param {'Principal'|'Additif'} [p.typeDevis] - « Additif » quand le projet a déjà son devis principal
+ * @param {string} [p.categorie]   - famille de la ligne (Mobilier, Plan de travail & crédence…) :
+ *                                   route le BC à la signature et range la marge par partie
+ * @param {number} [p.prixAchatHt] - total net fournisseur HT (le prix d'achat), conservé pour la marge
  * @returns {{ fields:object, ligne:object, coherence:object, avertissements:string[] }}
  */
-function construireDevisClient({ numero, designation, prixClientHt, tvaTaux, ecoHt = 0, dateDevis, origine = '' }) {
+function construireDevisClient({ numero, designation, prixClientHt, tvaTaux, ecoHt = 0, dateDevis, origine = '', typeDevis = 'Principal', categorie = '', prixAchatHt = null }) {
   const avertissements = [];
   const prix = Number(prixClientHt);
   const tva = Number(tvaTaux);
@@ -74,7 +78,7 @@ function construireDevisClient({ numero, designation, prixClientHt, tvaTaux, eco
 
   const fields = {
     'Numéro devis': numero,
-    'Type devis': 'Principal',
+    'Type devis': typeDevis === 'Additif' ? 'Additif' : 'Principal',
     'Statut': 'Brouillon',
     'Date devis': dateDevis || null,
     'Total HT articles': totalArticles,
@@ -106,6 +110,8 @@ function construireDevisClient({ numero, designation, prixClientHt, tvaTaux, eco
     'Montant HT': totalHtFinal,
     'TVA pourcentage': tvaOk ? tva : null,
     ...(eco > 0 ? { 'Eco-participation': arrondi(eco) } : {}),
+    ...(categorie ? { 'Catégorie': String(categorie) } : {}),
+    ...(Number(prixAchatHt) > 0 ? { 'Prix achat HT': arrondi(Number(prixAchatHt)) } : {}),
   };
 
   // Le TTC doit se retrouver à partir des bases — même garde-fou que sur les
