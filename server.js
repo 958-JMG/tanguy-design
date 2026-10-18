@@ -16,6 +16,7 @@ const { generateFicheMission } = require('./services/fiche-mission-generator');
 const { generateBcPdf } = require('./services/bc-pdf-generator');
 const { enrichEcheancesAvecDates } = require('./services/echeances-helper');
 const { parseFactureFournisseurPdf } = require('./services/facture-fournisseur-parser');
+const { adresseFacturation } = require('./services/adresse-client');
 const { parseDevisFournisseurPdf } = require('./services/devis-fournisseur-parser');
 const { routeCommandes: routeCommandesGrille, CANON_BC } = require('./services/fournisseur-grille');
 const { buildBcTableau, dateEnvoiDepuisPose, modeleDepuisZone, champsCommande, lignesSansCommande, prochainIndexBc, numeroBc } = require('./services/commande-bc');
@@ -1848,17 +1849,16 @@ async function resolvePennylaneCustomer(clientId, body = {}) {
     if (match.exact) customerId = match.exact.id;
     else if (match.candidates.length && !body.create_customer) return { needsCustomerConfirmation: true, clientNom: nom, candidates: match.candidates };
     else {
-      const adresse = String(cf['Adresse'] || '').split('\n');
+      const billingAddress = adresseFacturation(cf);
       // Pennylane EXIGE une adresse de facturation pour créer un client. Sans elle,
       // l'API renvoie « Missing required fields » : on le DIT clairement à Virginie
       // (avec le nom du client et le geste à faire) au lieu de laisser passer l'erreur brute.
-      if (!(adresse[0] || '').trim()) {
+      if (!billingAddress.address) {
         return { error: `Le client « ${nom || '—'} » n'a pas d'adresse de facturation : complète son adresse dans la fiche client, puis relance la génération Pennylane.` };
       }
-      const cpVille = (adresse[1] || '').trim().match(/^(\d{5})\s+(.*)$/);
       const created = await pennylane.createCustomer({
         name: nom, isCompany: !!(cf['Type'] && cf['Type'] !== 'Particulier'), contact: cf['Contact'] || '', email: cf['Email'] || undefined,
-        address: (adresse[0] || '').trim() || undefined, postal_code: cpVille ? cpVille[1] : undefined, city: cpVille ? cpVille[2] : undefined,
+        ...billingAddress,
       });
       customerId = created.id; customerCreated = true;
     }
@@ -4217,88 +4217,13 @@ function euros(n) {
   return Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 }
 
-// --- SAV : callback de résolution depuis cockpit 9·58 → notif client (v3.22) ---
-// Quand JMG clique "Résolu" sur un ticket côté cockpit central, n8n appelle
-// CE endpoint pour notifier l'utilisateur Tanguy qui avait ouvert le ticket.
-// Stockage en RAM (Map auteur → liste de notifs), cleanup auto > 30 j.
-//
-// Côté n8n : configurer un HTTP node sur la transition "Résolu" qui POST
-// https://tanguydesign.958.fr/api/sav/callback avec header X-958-Secret:
-// {SAV_WEBHOOK_SECRET} et body { ticket_id, statut, message_resolution,
-// auteur_email, titre }.
-const savNotifications = new Map(); // login → [{id, date, ticket_id, titre, message, lu}]
-const SAV_NOTIF_MAX_AGE_MS = 30 * 86400 * 1000;
-function cleanupOldNotifs() {
-  const now = Date.now();
-  for (const [login, list] of savNotifications.entries()) {
-    const fresh = list.filter(n => now - new Date(n.date).getTime() < SAV_NOTIF_MAX_AGE_MS);
-    if (fresh.length === 0) savNotifications.delete(login);
-    else savNotifications.set(login, fresh);
-  }
-}
-
-app.post('/api/sav/callback', async (req, res) => {
-  // Auth via secret (header X-958-Secret) — pas requireAuth car c'est n8n qui appelle
-  const incomingSecret = req.headers['x-958-secret'] || '';
-  if (!SAV_WEBHOOK_SECRET || incomingSecret !== SAV_WEBHOOK_SECRET) {
-    return res.status(401).json({ error: 'unauthorized' });
-  }
-  const { ticket_id, statut, message_resolution, auteur_email, auteur_login, titre } = req.body || {};
-  if (!ticket_id || !(auteur_email || auteur_login)) {
-    return res.status(400).json({ error: 'ticket_id et auteur_login (ou auteur_email) requis' });
-  }
-  // Sprint v3.24 — Prioriser auteur_login (envoyé explicitement par le cockpit),
-  // fallback sur auteur_email.split('@')[0] pour rétrocompat avec anciens cockpits.
-  const login = String(auteur_login || (auteur_email || '').split('@')[0] || '').toLowerCase();
-  if (!login) return res.status(400).json({ error: 'login utilisateur introuvable' });
-  const notif = {
-    id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    date: new Date().toISOString(),
-    ticket_id,
-    statut: statut || 'Résolu',
-    titre: String(titre || `Ticket ${ticket_id}`).slice(0, 200),
-    message: String(message_resolution || 'Ticket résolu par l\'équipe 9·58.').slice(0, 2000),
-    lu: false,
-  };
-  cleanupOldNotifs();
-  const list = savNotifications.get(login) || [];
-  list.unshift(notif); // plus récent en tête
-  savNotifications.set(login, list);
-  logger.info({ login, ticket_id, statut }, '[sav/callback] notif stockée');
-  res.json({ ok: true, notif_id: notif.id });
-});
-
-// GET /api/sav/my-notifications — récupère les notifs de l'user connecté
-app.get('/api/sav/my-notifications', requireAuth, (req, res) => {
-  cleanupOldNotifs();
-  const login = (req.session?.user || '').toLowerCase();
-  const list = savNotifications.get(login) || [];
-  const unread = list.filter(n => !n.lu).length;
-  res.json({ ok: true, notifications: list, unread });
-});
-
-// POST /api/sav/notifications/:id/read — marquer comme lue
-app.post('/api/sav/notifications/:id/read', requireAuth, (req, res) => {
-  const login = (req.session?.user || '').toLowerCase();
-  const list = savNotifications.get(login) || [];
-  const n = list.find(x => x.id === req.params.id);
-  if (!n) return res.status(404).json({ error: 'introuvable' });
-  n.lu = true;
-  res.json({ ok: true });
-});
-
-// POST /api/sav/notifications/mark-all-read — marquer toutes comme lues (auto à
-// l'ouverture du modal support : si tu vois les notifs, compteur retombe à 0).
-// Sprint 26/05 — UX naturelle (avant : fallait cliquer "OK, vu" sur chaque notif).
-app.post('/api/sav/notifications/mark-all-read', requireAuth, (req, res) => {
-  const login = (req.session?.user || '').toLowerCase();
-  const list = savNotifications.get(login) || [];
-  let marked = 0;
-  for (const n of list) {
-    if (!n.lu) { n.lu = true; marked++; }
-  }
-  res.json({ ok: true, marked });
-});
+// Notifications SAV durables ; aucune Map locale, mêmes routes que le cockpit validé.
+const { AirtableNotificationStore, createRouter: createSavRouter } = require('./services/sav-notifications');
+app.use('/api/sav', createSavRouter({
+  requireAuth, logger, findUser: usersStore.findUser,
+  secret: process.env.SAV_WEBHOOK_SECRET || '',
+  store: new AirtableNotificationStore({ token: process.env.AIRTABLE_KEY, base: process.env.AIRTABLE_BASE_ID }),
+}));
 
 // --- SAV : proxy vers webhook n8n du cockpit central 9·58 ----------------
 // Le cockpit central ouvre les tickets dans Airtable TICKETS_TBL et alimente
