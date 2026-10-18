@@ -1,5 +1,12 @@
 name: Deploy tanguy to Scaleway
 
+# Chaîne de livraison (18/10/2026, audit sécurité du parc § 2.6) :
+#   · job `tests` AVANT le build : la suite de test.yml (syntaxe, modules ES, npm test), appelée ici —
+#     rouge, rien ne part (`needs: tests`). Avant, test.yml tournait en parallèle du déploiement sans le retenir ;
+#   · smoke test après déploiement : le conteneur doit servir la nouvelle image ET répondre 200 sur /api/health,
+#     sinon le job échoue (avant : « Get public URL » écrivait « Deploy tanguy ✓ » sans rien vérifier) ;
+#   · actions épinglées par SHA ; binaire scw comparé au SHA256 publié.
+
 on:
   workflow_dispatch:
   push:
@@ -28,14 +35,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  tests:
+    # La même suite que sur les PR (test.yml, `workflow_call`) : une seule définition, qui bloque le déploiement.
+    uses: ./.github/workflows/test.yml
+
   deploy:
+    needs: tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           submodules: false
 
@@ -63,7 +75,10 @@ jobs:
 
       - name: Install Scaleway CLI
         run: |
-          curl -sL https://github.com/scaleway/scaleway-cli/releases/download/v2.55.0/scaleway-cli_2.55.0_linux_amd64 -o /usr/local/bin/scw
+          # Version fixe 2.55.0 (inchangée) ; depuis le 18/10/2026 le binaire est comparé au SHA256 publié
+          # dans le fichier SHA256SUMS de la release GitHub scaleway/scaleway-cli.
+          curl -fsSL --retry 3 --retry-delay 2 https://github.com/scaleway/scaleway-cli/releases/download/v2.55.0/scaleway-cli_2.55.0_linux_amd64 -o /usr/local/bin/scw
+          echo "01f6be578bdcc8fd6e4a3656694cda87e0bd9859cf05460ed2e1afc0723d69e9  /usr/local/bin/scw" | sha256sum -c -
           chmod +x /usr/local/bin/scw
 
       - name: Configure scw
@@ -114,13 +129,50 @@ jobs:
               region="$REG"
           fi
 
+      - name: Smoke test (nouvelle image servie et /api/health → 200, sinon le job échoue)
+        env:
+          NS_ID: ${{ env.NAMESPACE_ID }}
+          APP: ${{ env.APP_NAME }}
+          REG: ${{ env.SCW_REGION }}
+        run: |
+          set -euo pipefail
+          SHA="${{ github.sha }}"
+          CONTAINER_ID=$(scw container container list name="$APP" namespace-id="$NS_ID" region="$REG" -o json \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['id'] if d else '')")
+          [ -n "$CONTAINER_ID" ] || { echo "::error::Conteneur $APP introuvable après le déploiement"; exit 1; }
+          # Laisser l'instance quitter « ready » : juste après l'update, l'ancienne instance répond encore.
+          sleep 15
+          STATUS=""; IMAGE=""
+          # Jusqu'à 5 min : le temps que Scaleway remplace l'instance, puis que l'application réponde.
+          for i in $(seq 1 30); do
+            JSON=$(scw container container get "$CONTAINER_ID" region="$REG" -o json)
+            STATUS=$(echo "$JSON" | jq -r '.status')
+            IMAGE=$(echo "$JSON" | jq -r '.registry_image // .image // ""')   # scw 2.55 : registry_image ; ≥ 2.56 : image
+            URL=$(echo "$JSON" | jq -r '.public_endpoint // (if .domain_name then "https://" + .domain_name else empty end)')
+            echo "($i/30) status=$STATUS image=${IMAGE##*:}"
+            if [ "$STATUS" = "error" ]; then
+              echo "::error::Conteneur en erreur après le déploiement : $(echo "$JSON" | jq -r '.error_message // "(sans message)"')"
+              exit 1
+            fi
+            if [ "$STATUS" = "ready" ] && [[ "$IMAGE" == *"$SHA"* ]] && [ -n "$URL" ] && [ "$URL" != "null" ]; then
+              CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$URL/api/health" || true)
+              echo "      GET $URL/api/health → ${CODE:-000}"
+              if [ "$CODE" = "200" ]; then
+                echo "✅ Smoke test OK : l'image $SHA est servie et /api/health répond 200."
+                exit 0
+              fi
+            fi
+            sleep 10
+          done
+          echo "::error::Smoke test rouge après 5 min : le conteneur ne sert pas l'image $SHA avec un /api/health à 200 (dernier état : status=$STATUS, image=${IMAGE##*:}). Lire les journaux Scaleway avant tout nouveau déploiement."
+          exit 1
+
       - name: Get public URL
         env:
           NS_ID: ${{ env.NAMESPACE_ID }}
           APP: ${{ env.APP_NAME }}
           REG: ${{ env.SCW_REGION }}
         run: |
-          sleep 10
           CONTAINER_ID=$(scw container container list name="$APP" namespace-id="$NS_ID" region="$REG" -o json \
             | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['id'] if d else '')")
           DOMAIN=$(scw container container get "$CONTAINER_ID" region="$REG" -o json \

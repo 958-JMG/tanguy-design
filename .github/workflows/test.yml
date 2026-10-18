@@ -3,7 +3,9 @@ name: CI tests
 on:
   push:
     branches:
-      - main
+      # `main` n'y figure plus (18/10/2026) : sur main, cette suite est APPELÉE par deploy-scaleway.yml
+      # (job `tests`, via `workflow_call`) avant le build — rouge, rien ne part. La jouer ici en plus
+      # doublait les minutes GitHub pour le même arbre.
       - 'feat/**'
       - 'fix/**'
       - 'chore/**'
@@ -18,6 +20,8 @@ on:
       - '.github/workflows/test.yml'
   pull_request:
     branches: [main]
+  # Appelable par deploy-scaleway.yml : une seule définition de la suite, qui bloque le déploiement.
+  workflow_call: {}
 
 jobs:
   test:
@@ -27,10 +31,10 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
