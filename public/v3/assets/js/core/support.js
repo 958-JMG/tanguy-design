@@ -10,11 +10,15 @@ function esc(s) {
 
 // Sprint v3.22 — Poll les notifications de résolution SAV au boot
 // + toutes les 5 minutes. Affiche un badge rouge sur le bouton support.
+let supportRevision = 0;
 export async function refreshSupportBadge() {
+  const revision = ++supportRevision;
   try {
     const r = await fetch('/api/sav/my-notifications', { credentials: 'same-origin' });
-    if (!r.ok) return;
+    if (!r.ok) throw new Error('Notifications indisponibles');
     const d = await r.json();
+    if (!d.ok || !Array.isArray(d.notifications) || !Number.isInteger(d.unread)) throw new Error('Notifications indisponibles');
+    if (revision !== supportRevision) return;
     const btn = document.getElementById('support-btn');
     if (!btn) return;
     let badge = btn.querySelector('.support-badge');
@@ -29,7 +33,7 @@ export async function refreshSupportBadge() {
     } else if (badge) {
       badge.remove();
     }
-  } catch (e) { /* silencieux */ }
+  } catch (e) { /* Le badge existant reste visible ; nouvelle tentative au prochain passage. */ }
 }
 
 // Auto-refresh : démarre dès l'import du module, ré-essaie toutes les 5 min.
@@ -43,8 +47,11 @@ export async function openSupport() {
   let notifs = [];
   try {
     const r = await fetch('/api/sav/my-notifications', { credentials: 'same-origin' });
-    if (r.ok) notifs = (await r.json()).notifications || [];
-  } catch (e) { /* silencieux */ }
+    if (!r.ok) throw new Error('Notifications indisponibles');
+    const d = await r.json();
+    if (!d.ok || !Array.isArray(d.notifications)) throw new Error('Notifications indisponibles');
+    notifs = d.notifications;
+  } catch (e) { toast('Notifications indisponibles. Réessayez dans quelques instants.', 'error'); }
   const unread = notifs.filter(n => !n.lu);
 
   const modal = document.createElement('div');
@@ -95,11 +102,13 @@ export async function openSupport() {
   // dispo pour les supprimer individuellement de la liste si voulu.
   if (unread.length > 0) {
     try {
-      await fetch('/api/sav/notifications/mark-all-read', {
+      ++supportRevision;
+      const response = await fetch('/api/sav/notifications/mark-all-read', {
         method: 'POST', credentials: 'same-origin',
       });
-      refreshSupportBadge();
-    } catch (e) { /* silencieux : retentera au prochain click "OK, vu" */ }
+      if (!response.ok || !(await response.json()).ok) throw new Error('Lecture non confirmée');
+      await refreshSupportBadge();
+    } catch (e) { toast('Lecture non confirmée. Réessayez avec « OK, vu ».', 'error'); }
   }
 
   // Sprint v3.22 — bindings "OK, vu" sur les notifications (mark individual +
@@ -110,9 +119,11 @@ export async function openSupport() {
       const notifId = btn.dataset.id;
       btn.disabled = true;
       try {
-        await fetch(`/api/sav/notifications/${encodeURIComponent(notifId)}/read`, {
+        ++supportRevision;
+        const response = await fetch(`/api/sav/notifications/${encodeURIComponent(notifId)}/read`, {
           method: 'POST', credentials: 'same-origin',
         });
+        if (!response.ok || !(await response.json()).ok) throw new Error("Lecture non confirmée. Réessayez.");
         // Retire l'item de la liste
         btn.closest('.support-notif-item')?.remove();
         // Refresh badge
