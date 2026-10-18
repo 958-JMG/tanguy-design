@@ -7,6 +7,7 @@ const multer = require('multer');
 // fetch est natif depuis Node 18, requis Node 20+ (cf. package.json engines).
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const { TRUST_PROXY } = require('./services/trust-proxy');
 const pinoHttp = require('pino-http');
 const { parseDevisPdf, parsePlaudTranscript } = require('./services/devis-parser');
 const { sonderConnecteurs } = require('./services/sonde-connecteurs');
@@ -237,18 +238,15 @@ function getUserEmail(login) {
 }
 
 // --- Middleware ---
-// Scaleway en front, Cloudflare en amont (Proxied).
-// trust proxy = 2 (Cloudflare + Scaleway LB) pour que req.ip/secure cookies fonctionnent.
-app.set('trust proxy', 2);
+// Cloudflare en amont (Proxied), puis Scaleway en PLUSIEURS sauts internes : « 2 » s'arrêtait sur un équilibreur interne
+// (mesuré en prod sur memory-958 le 18/10/2026). Les sauts crus sont des plages — Scaleway et Cloudflare —, voir
+// services/trust-proxy.js (lot D) : req.ip est l'adresse que Cloudflare a vue, et req.secure vaut pour les cookies.
+app.set('trust proxy', TRUST_PROXY);
 
-// Récupère la vraie IP client : priorise CF-Connecting-IP (Cloudflare Proxied),
-// fallback X-Real-IP / req.ip (direct Scaleway).
+// L'IP du visiteur est celle qu'établit trust proxy : plus CF-Connecting-IP ni X-Real-IP, des en-têtes que l'appelant pouvait
+// écrire lui-même en joignant l'adresse Scaleway sans passer par Cloudflare (les limiteurs se contournaient en les changeant).
 function clientIp(req) {
-  return req.headers['cf-connecting-ip']
-    || req.headers['x-real-ip']
-    || req.ip
-    || req.connection?.remoteAddress
-    || 'unknown';
+  return req.ip || req.socket?.remoteAddress || 'unknown';
 }
 
 // pino-http : 1 log JSON par requête (id, méthode, url, status, durée).
@@ -450,9 +448,7 @@ async function withKeepAlive(req, res, handler) {
   }
 }
 
-// keyGenerator commun aux rate-limiters : utilise la vraie IP client (CF-Connecting-IP prioritaire)
-// sinon tous les users seraient groupés derrière l'IP Cloudflare unique → rate-limit inutile.
-const ipKeyGen = (req) => clientIp(req);
+// Clé des limiteurs : celle par défaut d'express-rate-limit, req.ip (établie par trust proxy ci-dessus, IPv6 regroupés en /56).
 
 // Rate-limit global API (protection contre DoS basique) : 300 req/min par IP client
 const apiLimiter = rateLimit({
@@ -460,7 +456,6 @@ const apiLimiter = rateLimit({
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: ipKeyGen,
   message: { error: 'Trop de requêtes, réessayez dans 1 minute' },
 });
 app.use('/api/', apiLimiter);
@@ -471,7 +466,6 @@ const loginLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: ipKeyGen,
   message: { error: 'Trop de tentatives de connexion. Réessayez dans 15 minutes.' },
   skipSuccessfulRequests: true, // ne compte pas les logins réussis
 });
