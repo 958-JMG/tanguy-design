@@ -53,8 +53,15 @@ const usersStore = require('./services/users-store');
 const s3Transfert = require('./services/s3-transfert');
 const exportService = require('./services/export');   // export / réversibilité : ZIP des données Airtable, remis par lien signé
 const totp = require('./services/totp');
+// Lot B de la passe de sécurité du 18/10/2026 : le filet des routes async et du processus (services/filet.js).
+const { securiserRoutes, gestionnaireErreurs, installerFilet } = require('./services/filet');
 
 const app = express();
+// Toute route async déclarée ci-dessous reçoit son filet : un rejet répond 500 (gestionnaireErreurs, en bas) au lieu de
+// laisser la requête sans réponse et de tuer le processus (64 routes async sans try au 18/10). Et ce qui échappe encore
+// (un setTimeout, un .then sans catch) est journalisé, le serveur continue.
+securiserRoutes(app);
+installerFilet(logger);
 const PORT = process.env.PORT || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -5282,6 +5289,9 @@ app.use('/v3',  requireAuth, express.static(path.join(__dirname, 'public', 'v3')
     }
   },
 }));
+
+// Le dernier middleware : l'erreur qu'une route a laissée passer est journalisée et reçoit sa réponse (services/filet.js).
+app.use(gestionnaireErreurs(logger));
 
 // Démarrage : sous flag e2e, on remappe d'abord les tables par nom (base de test),
 // puis on écoute. En prod (flag absent), resolveTablesByNameIfE2E() est un no-op.
