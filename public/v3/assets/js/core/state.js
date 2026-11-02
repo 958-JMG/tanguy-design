@@ -8,6 +8,7 @@ export const state = {
   projets: [],         // tous les projets (pour Dashboard / Pipeline / Cmd+K)
   client: null,        // client courant (fiche détaillée)
   clientProjets: [],   // projets du client courant
+  poseEvenements: [],  // événements de pose en saisie libre (onglet Pose)
 };
 
 export async function loadMe() {

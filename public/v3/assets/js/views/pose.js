@@ -12,12 +12,15 @@
 import { state } from '../core/state.js';
 import { navigateTo } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
-import { patchProjet, fetchPoseEquipes, patchPoseEquipes } from '../core/api.js';
+import {
+  patchProjet, fetchPoseEquipes, patchPoseEquipes,
+  fetchPoseEvenements, createPoseEvenement, patchPoseEvenement, deletePoseEvenement,
+} from '../core/api.js';
 import { toast, confirmModal } from '../core/ui.js';
 import { isoWeek } from '../core/rdv.js';
 import {
   joursDeLaSemaine, lundiDeLaSemaine, disposerEnColonnes, amplitudeHoraire,
-  jourDeValeurDate, plagePose, deplacerPlage, redimensionnerPlage,
+  jourDeValeurDate, plagePose, plageHoraire, deplacerPlage, redimensionnerPlage,
   heureDeMinutes, minutesDeHeure, POSE_DEFAUT,
   indexEquipes, classeEquipe,
 } from '../core/calendar-model.js';
@@ -65,6 +68,7 @@ function creneauxDeLaSemaine(jours) {
     for (const j of jours) {
       if (j < debut || j > fin) continue;
       out.push({
+        kind: 'projet',
         projetId: p.id,
         jour: toISODate(j),
         // Rang du jour dans la pose : « J2/3 » situe le bloc dans le chantier.
@@ -77,6 +81,36 @@ function creneauxDeLaSemaine(jours) {
         statutChantier: p['Statut chantier'] || '',
         equipe: String(p['Équipe pose'] || '').trim(),
         note: String(p['Note pose'] || '').trim(),
+        debut: plage.debut,
+        fin: plage.fin,
+        parDefaut: plage.parDefaut,
+        incoherente: plage.incoherente,
+      });
+    }
+  }
+
+  // Événements libres (livraison, réception, congé…) — même découpage en un
+  // bloc par jour couvert, mais rattachés à aucun projet.
+  for (const ev of state.poseEvenements || []) {
+    const debut = jourDeValeurDate(ev.dateDebut);
+    if (!debut) continue;
+    let fin = jourDeValeurDate(ev.dateFin) || debut;
+    if (fin < debut) fin = debut;            // garde-fou : jamais de bloc qui disparaît
+    if (fin < j0 || debut > j6) continue;
+    const plage = plageHoraire(ev.heureDebut, ev.heureFin);
+    for (const j of jours) {
+      if (j < debut || j > fin) continue;
+      out.push({
+        kind: 'evenement',
+        evenementId: ev.id,
+        jour: toISODate(j),
+        rang: diffDays(debut, j) + 1,
+        total: diffDays(debut, fin) + 1,
+        debutPose: toISODate(debut),
+        finPose: toISODate(fin),
+        titre: String(ev.titre || '').trim(),
+        equipe: String(ev.equipe || '').trim(),
+        note: String(ev.note || '').trim(),
         debut: plage.debut,
         fin: plage.fin,
         parDefaut: plage.parDefaut,
@@ -110,10 +144,18 @@ export function renderPose(app) {
     const poses = [];
     for (const [j, liste] of parJour) for (const c of disposerEnColonnes(liste)) poses.push({ ...c, jour: j });
 
-    const nbChantiers = new Set(creneaux.map(c => c.projetId)).size;
-    const sansHeures = new Set(creneaux.filter(c => c.parDefaut && !c.incoherente).map(c => c.projetId)).size;
-    const incoherents = new Set(creneaux.filter(c => c.incoherente).map(c => c.projetId)).size;
+    // Identité d'un créneau, quel que soit son type (chantier ou événement libre).
+    const cleId = c => c.projetId || c.evenementId;
+    const nbChantiers = new Set(creneaux.filter(c => c.kind === 'projet').map(c => c.projetId)).size;
+    const nbEvenements = new Set(creneaux.filter(c => c.kind === 'evenement').map(c => c.evenementId)).size;
+    const sansHeures = new Set(creneaux.filter(c => c.parDefaut && !c.incoherente).map(cleId)).size;
+    const incoherents = new Set(creneaux.filter(c => c.incoherente).map(cleId)).size;
     const collisions = compterCollisions(poses);
+
+    const resumeParts = [];
+    if (nbChantiers) resumeParts.push(`<strong>${nbChantiers}</strong> chantier${nbChantiers > 1 ? 's' : ''}`);
+    if (nbEvenements) resumeParts.push(`<strong>${nbEvenements}</strong> événement${nbEvenements > 1 ? 's' : ''} libre${nbEvenements > 1 ? 's' : ''}`);
+    const resumeTxt = resumeParts.length ? `${resumeParts.join(' · ')} cette semaine.` : 'Aucune pose planifiée cette semaine.';
 
     const a = jours[0], b = jours[6];
 
@@ -132,10 +174,11 @@ export function renderPose(app) {
       <div class="cal-legend">
         <span class="pose-equipes-legend">${legendeEquipes()}</span>
         <span class="muted" style="flex-basis:100%">
-          ${nbChantiers ? `<strong>${nbChantiers}</strong> chantier${nbChantiers > 1 ? 's' : ''} cette semaine.` : 'Aucune pose planifiée cette semaine.'}
+          ${resumeTxt}
           Le planning des poses de la semaine, une équipe = une couleur.
-          <strong>Cliquer une case vide pour planifier une pose</strong> · toucher un bloc pour changer l'équipe, les dates, les heures et la note ·
-          tirer son bord bas pour l'allonger · « Voir le projet » ouvre la fiche. Sur ordinateur, glisser un bloc le déplace (jour et heure).
+          <strong>Cliquer une case vide pour planifier une pose</strong> (un chantier ou une saisie libre : livraison, congé…) ·
+          toucher un bloc pour le modifier · tirer son bord bas pour l'allonger ·
+          « Voir le projet » ouvre la fiche. Sur ordinateur, glisser un bloc le déplace (jour et heure).
         </span>
       </div>
 
@@ -208,33 +251,52 @@ export function renderPose(app) {
     // Équipe renseignée mais absente de la liste chargée (option supprimée) : on
     // ne devine pas de couleur, mais on garde le nom en clair dans le bloc.
     const equipeConnue = clEquipe !== 'equipe-none';
+    const estEvenement = p.kind === 'evenement';
+    // Libellé principal : client+réf pour un chantier, titre libre pour un événement.
+    const principal = estEvenement ? (p.titre || '(sans titre)') : (p.client || '(client inconnu)');
+    const secondaire = estEvenement ? '' : (p.reference || '(sans référence)');
+
     const titre = [
-      p.client || '(client inconnu)',
-      p.reference || '(projet sans référence)',
+      estEvenement ? `Événement libre : ${p.titre || '(sans titre)'}` : (p.client || '(client inconnu)'),
+      estEvenement ? '' : (p.reference || '(projet sans référence)'),
       p.equipe ? `Équipe : ${p.equipe}` : 'Sans équipe',
       `${heureDeMinutes(p.debut)}–${heureDeMinutes(p.fin)}`,
-      p.total > 1 ? `jour ${p.rang} sur ${p.total} (${p.debutPose} → ${p.finPose})` : 'pose d’un jour',
+      p.total > 1 ? `jour ${p.rang} sur ${p.total} (${p.debutPose} → ${p.finPose})`
+        : (estEvenement ? 'événement d’un jour' : 'pose d’un jour'),
       p.note ? `Note : ${p.note}` : '',
       p.incoherente ? 'heures incohérentes — journée standard affichée'
         : (p.parDefaut ? 'heures non saisies — journée standard affichée' : ''),
     ].filter(Boolean).join(' · ');
+
+    // Attribut d'identité + action d'ouverture selon le type.
+    const idAttr = estEvenement
+      ? `data-kind="evenement" data-evenement="${esc(p.evenementId)}"`
+      : `data-kind="projet" data-projet="${esc(p.projetId)}"`;
+    const ouvrirTitre = estEvenement
+      ? 'Modifier le titre, les dates, les heures, l’équipe et la note'
+      : "Modifier l'équipe, les dates, les heures et la note";
+    // Seuls les chantiers ont une fiche projet à ouvrir.
+    const cta = estEvenement
+      ? ''
+      : `<button class="pose-cta" data-action="projet" title="Ouvrir la fiche projet">Voir le projet ${icon('arrowRight', 10)}</button>`;
+
     return `
-      <div class="pose-bloc ${clEquipe} ${p.parDefaut ? 'is-defaut' : ''}"
+      <div class="pose-bloc ${clEquipe} ${p.parDefaut ? 'is-defaut' : ''} ${estEvenement ? 'is-evenement' : ''}"
            style="top:${top.toFixed(3)}%; height:${haut.toFixed(3)}%; left:${(p.col * largeur).toFixed(3)}%; width:calc(${largeur.toFixed(3)}% - 3px);"
            draggable="true"
-           data-projet="${p.projetId}" data-jour="${p.jour}"
+           ${idAttr} data-jour="${p.jour}"
            data-debut-pose="${p.debutPose}" data-fin-pose="${p.finPose}"
            data-h-debut="${p.debut}" data-h-fin="${p.fin}"
            title="${esc(titre)}">
-        <button class="pose-bloc-corps" data-action="ouvrir" title="Modifier l'équipe, les dates, les heures et la note">
-          <span class="pose-h">${heureDeMinutes(p.debut)}–${heureDeMinutes(p.fin)}${p.total > 1 ? ` · J${p.rang}/${p.total}` : ''}</span>
-          <span class="pose-client">${esc(p.client || '(client inconnu)')}</span>
-          <span class="pose-ref">${esc(p.reference || '(sans référence)')}</span>
+        <button class="pose-bloc-corps" data-action="ouvrir" title="${esc(ouvrirTitre)}">
+          <span class="pose-h">${estEvenement ? icon('calendar', 10) + ' ' : ''}${heureDeMinutes(p.debut)}–${heureDeMinutes(p.fin)}${p.total > 1 ? ` · J${p.rang}/${p.total}` : ''}</span>
+          <span class="pose-client">${esc(principal)}</span>
+          ${secondaire ? `<span class="pose-ref">${esc(secondaire)}</span>` : ''}
           ${p.equipe ? `<span class="pose-equipe">${equipeConnue ? '' : '⚠ '}${esc(p.equipe)}</span>` : ''}
           ${p.note ? `<span class="pose-note">${esc(p.note)}</span>` : ''}
           ${p.parDefaut ? `<span class="pose-defaut">${p.incoherente ? 'heures incohérentes' : 'heures non saisies'}</span>` : ''}
         </button>
-        <button class="pose-cta" data-action="projet" title="Ouvrir la fiche projet">Voir le projet ${icon('arrowRight', 10)}</button>
+        ${cta}
         <span class="pose-grip" data-action="etirer" title="Tirer pour allonger la journée"></span>
       </div>`;
   }
@@ -264,7 +326,8 @@ export function renderPose(app) {
         e.stopPropagation();
         const bloc = b.closest('.pose-bloc');
         if (bloc.classList.contains('dragging') || bloc.dataset.etirement === '1') return;
-        ouvrirModale(bloc.dataset.projet);
+        if (bloc.dataset.kind === 'evenement') ouvrirModaleEvenement(bloc.dataset.evenement);
+        else ouvrirModale(bloc.dataset.projet);
       });
     });
 
@@ -326,15 +389,27 @@ export function renderPose(app) {
           memeJour ? null : `du ${nDebut}${duree > 1 ? ` au ${nFin}` : ''}`,
           memeHeure ? null : `de ${heureDeMinutes(plage.debut)} à ${heureDeMinutes(plage.fin)}`,
         ].filter(Boolean).join(', ');
-        const ok = await confirmModal(`Déplacer cette pose ${quoi} ?`, { okLabel: 'Déplacer' });
+        const estEvenement = c.kind === 'evenement';
+        const ok = await confirmModal(
+          `Déplacer ${estEvenement ? 'cet événement' : 'cette pose'} ${quoi} ?`, { okLabel: 'Déplacer' });
         if (!ok) return;
 
-        await enregistrer(c.projet, {
-          'Date pose prévue': nDebut,
-          'Date pose fin': nFin,
-          'Heure début pose': heureDeMinutes(plage.debut),
-          'Heure fin pose': heureDeMinutes(plage.fin),
-        }, `Pose déplacée ${quoi}`);
+        if (estEvenement) {
+          await enregistrerEvenement(c.evenement, {
+            dateDebut: nDebut,
+            // On préserve « vide = un jour » : pas de date de fin pour un mono-jour.
+            dateFin: duree > 1 ? nFin : null,
+            heureDebut: heureDeMinutes(plage.debut),
+            heureFin: heureDeMinutes(plage.fin),
+          }, `Événement déplacé ${quoi}`);
+        } else {
+          await enregistrer(c.projet, {
+            'Date pose prévue': nDebut,
+            'Date pose fin': nFin,
+            'Heure début pose': heureDeMinutes(plage.debut),
+            'Heure fin pose': heureDeMinutes(plage.fin),
+          }, `Pose déplacée ${quoi}`);
+        }
       });
     });
   }
@@ -376,14 +451,23 @@ export function renderPose(app) {
           // drapeau le temps de ce tour de boucle pour ne pas ouvrir la fenêtre.
           setTimeout(() => { delete bloc.dataset.etirement; }, 0);
           if (plage.fin === Number(bloc.dataset.hFin)) { draw(); return; }
+          const estEvenement = bloc.dataset.kind === 'evenement';
           const ok = await confirmModal(
-            `Pose de ${heureDeMinutes(plage.debut)} à ${heureDeMinutes(plage.fin)} ? (appliqué à tous les jours de ce chantier)`,
+            `${estEvenement ? 'Événement' : 'Pose'} de ${heureDeMinutes(plage.debut)} à ${heureDeMinutes(plage.fin)} ? (appliqué à tous les jours)`,
             { okLabel: 'Enregistrer' });
           if (!ok) { draw(); return; }
-          await enregistrer(bloc.dataset.projet, {
-            'Heure début pose': heureDeMinutes(plage.debut),
-            'Heure fin pose': heureDeMinutes(plage.fin),
-          }, `Pose de ${heureDeMinutes(plage.debut)} à ${heureDeMinutes(plage.fin)}`);
+          const msg = `${estEvenement ? 'Événement' : 'Pose'} de ${heureDeMinutes(plage.debut)} à ${heureDeMinutes(plage.fin)}`;
+          if (estEvenement) {
+            await enregistrerEvenement(bloc.dataset.evenement, {
+              heureDebut: heureDeMinutes(plage.debut),
+              heureFin: heureDeMinutes(plage.fin),
+            }, msg);
+          } else {
+            await enregistrer(bloc.dataset.projet, {
+              'Heure début pose': heureDeMinutes(plage.debut),
+              'Heure fin pose': heureDeMinutes(plage.fin),
+            }, msg);
+          }
         };
         grip.addEventListener('pointermove', bouge);
         grip.addEventListener('pointerup', fini);
@@ -403,6 +487,45 @@ export function renderPose(app) {
     } catch (err) {
       toast('Erreur : ' + err.message, 'error', 5000);
       draw();
+    }
+  }
+
+  // Écrit sur un événement libre et remplace sa copie locale (le serveur renvoie
+  // l'événement normalisé, source de vérité du redessin).
+  async function enregistrerEvenement(evenementId, fields, messageOk) {
+    try {
+      const ev = await patchPoseEvenement(evenementId, fields);
+      const i = (state.poseEvenements || []).findIndex(x => x.id === evenementId);
+      if (i >= 0 && ev) state.poseEvenements[i] = ev;
+      draw();
+      toast(messageOk, 'success');
+    } catch (err) {
+      toast('Erreur : ' + err.message, 'error', 5000);
+      draw();
+    }
+  }
+
+  // Crée un événement libre et l'ajoute au state local pour un redessin immédiat.
+  async function creerEvenement(fields) {
+    try {
+      const ev = await createPoseEvenement(fields);
+      if (ev) state.poseEvenements = [...(state.poseEvenements || []), ev];
+      draw();
+      toast('Événement planifié', 'success');
+    } catch (err) {
+      toast('Erreur : ' + err.message, 'error', 5000);
+    }
+  }
+
+  // Retire un événement libre du planning (suppression franche de la ligne).
+  async function supprimerEvenement(evenementId) {
+    try {
+      await deletePoseEvenement(evenementId);
+      state.poseEvenements = (state.poseEvenements || []).filter(e => e.id !== evenementId);
+      draw();
+      toast('Événement retiré du planning', 'success');
+    } catch (err) {
+      toast('Erreur : ' + err.message, 'error', 5000);
     }
   }
 
@@ -479,12 +602,89 @@ export function renderPose(app) {
     };
   }
 
-  // Fenêtre de CRÉATION : on choisit le chantier à planifier (une pose = un
-  // projet daté), le jour et les heures. Préremplie par la case cliquée.
+  // Fenêtre d'édition d'un événement libre : intitulé, dates, heures, équipe, note.
+  // Même ergonomie que la fenêtre de pose, mais écrit dans la table « Événements
+  // pose » et non sur un projet ; « Retirer » supprime franchement la ligne.
+  function ouvrirModaleEvenement(evenementId) {
+    const ev = (state.poseEvenements || []).find(e => e.id === evenementId);
+    if (!ev) { toast('Événement introuvable.', 'error', 4000); return; }
+    const plage = plageHoraire(ev.heureDebut, ev.heureFin);
+    const modal = document.createElement('div');
+    modal.className = 'modal-bg';
+    modal.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true">
+        <h2>Événement libre</h2>
+        <p class="muted" style="margin-top:0">Saisie libre du planning (hors chantier).
+          ${plage.parDefaut
+            ? `<strong>Heures non saisies</strong> : le planning affiche la journée standard ${POSE_DEFAUT.debut}–${POSE_DEFAUT.fin}${plage.incoherente ? ' (les heures enregistrées sont incohérentes)' : ''}.`
+            : 'Les heures s\'appliquent à chaque jour.'}</p>
+        <label>Intitulé
+          <input type="text" data-titre maxlength="120" value="${esc(ev.titre || '')}" placeholder="Ex : Livraison cuisine Martin"></label>
+        <label>Équipe <span class="muted">(couleur dans le planning)</span>
+          ${selectEquipeHtml(ev.equipe || '')}</label>
+        <label>Premier jour <input type="date" data-debut value="${esc((ev.dateDebut || '').slice(0, 10))}"></label>
+        <label>Dernier jour <span class="muted">(vide = un seul jour)</span>
+          <input type="date" data-fin value="${esc((ev.dateFin || '').slice(0, 10))}"></label>
+        <label>Heure de début <input type="time" data-h-debut value="${esc(ev.heureDebut || POSE_DEFAUT.debut)}"></label>
+        <label>Heure de fin <input type="time" data-h-fin value="${esc(ev.heureFin || POSE_DEFAUT.fin)}"></label>
+        <label>Note <span class="muted">(consignes… — visible sur le bloc)</span>
+          <textarea data-note rows="2" placeholder="Ex : réceptionner au dépôt, prévenir l'atelier.">${esc(ev.note || '')}</textarea></label>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" data-annuler>Annuler</button>
+          <button type="button" class="btn btn-ghost" data-retirer style="color:var(--accent)">${icon('trash', 14)} Retirer du planning</button>
+          <button type="button" class="btn btn-primary" data-enregistrer>Enregistrer</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    hydrateIcons(modal);
+    const close = () => modal.remove();
+    modal.addEventListener('click', e => { if (e.target === modal) close(); });
+    modal.querySelector('[data-annuler]').onclick = close;
+
+    modal.querySelector('[data-retirer]').onclick = async () => {
+      const ok = await confirmModal(
+        `Retirer « ${ev.titre || 'cet événement'} » du planning ? (suppression définitive)`,
+        { okLabel: 'Retirer', danger: true });
+      if (!ok) return;
+      close();
+      await supprimerEvenement(evenementId);
+    };
+
+    modal.querySelector('[data-enregistrer]').onclick = async () => {
+      const titre = (modal.querySelector('[data-titre]').value || '').trim();
+      if (!titre) { toast('L\'intitulé ne peut pas être vide.', 'error', 4000); return; }
+      const debut = modal.querySelector('[data-debut]').value || null;
+      if (!debut) { toast('Choisis le premier jour.', 'error', 4000); return; }
+      const fin = modal.querySelector('[data-fin]').value || null;
+      const hD = modal.querySelector('[data-h-debut]').value || '';
+      const hF = modal.querySelector('[data-h-fin]').value || '';
+      const equipe = modal.querySelector('[data-equipe]').value || '';
+      const note = modal.querySelector('[data-note]').value.trim();
+      if (fin && fin < debut) { toast('Le dernier jour est avant le premier.', 'error', 5000); return; }
+      const mD = minutesDeHeure(hD), mF = minutesDeHeure(hF);
+      if (hD && hF && (mD === null || mF === null)) { toast('Heures illisibles (format attendu HH:MM).', 'error', 5000); return; }
+      if (mD !== null && mF !== null && mF <= mD) { toast('L\'heure de fin doit être après l\'heure de début.', 'error', 5000); return; }
+      close();
+      await enregistrerEvenement(evenementId, {
+        titre,
+        dateDebut: debut,
+        dateFin: fin,
+        heureDebut: hD || null,
+        heureFin: hF || null,
+        equipe: equipe || null,
+        note: note || null,
+      }, 'Événement mis à jour');
+    };
+  }
+
+  // Fenêtre de CRÉATION : deux modes.
+  //  · « Chantier existant » → une pose = un projet daté (comportement initial).
+  //  · « Saisie libre »      → un événement libre (livraison, congé…), sans projet.
+  // Préremplie par la case cliquée. Si aucun projet n'est chargé, on démarre
+  // d'emblée en saisie libre plutôt que de bloquer l'écran.
   function ouvrirModaleCreation(isoPrefill, heurePrefill) {
     const projets = (state.projets || []).slice()
       .sort((a, b) => String(a['Référence'] || '').localeCompare(String(b['Référence'] || '')));
-    if (!projets.length) { toast('Aucun chantier à planifier pour le moment.', 'error', 4000); return; }
     const clientById = new Map((state.clients || []).map(c => [c.id, c]));
     const h = Math.max(7, Math.min(18, Number(heurePrefill) || 8));
     const hDebut = `${String(h).padStart(2, '0')}:00`;
@@ -495,17 +695,28 @@ export function renderPose(app) {
     modal.innerHTML = `
       <div class="modal" role="dialog" aria-modal="true">
         <h2>Planifier une pose</h2>
-        <p class="muted" style="margin-top:0">Cherche le chantier, choisis le jour et les heures. La pose apparaît aussitôt dans le planning.</p>
-        <label>Chantier
-          <input type="search" data-recherche placeholder="Rechercher un chantier (client, référence)…" autocomplete="off" enterkeyhint="search">
-        </label>
-        <input type="hidden" data-projet value="">
-        <div class="pose-choisi" data-choisi hidden></div>
-        <div class="pose-recherche" data-resultats></div>
+        <p class="muted" style="margin-top:0">Un chantier du pipeline, ou une saisie libre pour ce qui n'y figure pas (livraison, réception, congé…). Choisis le jour et les heures : ça apparaît aussitôt dans le planning.</p>
+        <div class="pose-mode" role="tablist" aria-label="Type d'entrée">
+          <button type="button" class="pose-mode-btn" data-mode-btn="chantier" role="tab">Chantier existant</button>
+          <button type="button" class="pose-mode-btn" data-mode-btn="libre" role="tab">Saisie libre</button>
+        </div>
+        <div data-section-chantier>
+          <label>Chantier
+            <input type="search" data-recherche placeholder="Rechercher un chantier (client, référence)…" autocomplete="off" enterkeyhint="search">
+          </label>
+          <input type="hidden" data-projet value="">
+          <div class="pose-choisi" data-choisi hidden></div>
+          <div class="pose-recherche" data-resultats></div>
+        </div>
+        <div data-section-libre hidden>
+          <label>Intitulé <span class="muted">(ce que tu veux : livraison, réception, congé…)</span>
+            <input type="text" data-titre maxlength="120" placeholder="Ex : Livraison cuisine Martin" autocomplete="off">
+          </label>
+        </div>
         <label>Équipe <span class="muted">(couleur dans le planning)</span>
           ${selectEquipeHtml('')}</label>
         <label>Premier jour <input type="date" data-debut value="${esc(isoPrefill || '')}"></label>
-        <label>Dernier jour <span class="muted">(vide = pose d'un jour)</span>
+        <label>Dernier jour <span class="muted">(vide = un seul jour)</span>
           <input type="date" data-fin value=""></label>
         <label>Heure de début <input type="time" data-h-debut value="${hDebut}"></label>
         <label>Heure de fin <input type="time" data-h-fin value="${hFin}"></label>
@@ -521,6 +732,22 @@ export function renderPose(app) {
     const close = () => modal.remove();
     modal.addEventListener('click', e => { if (e.target === modal) close(); });
     modal.querySelector('[data-annuler]').onclick = close;
+
+    // ── Bascule chantier / saisie libre ──
+    const sectionChantier = modal.querySelector('[data-section-chantier]');
+    const sectionLibre = modal.querySelector('[data-section-libre]');
+    const titreInput = modal.querySelector('[data-titre]');
+    // Sans projet chargé, « Chantier existant » n'aurait rien à proposer.
+    let mode = projets.length ? 'chantier' : 'libre';
+    function appliquerMode() {
+      sectionChantier.hidden = mode !== 'chantier';
+      sectionLibre.hidden = mode !== 'libre';
+      modal.querySelectorAll('[data-mode-btn]').forEach(b =>
+        b.classList.toggle('is-active', b.dataset.modeBtn === mode));
+      setTimeout(() => { (mode === 'libre' ? titreInput : champ)?.focus(); }, 30);
+    }
+    modal.querySelectorAll('[data-mode-btn]').forEach(b =>
+      b.addEventListener('click', () => { mode = b.dataset.modeBtn; appliquerMode(); }));
 
     // ── Mini moteur de recherche de chantier (remplace la liste déroulante) ──
     const champ = modal.querySelector('[data-recherche]');
@@ -594,11 +821,9 @@ export function renderPose(app) {
       if (first) choisir(first.dataset.pick);
     });
     rendreResultats();
-    setTimeout(() => champ.focus(), 50);
+    appliquerMode();
 
     modal.querySelector('[data-planifier]').onclick = async () => {
-      const projetId = hidden.value;
-      if (!projetId) { toast('Cherche et choisis un chantier.', 'error', 4000); return; }
       const debut = modal.querySelector('[data-debut]').value || null;
       if (!debut) { toast('Choisis le premier jour.', 'error', 4000); return; }
       const fin = modal.querySelector('[data-fin]').value || null;
@@ -609,6 +834,25 @@ export function renderPose(app) {
       if (fin && fin < debut) { toast('Le dernier jour est avant le premier.', 'error', 5000); return; }
       const mD = minutesDeHeure(hD), mF = minutesDeHeure(hF);
       if (mD !== null && mF !== null && mF <= mD) { toast('L\'heure de fin doit être après l\'heure de début.', 'error', 5000); return; }
+
+      if (mode === 'libre') {
+        const titre = (titreInput.value || '').trim();
+        if (!titre) { toast('Donne un intitulé à ta saisie libre.', 'error', 4000); return; }
+        close();
+        await creerEvenement({
+          titre,
+          dateDebut: debut,
+          dateFin: fin,
+          heureDebut: hD || null,
+          heureFin: hF || null,
+          equipe: equipe || null,
+          note: note || null,
+        });
+        return;
+      }
+
+      const projetId = hidden.value;
+      if (!projetId) { toast('Cherche et choisis un chantier.', 'error', 4000); return; }
       close();
       await enregistrer(projetId, {
         'Date pose prévue': debut,
@@ -705,12 +949,13 @@ export function renderPose(app) {
     };
   }
 
-  // Chargement des équipes AVANT le premier dessin (planning coloré d'emblée).
+  // Chargement des équipes + des événements libres AVANT le premier dessin
+  // (planning coloré et complet d'emblée). Chaque source échoue indépendamment :
+  // un couac sur l'une ne doit pas priver le planning de l'autre.
   (async () => {
-    try {
-      equipes = await fetchPoseEquipes();
-      idxEquipes = indexEquipes(equipes);
-    } catch (e) { /* planning en couleurs neutres si l'appel échoue */ }
+    const [eq, ev] = await Promise.allSettled([fetchPoseEquipes(), fetchPoseEvenements()]);
+    if (eq.status === 'fulfilled') { equipes = eq.value; idxEquipes = indexEquipes(equipes); }
+    state.poseEvenements = ev.status === 'fulfilled' ? ev.value : [];
     draw();
   })();
 }

@@ -36,6 +36,14 @@ module.exports = function creerBanc({ secret = 'secret-de-test-banc-serveur-tang
   const db = {};
   let seq = 0;
   const table = id => (db[id] ||= new Map());
+  // Tables connues de l'API meta (schema). Vide par défaut : les tests qui ont
+  // besoin d'une table résolue par son NOM (ex. « Événements pose ») la déclarent.
+  const metaTables = [];
+  const declarerTableMeta = (name, id) => {
+    if (!metaTables.some(t => t.id === id)) metaTables.push({ id, name, fields: [] });
+    table(id);                         // prépare le stockage en mémoire
+    return id;
+  };
   const put = (tableId, id, fields) => {
     table(tableId).set(id, { id, createdTime: '2026-10-14T07:00:00.000Z', fields: JSON.parse(JSON.stringify(fields)) });
   };
@@ -60,6 +68,13 @@ module.exports = function creerBanc({ secret = 'secret-de-test-banc-serveur-tang
   const inconnu = (tableId, fields) => [...(champsInconnus.get(tableId) || [])].find(c => fields && c in fields);
 
   function airtable(u, opts) {
+    // API meta (schéma) : liste des tables, pour les endpoints qui résolvent une
+    // table par son nom (Équipes pose, Événements pose…).
+    const meta = u.pathname.match(/^\/v0\/meta\/bases\/([^/]+)\/tables$/);
+    if (meta) {
+      if (meta[1] !== process.env.AIRTABLE_BASE_ID) return json(404, { error: { type: 'NOT_FOUND' } });
+      return json(200, { tables: metaTables });
+    }
     const m = u.pathname.match(/^\/v0\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/);
     if (!m || m[1] !== process.env.AIRTABLE_BASE_ID) return json(404, { error: { type: 'NOT_FOUND' } });
     const [, , tableId, id] = m;
@@ -92,6 +107,10 @@ module.exports = function creerBanc({ secret = 'secret-de-test-banc-serveur-tang
       const creer = fields => { const rid = `recNEW${++seq}`; put(tableId, rid, fields || {}); const r = t.get(rid); lier(tableId, r); return r; };
       if (Array.isArray(body.records)) return json(200, { records: body.records.map(x => creer(x.fields)) });
       return json(200, creer(body.fields));
+    }
+    if (method === 'DELETE' && id) {
+      const existait = t.delete(id);
+      return existait ? json(200, { id, deleted: true }) : json(404, { error: { type: 'NOT_FOUND' } });
     }
     return json(405, { error: { type: 'METHOD' } });
   }
@@ -132,6 +151,7 @@ module.exports = function creerBanc({ secret = 'secret-de-test-banc-serveur-tang
   let base, srv;
   return {
     T, table, put, get, lier, champsInconnus, pennylaneRecu, referencesPrises, cookiePour,
+    metaTables, declarerTableMeta,
     async demarrer() {
       const app = require('../../server');
       srv = http.createServer(app);

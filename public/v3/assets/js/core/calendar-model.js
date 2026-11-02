@@ -230,19 +230,19 @@ export function heureDeMinutes(min) {
 }
 
 /**
- * Plage horaire quotidienne d'une pose.
+ * Plage horaire quotidienne à partir de deux heures 'HH:MM'.
  *
  * Renvoie { debut, fin, parDefaut } en minutes, `parDefaut` disant si l'une des
  * deux heures manquait — l'écran doit le montrer plutôt que de faire passer
- * 08:00–17:00 pour une décision de Virginie.
+ * 08:00–17:00 pour une décision de quelqu'un.
  *
  * Une fin antérieure ou égale au début est refusée : on retombe sur la journée
  * standard et on le signale, plutôt que d'afficher un bloc de hauteur nulle
  * ou négative qui disparaîtrait de l'écran.
  */
-export function plagePose(projet) {
-  const d = minutesDeHeure(projet && projet['Heure début pose']);
-  const f = minutesDeHeure(projet && projet['Heure fin pose']);
+export function plageHoraire(heureDebut, heureFin) {
+  const d = minutesDeHeure(heureDebut);
+  const f = minutesDeHeure(heureFin);
   if (d === null || f === null || f <= d) {
     return {
       debut: minutesDeHeure(POSE_DEFAUT.debut),
@@ -253,6 +253,11 @@ export function plagePose(projet) {
     };
   }
   return { debut: d, fin: f, parDefaut: false, incoherente: false };
+}
+
+/** Plage horaire quotidienne d'une pose-chantier (heures portées par le projet). */
+export function plagePose(projet) {
+  return plageHoraire(projet && projet['Heure début pose'], projet && projet['Heure fin pose']);
 }
 
 /**
