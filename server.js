@@ -1363,6 +1363,154 @@ app.patch('/api/pose/equipes', requireAuth, requireAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Événements de pose — saisie libre (onglet Pose, 2026-11-02) ──────────────
+// Demande Sébastien (via JMG) : pouvoir planifier sur l'onglet Pose ce qui n'est
+// PAS un projet du pipeline (livraison, réception, congé, SAV ponctuel…). Ces
+// entrées vivent dans leur propre table « Événements pose », à côté des poses-
+// chantier, pour ne jamais polluer les projets (sinon une « livraison »
+// apparaîtrait dans le pipeline, les devis, les relances, les marges…).
+// Tout utilisateur authentifié du cockpit peut en créer/éditer : c'est de la
+// planification opérationnelle, comme déplacer une pose (pas réservé aux admins).
+const EVENEMENTS_POSE_TABLE = 'Événements pose';
+let _evenementsPoseTableId = null;
+async function fetchEvenementsPoseTableId() {
+  if (_evenementsPoseTableId) return _evenementsPoseTableId;
+  const r = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE_ID}/tables`, {
+    headers: { Authorization: `Bearer ${AT_KEY}` }
+  });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error?.message || `schéma ${r.status}`); }
+  const data = await r.json();
+  const t = (data.tables || []).find(t => t.name === EVENEMENTS_POSE_TABLE);
+  _evenementsPoseTableId = t?.id || null;
+  return _evenementsPoseTableId;
+}
+
+// Record Airtable → objet exposé au front (camelCase, valeurs vides en null).
+function normEvenementPose(rec) {
+  const f = rec.fields || {};
+  return {
+    id: rec.id,
+    titre: String(f['Titre'] || '').trim(),
+    dateDebut: f['Date début'] || null,
+    dateFin: f['Date fin'] || null,
+    heureDebut: f['Heure début'] || null,
+    heureFin: f['Heure fin'] || null,
+    equipe: f['Équipe'] || null,
+    note: f['Note'] || null,
+  };
+}
+
+const RE_DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
+function hhmmValide(s) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '').trim());
+  if (!m) return false;
+  return Number(m[1]) <= 23 && Number(m[2]) <= 59;
+}
+function minutesHHMM(s) { const [h, mn] = String(s).split(':').map(Number); return h * 60 + mn; }
+
+// Corps de requête → fields Airtable. partial=true pour un PATCH (ne mappe que
+// les clés présentes ; null efface le champ). Renvoie { fields } ou { error }.
+function champsEvenementPose(body, { partial }) {
+  const b = body || {};
+  const has = k => Object.prototype.hasOwnProperty.call(b, k);
+  const out = {};
+
+  if (!partial || has('titre')) {
+    const titre = String(b.titre ?? '').trim();
+    if (!titre) return { error: 'Le titre est obligatoire.' };
+    if (titre.length > 120) return { error: 'Titre trop long (120 caractères max).' };
+    out['Titre'] = titre;
+  }
+  if (!partial || has('dateDebut')) {
+    const d = b.dateDebut ? String(b.dateDebut).slice(0, 10) : '';
+    if (!d) return { error: 'Le premier jour est obligatoire.' };
+    if (!RE_DATE_ISO.test(d)) return { error: 'Premier jour illisible (AAAA-MM-JJ attendu).' };
+    out['Date début'] = d;
+  }
+  if (has('dateFin')) {
+    const d = b.dateFin ? String(b.dateFin).slice(0, 10) : '';
+    if (d && !RE_DATE_ISO.test(d)) return { error: 'Dernier jour illisible (AAAA-MM-JJ attendu).' };
+    out['Date fin'] = d || null;
+  }
+  if (has('heureDebut')) {
+    const h = b.heureDebut ? String(b.heureDebut).trim() : '';
+    if (h && !hhmmValide(h)) return { error: 'Heure de début illisible (HH:MM attendu).' };
+    out['Heure début'] = h || null;
+  }
+  if (has('heureFin')) {
+    const h = b.heureFin ? String(b.heureFin).trim() : '';
+    if (h && !hhmmValide(h)) return { error: 'Heure de fin illisible (HH:MM attendu).' };
+    out['Heure fin'] = h || null;
+  }
+  if (has('equipe')) {
+    const e = b.equipe ? String(b.equipe).trim() : '';
+    if (e.length > 40) return { error: 'Nom d’équipe trop long (40 max).' };
+    out['Équipe'] = e || null;
+  }
+  if (has('note')) {
+    const n = b.note ? String(b.note).trim() : '';
+    out['Note'] = n || null;
+  }
+
+  // Cohérence quand les deux bornes sont dans la même requête (le front les
+  // envoie toujours par paire).
+  if (out['Date début'] && out['Date fin'] && out['Date fin'] < out['Date début']) {
+    return { error: 'Le dernier jour est avant le premier.' };
+  }
+  if (out['Heure début'] && out['Heure fin'] && minutesHHMM(out['Heure fin']) <= minutesHHMM(out['Heure début'])) {
+    return { error: 'L’heure de fin doit être après l’heure de début.' };
+  }
+  return { fields: out };
+}
+
+const EV_POSE_ABSENTE = 'La table « Événements pose » n’existe pas encore. Lance scripts/setup-evenements-pose-table.js --apply.';
+
+// GET — tous les événements libres (sert à dessiner le planning).
+app.get('/api/pose/evenements', requireAuth, async (req, res) => {
+  try {
+    const tableId = await fetchEvenementsPoseTableId();
+    // Table pas encore créée : planning sans événements plutôt qu'écran cassé.
+    if (!tableId) return res.json({ ok: true, exists: false, evenements: [] });
+    const recs = await atFetchAll(tableId);
+    res.json({ ok: true, exists: true, evenements: recs.map(normEvenementPose).filter(e => e.titre) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST — créer un événement libre.
+app.post('/api/pose/evenements', requireAuth, async (req, res) => {
+  try {
+    const tableId = await fetchEvenementsPoseTableId();
+    if (!tableId) return res.status(400).json({ error: EV_POSE_ABSENTE });
+    const v = champsEvenementPose(req.body, { partial: false });
+    if (v.error) return res.status(400).json({ error: v.error });
+    const rec = await atCreate(tableId, v.fields);
+    res.json({ ok: true, evenement: normEvenementPose(rec) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PATCH — modifier un événement (dates, heures, équipe, note, titre).
+app.patch('/api/pose/evenements/:id', requireAuth, async (req, res) => {
+  try {
+    const tableId = await fetchEvenementsPoseTableId();
+    if (!tableId) return res.status(400).json({ error: EV_POSE_ABSENTE });
+    const v = champsEvenementPose(req.body, { partial: true });
+    if (v.error) return res.status(400).json({ error: v.error });
+    if (!Object.keys(v.fields).length) return res.status(400).json({ error: 'Rien à mettre à jour.' });
+    const rec = await atPatch(tableId, req.params.id, v.fields);
+    res.json({ ok: true, evenement: normEvenementPose(rec) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE — retirer un événement du planning.
+app.delete('/api/pose/evenements/:id', requireAuth, async (req, res) => {
+  try {
+    const tableId = await fetchEvenementsPoseTableId();
+    if (!tableId) return res.status(400).json({ error: EV_POSE_ABSENTE });
+    await atDelete(tableId, req.params.id);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Sprint v3.5 — Création d'une tâche de facturation liée à une échéance.
 // JMG 2026-05-21 : "tache facture d'acompte 30% -> création tâche à Virginie
 // et quand Virginie marque fait -> Mise à jour de la fiche du projet".

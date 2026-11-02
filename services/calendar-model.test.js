@@ -23,12 +23,12 @@ const {
   indexProjetsParId, indexProjetsParClient, resoudreProjet,
   lundiDeLaSemaine, joursDeLaSemaine, minutesDeIso, heureCourte,
   disposerEnColonnes, amplitudeHoraire, jourDeValeurDate,
-  plagePose, minutesDeHeure, heureDeMinutes, deplacerPlage, redimensionnerPlage,
+  plagePose, plageHoraire, minutesDeHeure, heureDeMinutes, deplacerPlage, redimensionnerPlage,
   indexEquipes, classeEquipe, NB_COULEURS_EQUIPE,
 } = new Function(`${code}; return { indexProjetsParId, indexProjetsParClient, resoudreProjet,
   lundiDeLaSemaine, joursDeLaSemaine, minutesDeIso, heureCourte,
   disposerEnColonnes, amplitudeHoraire, jourDeValeurDate,
-  plagePose, minutesDeHeure, heureDeMinutes, deplacerPlage, redimensionnerPlage,
+  plagePose, plageHoraire, minutesDeHeure, heureDeMinutes, deplacerPlage, redimensionnerPlage,
   indexEquipes, classeEquipe, NB_COULEURS_EQUIPE };`)();
 
 // Projets tels qu'ils arrivent de /api/data/projets : { id, ...fields }
@@ -302,6 +302,12 @@ describe('plagePose() — la plage horaire d\'une pose', () => {
 
   test('fin égale au début → incohérente aussi (créneau de durée nulle)', () => {
     assert.equal(plagePose({ 'Heure début pose': '08:00', 'Heure fin pose': '08:00' }).incoherente, true);
+  });
+
+  test('plagePose délègue à plageHoraire sans changer de comportement', () => {
+    assert.deepEqual(plagePose({ 'Heure début pose': '07:30', 'Heure fin pose': '16:00' }),
+      plageHoraire('07:30', '16:00'));
+    assert.deepEqual(plagePose({}), plageHoraire(null, null));
   });
 
   test('formats invalides rejetés', () => {

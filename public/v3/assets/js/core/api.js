@@ -167,6 +167,24 @@ export async function patchPoseEquipes(choices) {
   return _equipesPose;
 }
 
+// Événements de pose en saisie libre (livraison, réception, congé…) — table
+// dédiée, indépendante des projets. Voir /api/pose/evenements côté serveur.
+export async function fetchPoseEvenements() {
+  const d = await api('/api/pose/evenements');
+  return Array.isArray(d.evenements) ? d.evenements : [];
+}
+export async function createPoseEvenement(fields) {
+  const d = await api('/api/pose/evenements', { method: 'POST', body: JSON.stringify(fields) });
+  return d.evenement;
+}
+export async function patchPoseEvenement(id, fields) {
+  const d = await api(`/api/pose/evenements/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(fields) });
+  return d.evenement;
+}
+export async function deletePoseEvenement(id) {
+  return api(`/api/pose/evenements/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 export async function deleteCout(id) {
   return api(`/api/data/couts-chantier/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

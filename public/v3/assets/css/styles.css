@@ -861,6 +861,12 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   background-image: repeating-linear-gradient(135deg,
     rgba(255,255,255,.16) 0 5px, transparent 5px 10px);
 }
+/* Événement libre (livraison, congé…) : liseré blanc à gauche pour le distinguer
+   d'un chantier au premier coup d'œil, la couleur restant celle de l'équipe. */
+.pose-bloc.is-evenement {
+  box-shadow: 0 0 0 1px rgba(255,255,255,.55), inset 3px 0 0 rgba(255,255,255,.9);
+}
+.pose-bloc .pose-h svg { vertical-align: -1px; opacity: .9; }
 .pose-bloc-corps {
   flex: 1 1 auto; min-height: 0;
   display: flex; flex-direction: column; gap: 1px;
@@ -945,6 +951,14 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
   padding: 6px 10px; border-radius: var(--r-sm); font-size: 13px;
   background: var(--green-lo); color: var(--ink1); }
 .pose-choisi svg { color: var(--green); flex: 0 0 auto; }
+
+/* Bascule « Chantier existant / Saisie libre » de la fenêtre de planification. */
+.pose-mode { display: inline-flex; margin: 2px 0 12px; border: 1px solid var(--line);
+  border-radius: 8px; overflow: hidden; }
+.pose-mode-btn { appearance: none; border: none; background: var(--card); color: var(--ink3);
+  font: inherit; font-size: 13px; font-weight: 600; padding: 7px 14px; cursor: pointer; }
+.pose-mode-btn + .pose-mode-btn { border-left: 1px solid var(--line); }
+.pose-mode-btn.is-active { background: var(--accent); color: #fff; }
 
 /* Modale « Nommer les équipes » */
 .pose-eq-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
