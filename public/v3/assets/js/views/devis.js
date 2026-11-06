@@ -89,7 +89,7 @@ function renderFiche(app, data) {
           ? `<a class="btn btn-ghost btn-sm" href="${esc(pennylanePdfUrl(devis.id))}">${icon('download', 14)} Télécharger PDF</a>
              <a class="btn btn-ghost btn-sm" href="https://app.pennylane.com" target="_blank" rel="noopener">${icon('external-link', 14)} Ouvrir dans Pennylane</a>
              <button class="btn btn-ghost btn-sm" id="btn-pennylane-regen">${icon('file-text', 14)} Régénérer</button>`
-          : `<button class="btn btn-ghost btn-sm" id="btn-pennylane">${icon('file-text', 14)} Créer le devis dans Pennylane</button>`}
+          : `<button class="btn btn-primary btn-sm" id="btn-pennylane">${icon('file-text', 14)} Créer le devis dans Pennylane</button>`}
         ${echeances.length ? `<button class="btn btn-ghost btn-sm" id="btn-pennylane-echeances">${icon('file-text', 14)} Factures d'échéance (brouillon)</button>` : ''}
         ${!isSigned ? `<button class="btn btn-primary btn-sm" id="btn-sign-devis">${icon('check', 14)} Signer ce devis</button>` : ''}
       </div>

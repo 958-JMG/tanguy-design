@@ -20,6 +20,15 @@ test('vente HT : aucun coefficient, éco incluse ou ajoutée une seule fois', as
   assert.throws(() => calculPrixImport({ montantDocumentHt: 1000, ecoHt: -2 }), /invalide/);
   assert.throws(() => calculPrixImport({ montantDocumentHt: 1000, ecoHt: 2000, ecoIncluse: true }), /dépasse/);
 });
+test('création express : les erreurs indiquent le champ à compléter au clic du CTA', async () => {
+  const { calculPrixImport } = await import('../public/v3/assets/js/core/devis-prix.mjs');
+  for (const [saisie, champ] of [
+    [{ montantDocumentHt: 1000, ecoHt: 10 }, 'ecoIncluse'],
+    [{ montantDocumentHt: 0, ecoHt: 0 }, 'montantDocumentHt'],
+    [{ montantDocumentHt: 1000, ecoHt: -1 }, 'ecoHt'],
+    [{ montantDocumentHt: 1000, ecoHt: 1001, ecoIncluse: true }, 'ecoHt'],
+  ]) assert.throws(() => calculPrixImport(saisie), e => e.champ === champ && Boolean(e.message));
+});
 let devisId;
 test('création : serveur recalcule la vente, achat non inventé, descriptif complet conservé', async () => {
   const descriptif = 'Porte laquée, charnière invisible, largeur 600 mm.\n'.repeat(40) + 'DERNIER DETAIL';
