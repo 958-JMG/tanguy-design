@@ -191,7 +191,7 @@ function sectionEcoHtml({ nb, rows, detecte }) {
   return `
     <div class="card" style="margin-top:16px">
       <div class="section-header" style="margin-bottom:6px">
-        <h2 class="section-title">Éco-contribution <span class="count">(${nb} pièce${nb > 1 ? 's' : ''})</span></h2>
+        <h2 class="section-title">Éco-contribution <span class="count" id="df-eco-count">(${nb} ligne${nb > 1 ? 's' : ''})</span></h2>
       </div>
       <p class="muted" style="font-size:13px">
         Barème Ecomaison <strong>2026</strong> (officiel, à la tranche de poids, en HT). Le poids est estimé depuis les dimensions du panneau. Modifie une ligne : le total suit.
@@ -315,6 +315,7 @@ function wireEco(out, { source, recompute }) {
     clearTimeout(t); suivi.invalider();
     const index = tbody.querySelectorAll('tr[data-eco-row]').length;
     tbody.insertAdjacentHTML('beforeend', ligneEcoHtml(normEcoPiece(LIGNE_ECO_VIDE), index));
+    out.querySelector('#df-eco-count').textContent = `(${index + 1} lignes)`;
     actualiser();
     tbody.querySelector(`tr[data-eco-row="${index}"] [data-eco=designation]`)?.focus();
   });
@@ -536,8 +537,8 @@ function renderResult(out, res) {
     ${renderEcoSection(ecoPieces)}
 
     <div class="card" style="margin-top:16px">
-      <label>Descriptif complet pour l’annexe du devis
-        <textarea id="df-descriptif" rows="8">${esc(p.descriptif_complet || p.produit_resume || '')}</textarea>
+      <label style="display:block">Descriptif complet pour l’annexe du devis
+        <textarea id="df-descriptif" rows="8" style="display:block;width:100%;margin-top:8px">${esc(p.descriptif_complet || p.produit_resume || '')}</textarea>
       </label>
       <p class="muted" id="df-prix-erreur" role="status"></p>
       <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
