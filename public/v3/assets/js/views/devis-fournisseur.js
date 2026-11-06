@@ -529,7 +529,10 @@ function renderResult(out, res) {
           </tr>
           <tr>
             <td>Éco-participation HT${ecopart.categorie ? ' (' + esc(ecopart.categorie) + ')' : ''}</td>
-            <td class="num"><input id="df-eco" aria-label="Éco-participation HT" type="number" step="0.01" min="0" value="${ecoInit}" style="width:90px;text-align:right"> €</td>
+            <td class="num"><div style="display:flex;justify-content:flex-end;align-items:center;gap:12px;flex-wrap:wrap">
+              <span style="white-space:nowrap"><input id="df-eco" aria-label="Éco-participation HT" aria-describedby="df-eco-ttc" type="number" step="0.01" min="0" value="${ecoInit}" style="width:90px;text-align:right"> € HT</span>
+              <span id="df-eco-ttc" aria-live="polite" style="white-space:nowrap">— TTC</span>
+            </div></td>
           </tr>
           <tr>
             <td>L’éco-participation est-elle dans le montant ci-dessus ?</td>
@@ -575,6 +578,12 @@ function renderResult(out, res) {
   const recompute = () => {
     out.querySelectorAll('[aria-invalid="true"]').forEach(el => el.removeAttribute('aria-invalid'));
     const tva = Number(out.querySelector('#df-tva').value) || 0;
+    const ecoSaisie = out.querySelector('#df-eco').value;
+    const ecoHt = Number(ecoSaisie);
+    const ecoTtc = Math.round((ecoHt * (1 + tva / 100) + Number.EPSILON) * 100) / 100;
+    out.querySelector('#df-eco-ttc').textContent = ecoSaisie.trim() !== '' && Number.isFinite(ecoHt) && ecoHt >= 0
+      ? `soit ${eur(ecoTtc)} TTC · TVA ${tva.toLocaleString('fr-FR')} %`
+      : '— TTC';
     let prix;
     try { prix = prixDepuisEcran(out); }
     catch (e) {
