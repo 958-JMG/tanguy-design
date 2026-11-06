@@ -132,9 +132,10 @@ function creerLecteur({ ia = completer, extraire, ttlMs = 10 * 60_000 } = {}) {
     const travail = (async () => {
       const debut = Date.now();
       const contenu = await contenuPdf(pdfBuffer, extraire);
-      const { texte } = await ia({ niveau: 'standard', maxTokens: 14000,
+      const { texte, arret } = await ia({ niveau: 'standard', maxTokens: 14000, lectureLongue: true,
         system: SCHEMA_PROMPT,
         messages: [{ role: 'user', content: [contenu.bloc, { type: 'text', text: 'Extrais les données de ce document selon le schéma demandé.' }] }] });
+      if (arret === 'max_tokens') throw new Error('Le document contient trop de détails pour une seule analyse. Fais vérifier ou scinder le document ; aucun devis n’a été créé.');
       const result = { ...extractJson(texte), lecture_mode: contenu.mode, lecture_ms: Date.now() - debut };
       if (termines.size >= 8) termines.delete(termines.keys().next().value);
       termines.set(cle, result);

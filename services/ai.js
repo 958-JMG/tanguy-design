@@ -106,7 +106,7 @@ async function appelMistral({ niveau, system, messages, maxTokens }) {
  * Renvoie `{ texte, modele, usage, fournisseur }` — le texte est déjà concaténé,
  * les appelants n'ont plus à démonter la réponse eux-mêmes.
  */
-async function completer({ niveau = 'standard', system, messages, maxTokens = 8192 } = {}) {
+async function completer({ niveau = 'standard', system, messages, maxTokens = 8192, lectureLongue = false } = {}) {
   if (!estConfigure()) throw new Error(`${nomDeLaCle()} non configurée.`);
 
   if (fournisseur() === 'mistral') {
@@ -120,17 +120,21 @@ async function completer({ niveau = 'standard', system, messages, maxTokens = 81
     return appelMistral({ niveau, system, messages, maxTokens });
   }
 
-  const r = await anthropic().messages.create({
+  const params = {
     model: modele(niveau),
     max_tokens: maxTokens,
     ...(system ? { system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }] } : {}),
     messages,
-  });
+  };
+  const r = lectureLongue
+    ? await require('./ai-lecture-longue').lireFluxAnthropic(anthropic(), params)
+    : await anthropic().messages.create(params);
   return {
     texte: (r.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n'),
     modele: r.model,
     usage: r.usage,
     fournisseur: 'anthropic',
+    arret: r.stop_reason,
   };
 }
 

@@ -2,6 +2,7 @@
 
 import { state } from './state.js';
 import { toast } from './ui.js';
+import { analyserFournisseur } from './analyse-fournisseur.mjs';
 
 async function api(path, opts = {}) {
   const r = await fetch(path, {
@@ -270,16 +271,7 @@ export async function importDevisClient({ file, projetId = null, clientId = null
 // retourne le prix de vente lu et le traitement explicite de l’éco-participation.
 // (withKeepAlive → check j.error en plus de r.ok, cf. importDevisClient.)
 export async function parseDevisFournisseur({ file, signal = null }) {
-  const fd = new FormData();
-  fd.append('pdf', file);
-  const r = await fetch('/api/devis-fournisseur/parse', { method: 'POST', credentials: 'same-origin', body: fd, signal });
-  if (!r.ok) {
-    const e = await r.json().catch(() => ({}));
-    throw new Error(e.error || r.statusText);
-  }
-  const j = await r.json();
-  if (j.error) throw new Error(j.error);
-  return j;
+  return analyserFournisseur({ file, signal });
 }
 
 // Signature d'un devis Tanguy → backend crée les commandes fournisseurs avec rétro-planning
