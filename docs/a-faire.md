@@ -12,7 +12,7 @@
 
 ### 🧪 Validation locale
 
-- Suite complète Node : **677 tests réussis, 0 échec, 0 ignoré**, puis test ciblé de conservation des catégories fournisseurs réussi, avec environnement vidé des secrets hérités ; vérifications de syntaxe et `git diff --check` réussies.
+- Suite complète Node : **678 tests réussis, 0 échec, 0 ignoré** dans la CI de la PR #142 (42189759317), avec environnement vidé des secrets hérités ; vérifications de syntaxe et `git diff --check` réussies.
 - Tests de routes : import → détail dans un ordre Airtable inversé → signature → six commandes → aucune des 40 lignes perdue ; refus des sélections manuelles multi-fournisseurs.
 - Tests de migration simulée, anciens imports, repères décimaux, homonymes fournisseurs, modèle par zone, marges et PDF.
 - Rendu navigateur et PDF vérifiés visuellement sur données fictives. Aucun appel réel à l’IA ni test d’import du document client dans la base de production.
@@ -28,7 +28,7 @@
 ### ⏳ Mise en ligne autorisée et suite
 
 1. Migration Winner additive : réalisée et vérifiée.
-2. Publier la branche, fusionner après revue et déployer ; vérifier la version effectivement servie.
+2. PR #142 publiée et fusionnée (`c4e01d1`), CI verte. Déploiement #42189909389 réussi : version `c4e01d19e2a1` et santé HTTP 200 vérifiées. Correctif complémentaire du menu tablette : la variable CSS des liens admin est explicitement activée pour les administrateurs. Contrôle de cette dernière version à compléter.
 3. Faire la recette d’un nouvel import : ordre, sections, marques/fournisseurs, contenu et destination des bons. La fidélité de la lecture IA reste à vérifier sur un import réel autorisé.
 4. Décider séparément de la reprise des anciens imports et BC : le même PDF est dédupliqué, un réimport identique ne répare pas les anciens enregistrements. Ne pas supprimer ni recréer de commandes signées sans plan validé.
 
