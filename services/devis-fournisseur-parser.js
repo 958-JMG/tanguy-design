@@ -24,7 +24,7 @@
  * Depuis le 06/11/2026 : le montant du document est un prix de vente HT,
  * sans coefficient supplémentaire. L’éco est lue séparément avec son inclusion.
  * Le descriptif technique complet est conservé pour l’annexe Pennylane.
- * PDF textuels lus localement avant analyse ; PDF scannés lus visuellement.
+ * Devis commerciaux simples lus en texte ; nomenclatures et scans lus visuellement.
  */
 
 const { completer } = require('./ai');
@@ -99,6 +99,7 @@ RÈGLES :
 - Dimensions : "longueur_mm" = la plus grande dimension du plan de la pièce, "hauteur_mm" = la seconde (largeur/profondeur du panneau), toutes deux en MILLIMÈTRES (convertis depuis cm ou m si besoin ; « 180 × 30 cm » → 1800 et 300). Ne DEVINE JAMAIS une dimension absente : mets null. Une dimension inventée fausse la déclaration.
 - "materiau" : déduis-le des mentions du devis (panneau mélaminé/aggloméré/MDF → « Panneaux de particules » ; chêne/hêtre/bois massif → « Bois massif » ; mention biosourcé/certifié → « Biosourcé »). Si rien ne permet de trancher, mets « Inconnu » — surtout pas une hypothèse.
 - Si le devis ne comporte aucune tablette ni panneau, "pieces_eco_contribution" doit être un tableau VIDE [].
+- Vérification finale obligatoire : si le descriptif contient des tablettes, côtés, diviseurs, fonds, dessus, bas ou portes en panneau, ces pièces doivent aussi figurer dans pieces_eco_contribution, avec leurs quantités et dimensions lues. Leurs prix masqués ne justifient JAMAIS un tableau éco vide. N'ajoute pas le module complet en plus de ses composants. Les dimensions absentes restent null.
 - Retourne UNIQUEMENT le JSON.`;
 
 /**
@@ -106,14 +107,16 @@ RÈGLES :
  * @param {Buffer} pdfBuffer - contenu binaire du PDF
  * @returns {Promise<object>}
  */
-// PDF natif lisible : texte local, sans coût de vision. Une page peu lisible
-// impose le PDF original au modèle, afin de ne pas omettre les pages scannées.
+// Le texte plat perd l'association quantité/dimensions des colonnes de
+// nomenclature, même avec beaucoup de caractères : ces PDF restent visuels.
+// Le chemin texte est réservé aux devis commerciaux simples et entièrement lisibles.
 async function contenuPdf(pdfBuffer, extraire) {
   try {
     const extract = extraire || require('unpdf').extractText;
     const { text } = await extract(new Uint8Array(pdfBuffer), { mergePages: false });
     const pages = Array.isArray(text) ? text : [text];
-    if (pages.length && pages.every(t => typeof t === 'string' && t.trim().length >= 100)) {
+    const nomenclature = /novamobili|metron|modulnova|night collection|\b(?:codice|descrizione|q\.ta|tablette|panneau|diviseur|ripiano|fianco|nomenclature)\b/i.test(pages.join('\n'));
+    if (!nomenclature && pages.length && pages.every(t => typeof t === 'string' && t.trim().length >= 100)) {
       return { mode: 'texte', bloc: { type: 'text', text: pages.map((t, i) => `PAGE ${i + 1}\n${t}`).join('\n\n') } };
     }
   } catch { /* PDF scanné, chiffré ou texte indisponible : lecture visuelle */ }

@@ -68,3 +68,32 @@ test('recherche projet : nom client, accents, référence et mots dans un ordre 
   assert.deepEqual(filtrerProjets(projets, clients, 'ete dressing').map(p => p.id), ['p1']);
   assert.deepEqual(filtrerProjets(projets, clients, 'inexistant'), []);
 });
+test('panneaux → éco automatique → devis express → ligne Pennylane, sans double ajout', async () => {
+  const { creerSuiviEco } = await import('../public/v3/assets/js/core/devis-eco.mjs');
+  const { calculPrixImport } = await import('../public/v3/assets/js/core/devis-prix.mjs');
+  let ecoHt = 0, etat;
+  const suivi = creerSuiviEco({
+    calculer: async pieces => {
+      const r = await banc.appel('POST', '/api/eco-contribution/calcul', { pieces, tauxTvaPct: 20 });
+      assert.equal(r.status, 200); return r.json;
+    },
+    reporter: n => { ecoHt = n; }, changer: e => { etat = e; },
+  });
+  await suivi.actualiser([{ designation: 'Tablettes fictives', quantite: 4, type: 'Joue / panneau', largeurMm: 800, hauteurMm: 500, epaisseurMm: 19, classeMatiere: 'Panneaux particules ≥75% - sans gestion durable' }]);
+  assert.equal(etat.bloque, false); assert.ok(ecoHt > 0);
+  for (const ecoIncluse of [true, false]) {
+    const montantDocumentHt = 2000;
+    const prix = calculPrixImport({ montantDocumentHt, ecoHt, ecoIncluse });
+    const r = await banc.appel('POST', '/api/devis-express/creer-devis', { projetId: 'recPROJET', designation: 'Dressing fictif', montantDocumentHt, ecoHt, ecoIncluse, prixClientHt: prix.prixClientHt, tvaTaux: 20, famille: 'Mobilier' });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(get(T.devis, r.json.devisId).fields['Eco-participation mobilier'], ecoHt);
+    const pl = await banc.appel('POST', `/api/devis/${r.json.devisId}/pennylane`, {});
+    assert.equal(pl.status, 200, JSON.stringify(pl.json));
+    const lignes = banc.pennylaneRecu.at(-1).invoice_lines;
+    const eco = lignes.filter(l => /éco-participation/i.test(l.label));
+    assert.equal(eco.length, 1);
+    assert.equal(Number(eco[0].raw_currency_unit_price), ecoHt);
+    const total = Math.round(lignes.reduce((s, l) => s + Number(l.raw_currency_unit_price) * l.quantity, 0) * 100) / 100;
+    assert.equal(total, prix.prixClientHt);
+  }
+});

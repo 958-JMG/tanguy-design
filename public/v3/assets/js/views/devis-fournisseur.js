@@ -4,6 +4,7 @@ import { toast } from '../core/ui.js';
 import { parseDevisFournisseur, creerDevisClientExpress, calculEcoContribution } from '../core/api.js';
 import { libelleProjet, filtrerProjets } from '../core/projet-recherche.mjs';
 import { calculPrixImport } from '../core/devis-prix.mjs';
+import { creerSuiviEco } from '../core/devis-eco.mjs';
 import { importProgress } from '../core/import-progress.js';
 import { state } from '../core/state.js';
 import { renderElectro } from './devis-electro.js';
@@ -55,6 +56,7 @@ export function renderDevisFournisseur(app) {
       ? 'Déposez le projet FINDIS → un devis client article par article, avec le prix d\'achat et la marge.'
       : 'Déposez un devis fournisseur (PDF) → le prix de vente HT du document est conservé, sans coefficient supplémentaire.';
     const panel = app.querySelector('#dx-panel');
+    panel.querySelector('#df-result')?._ecoDetruire?.();
     if (mode === 'electro') renderElectro(panel);
     else renderPanelFournisseur(panel);
   };
@@ -103,6 +105,7 @@ function afficherEtatImport() {
   if (!statusEl || !resultEl) return;
   document.querySelectorAll('#df-file, [data-mode]').forEach(el => el.disabled = importEnCours);
   if (importEnCours) {
+    resultEl._ecoDetruire?.();
     resultEl.innerHTML = '';
     stopAnimation = importProgress(statusEl, `Analyse de « ${fichierEnCours} » en cours`, debutImport);
   } else {
@@ -152,7 +155,7 @@ function normEcoPiece(p = {}) {
     quantite: p.quantite || 1,
     longueurMm: p.longueurMm ?? p.longueur_mm ?? null,
     hauteurMm: p.hauteurMm ?? p.hauteur_mm ?? null,
-    epaisseurMm: p.epaisseurMm ?? p.epaisseur_mm ?? 19,
+    epaisseurMm: Object.hasOwn(p, 'epaisseur_mm') ? p.epaisseur_mm : (p.epaisseurMm ?? 19),
     materiau: /massif/i.test(mat) ? 'Bois massif' : (/biosourc/i.test(mat) ? 'Biosourcé' : 'Panneaux de particules'),
     gestionDurable: p.gestionDurable === 'certifiee' ? 'certifiee' : 'sans',
   };
@@ -188,7 +191,7 @@ function sectionEcoHtml({ nb, rows, detecte }) {
   return `
     <div class="card" style="margin-top:16px">
       <div class="section-header" style="margin-bottom:6px">
-        <h2 class="section-title">Éco-contribution <span class="count">(${nb} pièce${nb > 1 ? 's' : ''})</span></h2>
+        <h2 class="section-title">Éco-contribution <span class="count" id="df-eco-count">(${nb} ligne${nb > 1 ? 's' : ''})</span></h2>
       </div>
       <p class="muted" style="font-size:13px">
         Barème Ecomaison <strong>2026</strong> (officiel, à la tranche de poids, en HT). Le poids est estimé depuis les dimensions du panneau. Modifie une ligne : le total suit.
@@ -241,22 +244,9 @@ function lireEcoRows(out) {
   });
 }
 
-let _ecoSeq = 0;
-// Recalcule via l'endpoint 2026 (source unique). Async. Mémorise le dernier
-// résultat sur out._ecoLast pour que « Reporter » n'appelle pas le réseau deux fois.
-async function recomputeEco(out) {
+// Affiche uniquement la réponse correspondant aux pièces encore à l'écran.
+function afficherCalculEco(out, res) {
   const rows = lireEcoRows(out);
-  if (!rows.length) return null;
-  const seq = ++_ecoSeq;
-  let res;
-  try {
-    res = await calculEcoContribution(rows.map(({ _tr, ...p }) => p), 20);
-  } catch (e) {
-    const av = out.querySelector('#df-eco-avert');
-    if (av) av.innerHTML = `<p class="muted" style="font-size:12px;color:var(--accent)">${icon('alert', 12)} Calcul éco indisponible : ${esc(e.message)}</p>`;
-    return null;
-  }
-  if (seq !== _ecoSeq) return null;   // une frappe plus récente a relancé le calcul
   const lignes = res.lignes || [];
   rows.forEach((r, i) => {
     const l = lignes[i] || {};
@@ -281,44 +271,55 @@ async function recomputeEco(out) {
   if (av) av.innerHTML = (res.avertissements || []).length
     ? `<p class="muted" style="font-size:12px;color:var(--accent)">${res.avertissements.map(a => `${icon('alert', 12)} ${esc(a)}`).join('<br>')}</p>`
     : '';
-  const r = { totalHt: res.totalHt, incalculables: res.piecesIncalculables, lignes: rows.length };
-  out._ecoLast = r;
-  return r;
 }
 
-// Reporte le total HT dans le champ « Éco-participation » qui alimente le prix client.
-async function reporterEco(out, { silencieux = false } = {}) {
-  const r = out._ecoLast || await recomputeEco(out);
-  const msg = out.querySelector('#df-eco-report-msg');
-  if (!r || !r.lignes) return;
-  const champ = out.querySelector('#df-eco');
-  champ.value = r.totalHt;
-  champ.dispatchEvent(new Event('input', { bubbles: true }));
-  if (msg) {
-    msg.textContent = r.incalculables
-      ? `${eur(r.totalHt)} HT reporté — total partiel, ${r.incalculables} pièce(s) non chiffrée(s).`
-      : `${eur(r.totalHt)} HT reporté dans le prix client.`;
-    msg.style.color = r.incalculables ? 'var(--accent)' : '';
-  }
-  if (!silencieux) toast('Éco-contribution reportée', 'success');
-}
-
-function wireEco(out) {
+function wireEco(out, { source, recompute }) {
   const tbody = out.querySelector('#df-eco-rows');
   if (!tbody) return;
   let t;
-  const debounced = () => { clearTimeout(t); t = setTimeout(() => recomputeEco(out), 250); };
+  const suivi = creerSuiviEco({
+    source,
+    calculer: pieces => calculEcoContribution(pieces, 20),
+    reporter: total => { out.querySelector('#df-eco').value = total; },
+    changer: etat => {
+      out._ecoEtat = etat;
+      if (etat.resultat) afficherCalculEco(out, etat.resultat);
+      let message;
+      if (etat.source === 'document') message = 'Montant d’éco lu dans le document, conservé pour la ligne Pennylane.';
+      else if (etat.source === 'manuel') message = 'Montant d’éco saisi manuellement, retenu pour la ligne Pennylane.';
+      else if (etat.statut === 'complet') message = `${eur(etat.resultat.totalHt)} HT calculés sur les pièces et reportés pour la ligne Pennylane.`;
+      else if (etat.statut === 'erreur') message = `Calcul éco indisponible : ${etat.erreur}. Réessaie avec « Reporter » ou saisis un montant vérifié.`;
+      else if (etat.statut === 'incomplet') message = 'Éco à compléter : vérifie les pièces et leurs dimensions, ou saisis un montant vérifié avant de créer le devis.';
+      else message = 'Calcul de l’éco-participation en cours…';
+      for (const id of ['#df-eco-etat', '#df-eco-report-msg']) {
+        out.querySelector(id).textContent = message;
+      }
+      out.querySelector('#df-eco-report').disabled = etat.statut === 'calcul';
+      if (etat.statut === 'erreur') out.querySelector('#df-eco-avert').textContent = message;
+      recompute();
+    },
+  });
+  const actualiser = () => suivi.actualiser(lireEcoRows(out).map(({ _tr, ...p }) => p));
+  out._ecoDetruire = () => { clearTimeout(t); suivi.detruire(); };
+  const debounced = () => {
+    clearTimeout(t); suivi.invalider();
+    t = setTimeout(actualiser, 250);
+  };
   tbody.addEventListener('input', debounced);
   tbody.addEventListener('change', debounced);
-  out.querySelector('#df-eco-report')?.addEventListener('click', () => reporterEco(out));
+  out.querySelector('#df-eco').addEventListener('input', () => suivi.manuel());
+  out.querySelector('#df-eco-report')?.addEventListener('click', () => {
+    clearTimeout(t); suivi.utiliserPanneaux(); actualiser();
+  });
   out.querySelector('#df-eco-add')?.addEventListener('click', () => {
+    clearTimeout(t); suivi.invalider();
     const index = tbody.querySelectorAll('tr[data-eco-row]').length;
     tbody.insertAdjacentHTML('beforeend', ligneEcoHtml(normEcoPiece(LIGNE_ECO_VIDE), index));
-    recomputeEco(out);
+    out.querySelector('#df-eco-count').textContent = `(${index + 1} lignes)`;
+    actualiser();
     tbody.querySelector(`tr[data-eco-row="${index}"] [data-eco=designation]`)?.focus();
   });
-  // Le barème est une aide : seul un report explicite remplace le montant lu.
-  recomputeEco(out);
+  actualiser();
 }
 
 
@@ -465,6 +466,8 @@ function openModalCreerDevis(out) {
 }
 
 function renderResult(out, res) {
+  out._ecoDetruire?.();
+  out._ecoEtat = null;
   const p = res.parsed || {};
   const enr = res.enrichissement || {};
   const four = p.fournisseur || {};
@@ -528,8 +531,14 @@ function renderResult(out, res) {
         </tfoot>
       </table>
 
-      <label style="margin-top:16px">Descriptif complet pour l’annexe du devis
-        <textarea id="df-descriptif" rows="8">${esc(p.descriptif_complet || p.produit_resume || '')}</textarea>
+      <p id="df-eco-etat" role="status" aria-live="polite"></p>
+    </div>
+
+    ${renderEcoSection(ecoPieces)}
+
+    <div class="card" style="margin-top:16px">
+      <label style="display:block">Descriptif complet pour l’annexe du devis
+        <textarea id="df-descriptif" rows="8" style="display:block;width:100%;margin-top:8px">${esc(p.descriptif_complet || p.produit_resume || '')}</textarea>
       </label>
       <p class="muted" id="df-prix-erreur" role="status"></p>
       <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
@@ -537,8 +546,6 @@ function renderResult(out, res) {
         <span class="muted" style="font-size:12px;align-self:center">Le devis part en brouillon et reste modifiable.</span>
       </div>
     </div>
-
-    ${renderEcoSection(ecoPieces)}
   `;
   hydrateIcons(out);
 
@@ -567,13 +574,17 @@ function renderResult(out, res) {
   recompute();
 
   // Éco-contribution : tableau par pièce, recalcul live, report dans le prix.
-  wireEco(out);
+  const ecoDocument = tot.eco_ht != null || ecopart.source === 'document';
+  const panneauxAttendus = ecoPieces?.length > 0 || p.categorie_suggeree === 'Meuble'
+    || /novamobili|metron|dressing|tablette|panneau/i.test(`${four.nom || ''} ${four.type_detecte || ''} ${p.produit_resume || ''}`);
+  wireEco(out, { source: ecoDocument ? 'document' : panneauxAttendus ? 'panneaux' : 'manuel', recompute });
 
   // P-H4 — création du devis client à partir du chiffrage affiché.
   out.querySelector('#df-create')?.addEventListener('click', () => openModalCreerDevis(out));
 }
 
 function prixDepuisEcran(out) {
+  if (out._ecoEtat?.bloque) throw new Error(out.querySelector('#df-eco-etat').textContent);
   const inclusion = out.querySelector('#df-eco-incluse').value;
   return calculPrixImport({ montantDocumentHt: out.querySelector('#df-totalht').value, ecoHt: out.querySelector('#df-eco').value, ecoIncluse: inclusion === 'oui' ? true : inclusion === 'non' ? false : undefined });
 }

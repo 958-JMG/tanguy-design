@@ -64,4 +64,22 @@
 - Suppression du forçage d’un bon de plan de travail vide à chaque signature. Les articles réels à prix nul restent conservés dans leurs BC.
 - JMG a explicitement demandé la suppression des trois bons Le Maire vides, puis des bons vides des autres dossiers. Audit des **158 commandes** : **50 sans lignes**, dont **38 réellement vides supprimées** après relecture inchangée et sauvegarde locale ; **12 protégées** car AR ou état métier, donc non vides au sens opérationnel. La commande Cuisine Le Maire contenant les articles a été conservée et relue après suppression. Aucun autre dossier supprimé, aucune facture modifiée. Sauvegarde hors dépôt synchronisé : `~/Developer/9-58/Administration/Sauvegardes/tanguy-2026-11-06/commandes-vides-avant-suppression.json` (accès local privé).
 - Validation : suite complète **693 tests réussis**, syntaxe et diff contrôlés ; cas membre actif/inactif, case absente, fournisseur plaques distinct, aucun repli électro, préservation des lignes et absence de BC forcé. Recette navigateur fictive : nouvelle tâche propose uniquement l’équipe active. Aucun nouveau devis signé en production pour les tests.
-- Déploiement du lot précédent : https://github.com/958-JMG/tanguy-design/actions/runs/42193903681 réussi, version servie `8533be0f7173`. Dernier complément équipe/plaques : déploiement à confirmer. Livraison client confirmée : non.
+- Déploiement du lot précédent : https://github.com/958-JMG/tanguy-design/actions/runs/42193903681 réussi, version servie `8533be0f7173`. Dernier complément équipe/plaques : PR #144 fusionnée, déploiement [42195941962](https://github.com/958-JMG/tanguy-design/actions/runs/42195941962) réussi ; version applicative `91f0d1ae67fa` et santé HTTP 200 vérifiées le 06/11/2026. Livraison client confirmée : non.
+
+
+### ✅ État vérifié avant retour Devis express — 6 novembre 2026
+
+- Les trois lots sont en production : Winner/Kanban/SAV/Sanitaire (#142), prix/éco/recherche/attente/annexe Pennylane/échéances signées (#143), équipe active/plaques/fin des BC vides (#144). Version servie : `91f0d1ae67fa`.
+- 38 commandes vides supprimées sur autorisation explicite, 120 restantes. Sauvegarde avant suppression et manifeste de vérification conservés localement hors Git. Aucune commande renseignée, facture ou AR supprimé.
+- 693 tests passent dans la chaîne de livraison, contrôles locaux navigateur/PDF sur données fictives effectués. Recette métier réelle IA et annexe Pennylane restant à faire ; aucun gain de vitesse mesuré sur un PDF client réel annoncé.
+- Les historiques de personnes, les anciens montants et les anciens imports ne sont pas réécrits. Fournisseurs des colonnes Sanitaire/Plaque de cuisson à renseigner selon le choix métier. Aucun envoi client.
+
+### 🔧 Régression Devis express → ligne éco Pennylane — 6 novembre 2026
+
+- Signalement JMG confirmé sur les données du dossier indiqué : le descriptif du nouveau brouillon contient les panneaux et leurs dimensions, mais le montant d’éco est absent. La passe précédente avait retiré le report initial du calcul ; le tableau seul ne suffisait plus à alimenter le devis.
+- Report automatique rétabli quand le document n’indique pas déjà un montant d’éco, puis recalcul après modification des pièces. Un montant explicite ou saisi à la main reste prioritaire ; « Reporter » permet de revenir au calcul des pièces.
+- Création bloquée pendant le calcul, en cas de données manquantes ou d’échec du calcul automatique. Une ancienne réponse ne peut plus écraser une nouvelle saisie. Tableau placé avant le descriptif et le bouton de création, état du report visible près du prix.
+- Nomenclatures Novamobili/Metron et documents de panneaux relus avec le PDF visuel pour conserver les colonnes. Instruction renforcée : composants présents dans le descriptif également attendus dans les pièces éco, même sans prix par ligne. Une épaisseur explicitement inconnue reste à compléter.
+- Validation : **702 tests réussis, 0 échec, 0 ignoré**. Parcours simulé panneaux → barème → report automatique → création Express → une seule ligne éco Pennylane, montant et total préservés pour éco incluse/exclue. Tests de réponses obsolètes, saisie prioritaire, dimensions absentes et panne réseau. Recette navigateur fictive : 4 tablettes donnent 2,88 € HT, 8 donnent 5,76 €, dimension effacée bloque la création ; inclusion inconnue reste à confirmer.
+- Le PDF source du cas signalé n’a pas été retrouvé dans les fichiers locaux/hub consultés ; aucune lecture IA réelle rejouée et aucun montant historique copié dans le nouveau brouillon. Reprendre ce brouillon avec les pièces du PDF source lors de la recette métier, sans recréer un devis Pennylane déjà existant.
+- Mise en ligne du correctif : en cours, après validation CI. Aucun envoi client.
