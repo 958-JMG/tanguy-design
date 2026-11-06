@@ -59,7 +59,7 @@ test('signature : les notes des BC disent « signé le 14/10/2026 », pas la vei
   const r = await banc.appel('POST', '/api/devis/recDEV/sign', {});
   assert.equal(r.status, 200, JSON.stringify(r.json));
   const bcs = nouvellesCommandes(avant);
-  assert.equal(bcs.length, 2, 'un BC Mobilier + le BC « Plan de travail » à compléter');
+  assert.equal(bcs.length, 1, 'uniquement le BC Mobilier réel');
   for (const bc of bcs) {
     assert.match(bc.Notes, new RegExp(`\\[Auto-généré depuis devis 800/1/1 signé le ${PARIS}\\]`), bc.Notes);
     assert.doesNotMatch(bc.Notes, new RegExp(VEILLE));

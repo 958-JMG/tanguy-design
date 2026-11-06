@@ -1,3 +1,4 @@
+import { equipe } from '../core/equipe.js';
 // Dashboard v3 — KPI + funnel cliquable + Mes tâches (urgence) + alertes
 // Compteurs branchés sur state.clients + state.projets.
 
@@ -34,14 +35,6 @@ function stripClientPrefix(titre) {
   return String(titre || '').replace(/^\[[^\]]+\]\s*\/?\s*/, '');
 }
 
-// Map login système (lowercase, sans accents) → nom Airtable "Assignée à"
-const LOGIN_TO_ASSIGNEE = {
-  'virginie':  'Virginie',
-  'solene':    'Solène',
-  'sebastien': 'Sébastien',
-  'marine':    'Marine',
-};
-
 // Calcule l'urgence d'une tâche : retard / urgent / bientôt / normal
 function tacheUrgence(t) {
   const f = t.fields || {};
@@ -73,7 +66,7 @@ export async function renderDashboard(app) {
   const clients = state.clients || [];
   const projets = state.projets || [];
   const userLogin = (state.user || '').toLowerCase();
-  const assigneeName = LOGIN_TO_ASSIGNEE[userLogin] || state.user;
+  const assigneeName = equipe.find(m => m.login === userLogin)?.nom || state.user;
 
   // Stats projets
   const enCours = projets.filter(p => {
@@ -190,7 +183,7 @@ async function loadMesTaches(assigneeName) {
   const container = document.getElementById('mes-taches-container');
   if (!container) return;
   if (!assigneeName) {
-    container.innerHTML = '<p class="muted">Connecte-toi avec un compte mappé (Virginie / Solène / Sébastien / Marine) pour voir tes tâches.</p>';
+    container.innerHTML = '<p class="muted">Connecte-toi avec un compte actif de l’équipe pour voir tes tâches.</p>';
     return;
   }
   try {

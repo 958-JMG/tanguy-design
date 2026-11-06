@@ -62,7 +62,7 @@ export function renderAdmin(app) {
 
     <!-- Devis express (P-H3) — grille des coefficients de marge par fournisseur -->
     <div class="section-header" style="margin-top:32px">
-      <h2 class="section-title">Marges fournisseurs (Devis express)</h2>
+      <h2 class="section-title">Marges fournisseurs — grille de référence</h2>
       <button class="btn btn-primary btn-sm" id="btn-add-marge">${icon('plus', 14)} Ajouter un fournisseur</button>
     </div>
     <div id="marges-output">
@@ -112,7 +112,7 @@ function renderEcopart(out, records) {
     String(a.fields?.['Catégorie'] || '').localeCompare(String(b.fields?.['Catégorie'] || '')));
   out.innerHTML = `
     <div class="card">
-      <p class="muted" style="margin-bottom:10px">Montant éco-participation HT appliqué par défaut dans le Devis express, par catégorie de produit. Modifie un montant puis « Enregistrer ».</p>
+      <p class="muted" style="margin-bottom:10px">Grille de référence par catégorie. L’import conserve l’éco-participation du document, à confirmer dans le devis express.</p>
       <table class="pipeline-table">
         <thead><tr><th>Catégorie</th><th class="num">Montant HT</th><th>Actif</th><th></th></tr></thead>
         <tbody>
@@ -195,7 +195,7 @@ function renderMargesFournisseurs(out, records) {
     String(a.fields?.['Fournisseur'] || '').localeCompare(String(b.fields?.['Fournisseur'] || '')));
   out.innerHTML = `
     <div class="card">
-      <p class="muted" style="margin-bottom:10px">Coefficient appliqué au <strong>total net du devis fournisseur</strong> pour obtenir le prix client HT (ex. ×2). Le devis express associe le coefficient au fournisseur détecté. Modifie une valeur puis « Enregistrer ».</p>
+      <p class="muted" style="margin-bottom:10px">Coefficients de référence conservés. L’import d’un prix de vente HT n’applique aucun coefficient supplémentaire.</p>
       <table class="pipeline-table">
         <thead><tr><th>Fournisseur</th><th class="num">Coefficient (×)</th><th>Actif</th><th></th></tr></thead>
         <tbody>
@@ -688,8 +688,8 @@ function renderAnalysis(container, data) {
 // Quel fournisseur couvre quelle famille de produits. Sert au routage AUTOMATIQUE
 // des commandes à la signature du devis (services/fournisseur-grille.js). Un
 // fournisseur peut couvrir plusieurs familles (ex. Bradano/Franke = Évier +
-// Robinetterie). Source de vérité des 5 familles : CATEGORIES_GRILLE côté serveur.
-const CATEGORIES_GRILLE = ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence', 'Sanitaire'];
+// Robinetterie). Source de vérité des 6 familles : CATEGORIES_GRILLE côté serveur.
+const CATEGORIES_GRILLE = ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence', 'Sanitaire', 'Plaque de cuisson'];
 
 async function loadGrilleFournisseurs() {
   const out = document.getElementById('grille-fourn-output');

@@ -45,7 +45,7 @@ function partieDeLigne(f) {
 // Référence courte d'un BC → partie (BC sans lignes reconnaissables).
 const PARTIE_PAR_REF = {
   MOBILIER: 'Mobilier', NOVA_CUC: 'Mobilier', MEUBLES: 'Mobilier',
-  ELECTRO: 'Électroménager',
+  ELECTRO: 'Électroménager', PLAQUE: 'Électroménager',
   PLAN_CRED: 'Plan de travail & crédence', PLAN_TRAV: 'Plan de travail & crédence',
   PLAN: 'Plan de travail & crédence', CREDENCE: 'Plan de travail & crédence', SANITAIRE: 'Plan de travail & crédence',
   PANNEAUX: 'Mobilier',

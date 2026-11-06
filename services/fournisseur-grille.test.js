@@ -153,12 +153,10 @@ describe('routeCommandes — aucune ligne jetée, aucun rattachement au hasard',
     assert.match(g.raison, /Divers/);
   });
 
-  test('opts.forcer : le BC « Plan de travail & crédence » existe même sans ligne', () => {
+  test('aucun BC vide, même si un ancien appel fournit opts.forcer', () => {
     const groupes = routeCommandes([ligne('Meubles', 5000)], GRILLE, { forcer: [PTC] });
     const g = groupes.find(x => x.canon === PTC);
-    assert.ok(g);
-    assert.equal(g.lignes.length, 0);
-    assert.equal(g.montant, 0);
+    assert.equal(g, undefined);
   });
 
   test('indexFournisseurs : PTC couvert par 4 fournisseurs', () => {
@@ -168,8 +166,8 @@ describe('routeCommandes — aucune ligne jetée, aucun rattachement au hasard',
     assert.equal(idx.get('luminaire').length, 1);
   });
 
-  test('les 5 familles de la grille sont bien exposées', () => {
-    assert.deepEqual(CATEGORIES_GRILLE, ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence', 'Sanitaire']);
+  test('les 6 familles de la grille sont bien exposées', () => {
+    assert.deepEqual(CATEGORIES_GRILLE, ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence', 'Sanitaire', 'Plaque de cuisson']);
   });
 });
 

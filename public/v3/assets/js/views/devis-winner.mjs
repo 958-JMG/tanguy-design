@@ -35,7 +35,7 @@ export function renderLignesWinner(lignes, zones = []) {
           ? `<details><summary>${esc(description.slice(0, 150))}…</summary><div style="white-space:pre-line">${esc(description)}</div></details>`
           : `<span style="white-space:pre-line">${esc(description)}</span>`;
         return `<tr><td>${esc(f.Position ?? '')}${f['Position parent'] ? `<br><small class="muted">lié à ${esc(f['Position parent'])}</small>` : ''}</td>
-          <td><strong>${esc(f['Code produit'] || '')}</strong></td><td>${desc}</td>
+          <td><strong>${esc(f['Code produit'] || '')}</strong></td><td>${desc}${f['Catégorie'] === 'Plaque de cuisson' ? '<br><span class="badge">Plaque de cuisson</span>' : ''}</td>
           <td class="num">${f.Quantité != null ? Number(f.Quantité).toLocaleString('fr-FR', { maximumFractionDigits: 4 }) : ''} ${esc(f.Unité || '')}</td>
           <td class="num">${f['Montant HT'] != null ? euros(f['Montant HT']) : '—'}</td></tr>`;
       }).join('')}</tbody></table></div>`).join('');

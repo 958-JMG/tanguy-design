@@ -139,23 +139,22 @@ test('commande : devis non signé → refus clair (ses BC naissent à la signatu
 
 // ── Signature : la fabrication des BC a déménagé dans services/commande-bc.js ─
 // Décision JMG du 14/10/2026 : le Divers part dans un BC « À classer » visible.
-test('signature : Mobilier + Électroménager + Plan de travail vide + Divers en « À classer »', async () => {
+test('signature : Mobilier + Électroménager sans plan vide + Divers en « À classer »', async () => {
   const r = await appel('POST', '/api/devis/recDEV2/sign', {});
   assert.equal(r.status, 200, JSON.stringify(r.json));
-  assert.equal(r.json.commandes_creees, 4);
+  assert.equal(r.json.commandes_creees, 3);
   assert.equal(r.json.a_classer, 1);
   assert.deepEqual(r.json.sans_commande, [], 'plus aucune ligne laissée sans commande');
   const bcs = (get(T.projets, 'recPRJ2').fields.Commandes || []).map(id => get(T.commandes, id).fields);
   const parRef = Object.fromEntries(bcs.map(f => [f['Référence courte'], f]));
-  assert.deepEqual(Object.keys(parRef).sort(), ['A_CLASSER', 'ELECTRO', 'MOBILIER', 'PLAN_CRED']);
+  assert.deepEqual(Object.keys(parRef).sort(), ['A_CLASSER', 'ELECTRO', 'MOBILIER']);
   assert.deepEqual(JSON.parse(parRef.A_CLASSER['Lignes BC']).map(l => l.code), ['D1']);
   assert.equal(parRef.A_CLASSER.Fournisseur, undefined, 'aucun fournisseur deviné pour du Divers');
   assert.match(parRef.A_CLASSER.Notes, /À CLASSER — Divers : article hors catalogue/);
   assert.match(parRef.A_CLASSER['Numéro'], /· À CLASSER · T-100-\d$/);
   const taches = [...table('tblDwUHL16LBVMSaz').values()].map(t => t.fields['Titre']);
   assert.ok(taches.some(t => /Router 1 commande\(s\) « À classer » — T-100/.test(t)), 'tâche de routage pour Virginie');
-  assert.equal(parRef.PLAN_CRED['Numéro'], 'CLIENT TEST · PLAN DE TRAVAIL · T-100-4');
-  assert.equal(parRef.PLAN_CRED['Lignes BC'], '[]');
+  assert.equal(parRef.PLAN_CRED, undefined, 'aucun bon de plan vide créé');
   assert.deepEqual(JSON.parse(parRef.MOBILIER['Lignes BC']).map(l => l.code), ['M1']);
   assert.equal(parRef.MOBILIER['Modèle choisi'], 'NOVA — CUC');
   assert.equal(parRef.MOBILIER['Détails modèle'], 'Coloris façade : Blanc');

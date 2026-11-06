@@ -1,3 +1,4 @@
+import { chargerEquipe, nomsEquipe, optionsEquipe } from '../core/equipe.js';
 // Vue Commande v3 (Sprint v3.1) — BC complet imprimable + édition lignes structurées.
 // Format calé sur les BC PDF type Tanguy (cf. /Type de bon de commande/Attachments-BONS COMMANDES MORALES.zip).
 
@@ -227,7 +228,7 @@ function doMailSend(commande, fournisseur) {
   lines.push('');
   lines.push(`Merci de votre confirmation.`);
   lines.push(`Cordialement,`);
-  lines.push(`${cf['Contact Tanguy'] || 'Solène'}`);
+  lines.push(`${cf['Contact Tanguy'] || 'Tanguy Design'}`);
   lines.push(`Tanguy Design`);
 
   const body = lines.join('\n');
@@ -303,6 +304,7 @@ function openNewFournisseurModal(onCreated) {
 }
 
 async function openMetaEditor(commande, fournisseur, refresh) {
+  await chargerEquipe();
   const cf = commande.fields || {};
   const currentFournId = (cf.Fournisseur || [])[0] || '';
   const modal = document.createElement('div');
@@ -328,7 +330,7 @@ async function openMetaEditor(commande, fournisseur, refresh) {
         </label>
         <label>Contact Tanguy
           <select name="Contact Tanguy">
-            ${['Solène','Virginie','Sébastien','Marine'].map(v => `<option ${cf['Contact Tanguy'] === v ? 'selected' : ''}>${v}</option>`).join('')}
+            <option value="">— À choisir —</option>${optionsEquipe(cf['Contact Tanguy'])}
           </select>
         </label>
         <label>Livraison souhaitée (texte libre)

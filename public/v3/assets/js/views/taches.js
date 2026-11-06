@@ -1,3 +1,4 @@
+import { chargerEquipe, nomsEquipe, optionsEquipe } from '../core/equipe.js';
 // Tâches — vue globale « Toutes les tâches » (admin / Virginie).
 // Deux vues : Liste (tableau) et Kanban (colonnes par statut, groupable par personne).
 // Gestion : création, édition et multi-assignation (« Assignées à »),
@@ -9,7 +10,6 @@ import { toast, confirmModal } from '../core/ui.js';
 import { navigateTo } from '../core/router.js';
 import { fetchProjets, fetchClients, patchTache, deleteTache, createTache } from '../core/api.js';
 
-const ASSIGNES = ['Virginie', 'Solène', 'Sébastien', 'Marine'];
 const STATUTS = ['À faire', 'En cours', 'Terminée'];
 const PRIORITES = ['Haute', 'Moyenne', 'Basse'];
 
@@ -41,6 +41,8 @@ export async function renderTaches(app) {
     app.innerHTML = `<div class="card"><h2>Accès réservé</h2><p class="muted">La vue globale des tâches est réservée aux administrateurs.</p></div>`;
     return;
   }
+
+  await chargerEquipe();
 
   // État local de la vue
   const ui = { mode: 'kanban', groupBy: 'statut' };
@@ -86,14 +88,14 @@ export async function renderTaches(app) {
 
   function controlsHtml() {
     const sel = (name, opts, cur) =>
-      `<select data-filter="${name}">${opts.map(o => `<option ${o === cur ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
+      `<select data-filter="${name}">${opts.map(o => `<option ${o === cur ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
     return `
       <div class="taches-filtres" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
         <div class="btn-group" style="display:flex;gap:4px">
           <button class="btn btn-sm ${ui.mode === 'liste' ? 'btn-primary' : 'btn-ghost'}" data-mode="liste">${icon('file', 14)} Liste</button>
           <button class="btn btn-sm ${ui.mode === 'kanban' ? 'btn-primary' : 'btn-ghost'}" data-mode="kanban">${icon('chart', 14)} Kanban</button>
         </div>
-        <label style="margin:0">Personne ${sel('assignee', ['Tous', ...ASSIGNES, 'Non assignée'], filt.assignee)}</label>
+        <label style="margin:0">Personne ${sel('assignee', ['Tous', ...nomsEquipe(), 'Non assignée'], filt.assignee)}</label>
         ${ui.mode === 'liste' ? `<label style="margin:0">Statut ${sel('statut', ['En cours', 'Tous', ...STATUTS], filt.statut)}</label>` : ''}
         <label style="margin:0">Priorité ${sel('priorite', ['Toutes', ...PRIORITES], filt.priorite)}</label>
         ${ui.mode === 'kanban' ? `<label style="margin:0">Grouper ${sel('groupBy', ['statut', 'personne'], ui.groupBy)}</label>` : ''}
@@ -188,10 +190,10 @@ export async function renderTaches(app) {
     const items = filtered(true);
     if (ui.groupBy === 'personne') {
       // Swimlanes : une ligne par personne (+ Non assignée), colonnes par statut. Lecture (pas de drag).
-      const lignes = [...ASSIGNES, 'Non assignée'].map(personne => {
+      const lignes = [...nomsEquipe(), 'Anciens membres', 'Non assignée'].map(personne => {
         const sub = items.filter(t => {
           const as = assigneesOf(t);
-          return personne === 'Non assignée' ? as.length === 0 : as.includes(personne);
+          return personne === 'Non assignée' ? as.length === 0 : personne === 'Anciens membres' ? as.some(a => !nomsEquipe().includes(a)) : as.includes(personne);
         });
         if (!sub.length && filt.assignee !== 'Tous') return '';
         return `
@@ -259,7 +261,8 @@ export async function renderTaches(app) {
   }
 
   // Éditeur commun : création et modification, avec repli compatible pour les anciennes vues.
-  function openTacheEditor(t = {}) {
+  async function openTacheEditor(t = {}) {
+    await chargerEquipe();
     const isNew = !t.id;
     const projets = pmap();
     if (t.Projet?.[0] && !projets.has(t.Projet[0])) projets.set(t.Projet[0], { ref: 'Dossier lié (nom indisponible)', clientNom: '' });
@@ -275,7 +278,7 @@ export async function renderTaches(app) {
         <fieldset style="border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:0 0 12px">
           <legend style="font-size:12px;padding:0 4px">Assigné·e·s</legend>
           <div style="display:flex;flex-wrap:wrap;gap:12px">
-            ${ASSIGNES.map(a => `<label class="rdv-allday" style="margin:0"><input type="checkbox" name="assignee" value="${esc(a)}" ${current.has(a) ? 'checked' : ''}> ${esc(a)}</label>`).join('')}
+            ${[...new Set([...nomsEquipe(), ...current])].map(a => `<label class="rdv-allday" style="margin:0"><input type="checkbox" name="assignee" value="${esc(a)}" ${current.has(a) ? 'checked' : ''}> ${esc(a)}${nomsEquipe().includes(a) ? '' : ' (ancien)'}</label>`).join('')}
           </div>
         </fieldset>
         <label>Statut <select name="Statut">${STATUTS.map(s => `<option ${t.Statut === s ? 'selected' : ''}>${s}</option>`).join('')}</select></label>

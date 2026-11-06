@@ -54,6 +54,8 @@ const { buildRetroApporteurs, TAUX_RETRO } = require('./services/retro-apporteur
 const { canAccess, pickAllowedFields, splitAllowedFields } = require('./services/acl');
 const logger = require('./services/logger');
 const usersStore = require('./services/users-store');
+const { membresActifs } = require('./services/equipe');
+const equipeActive = async () => membresActifs(await usersStore.listUsers());
 const s3Transfert = require('./services/s3-transfert');
 const exportService = require('./services/export');   // export / réversibilité : ZIP des données Airtable, remis par lien signé
 const totp = require('./services/totp');
@@ -1153,6 +1155,11 @@ app.post('/api/admin/users/:id/reset-2fa', requireAdminUsers, async (req, res) =
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
+});
+
+app.get('/api/equipe', requireAuth, async (req, res) => {
+  try { res.json({ membres: await equipeActive() }); }
+  catch (e) { res.status(503).json({ error: 'Liste de l’équipe indisponible' }); }
 });
 
 app.get('/api/me', async (req, res) => {
@@ -2802,13 +2809,8 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
         lignes: ls, montant, fournisseurId: fid, fournisseurNom: nom, raison: null, candidats: [],
       };
     });
-    // `forcer` : toujours un BC « Plan de travail » (JMG 2026-05-21), même sans ligne PT
-    // (le PT est mesuré sur chantier après pose meubles, BC complété à la main par Virginie)
-    // — sauf pour un devis sans aucune ligne « grille » (ex. électroménager seul).
-    const groupes = [
-      ...groupesFournisseur,
-      ...routeCommandesGrille(lignesGrille, fournisseursGrille, { forcer: lignesGrille.length ? ['Plan de travail & crédence'] : [] }),
-    ];
+    // Aucun BC anticipé vide : seules les lignes réellement commandées créent un bon.
+    const groupes = [...groupesFournisseur, ...routeCommandesGrille(lignesGrille, fournisseursGrille)];
 
     // 4. Création des commandes fournisseurs (Sprint v3.1 — BC structurés et modifiables)
     // Pour chaque groupe, on peuple les champs structurés (Contremarque, Contact Tanguy,
@@ -2816,6 +2818,8 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     const commandesCreees = [];
     const aClasserCreees = [];   // groupes non reconnus → à router à la main (jamais tus)
     const sansCommande = [];     // Dépose : reportée, sans BC fournisseur
+    const membres = await equipeActive();
+    const contact = membres.find(m => m.login === req.session.user)?.nom || '';
     let idx = 1;
     let zonesCommande = [];
     try {
@@ -2828,13 +2832,10 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       // Dépose : pas de commande fournisseur, mais on la REPORTE (jamais tue). Le
       // Divers, lui, part en « À classer » depuis le 14/10/2026 (décision JMG).
       if (!g.commande) { sansCommande.push({ type: g.canon, montant, lignes: g.lignes.length }); continue; }
-      // On crée le BC dès qu'il y a des lignes, ou pour le « Plan de travail » (BC vide
-      // à compléter sur chantier), ou pour un groupe « À classer » (lignes à router).
-      if (montant <= 0 && g.canon !== 'Plan de travail & crédence' && g.lignes.length === 0) continue;
+      if (!g.lignes.length) continue;
       const numCmd = numeroBc({ clientNom, type, numeroDevis: numero, idx });
       const lignesType = g.lignes;
       const { texte: tableauTexte } = buildBcTableau(lignesType);
-      const isPlanTravailVide = g.canon === 'Plan de travail & crédence' && lignesType.length === 0;
       // En-tête de note : jamais de silence. On dit explicitement à Virginie le
       // fournisseur retenu, OU pourquoi il n'a pas pu l'être (À classer, ambiguïté,
       // absent de la grille) — pour qu'elle route à la main en connaissance de cause.
@@ -2843,11 +2844,10 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       else if (g.parFournisseur) enteteNote.push(`Fournisseur (devis) : ${g.fournisseurNom}.${g.auPrixAchat ? ' Montant HT = prix d\'achat + éco-participation, à rapprocher de sa facture.' : ''}`);
       else if (g.fournisseurId) enteteNote.push(`Fournisseur (grille) : ${g.fournisseurNom}.`);
       else if (g.raison) enteteNote.push(`⚠️ Fournisseur à choisir — ${g.raison}.`);
-      const notesPrefill = (enteteNote.length ? enteteNote.join('\n') + '\n\n' : '') + (isPlanTravailVide
-        ? `[Auto-généré depuis devis ${numero} signé le ${dateFr(new Date())}]\n\nBC à compléter APRÈS prise de mesures sur chantier :\n• Matériau / Coloris / Finition / Épaisseur\n• Dimensions exactes (longueur, largeur, profondeur, découpes évier/plaque)\n• Fournisseur final (Inalco, Compac, Silestone, Caesarstone, etc.)\n• Délai de livraison\n\nUne fois mesures prises, mettre à jour ce BC puis l'envoyer au fournisseur.`
-        : `[Auto-généré depuis devis ${numero} signé le ${dateFr(new Date())}]\n\nContenu prévisionnel (à valider/ajuster avant envoi au fournisseur, SANS MONTANTS) :\n\n${tableauTexte}`);
+      const notesPrefill = (enteteNote.length ? enteteNote.join('\n') + '\n\n' : '') +
+        `[Auto-généré depuis devis ${numero} signé le ${dateFr(new Date())}]\n\nContenu prévisionnel (à valider/ajuster avant envoi au fournisseur, SANS MONTANTS) :\n\n${tableauTexte}`;
       const cf = champsCommande({
-        numCmd, groupe: g, notes: notesPrefill, clientNom, projetId,
+        numCmd, groupe: g, notes: notesPrefill, clientNom, projetId, contact,
         dateEnvoi: dateEnvoiCommande, modele: modeleDepuisLignes(g.lignes, zonesCommande),
         today: new Date().toISOString().slice(0, 10),
       });
@@ -2883,7 +2883,10 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
         'Description': `Des lignes du devis ${numero} n'ont pas de fournisseur déductible (Divers hors catalogue, ou catégorie non reconnue). BC créés « À classer » : ${aClasserCreees.map(a => `${a.numero} (${a.categorie || '—'}, ${a.lignes} ligne(s))`).join(' ; ')}. Rattache chacun au bon fournisseur / BC.`,
       });
     }
-    if (projetId) tachesFields.forEach(t => t['Projet'] = [projetId]);
+    for (const t of tachesFields) {
+      if (!membres.some(m => m.nom === t['Assignée à'])) delete t['Assignée à'];
+      if (projetId) t['Projet'] = [projetId];
+    }
     await atCreateBatch(TABLES.taches.id, tachesFields);
 
     // 6. MAJ du statut devis + projet
@@ -3517,7 +3520,8 @@ app.post('/api/devis/:id/commande-lignes', requireAuth, requireAdmin, async (req
       `[Auto-généré depuis devis ${numero} — lignes ajoutées le ${dateFr(new Date())} depuis la fiche devis]\n\n` +
       `Contenu prévisionnel (à valider/ajuster avant envoi au fournisseur, SANS MONTANTS) :\n\n${tableauTexte}`;
 
-    const cf = champsCommande({ numCmd, groupe: { ...groupe, lignes: choisies }, notes, clientNom, projetId, dateEnvoi, modele, today });
+    const contact = (await equipeActive()).find(m => m.login === req.session.user)?.nom || '';
+    const cf = champsCommande({ contact, numCmd, groupe: { ...groupe, lignes: choisies }, notes, clientNom, projetId, dateEnvoi, modele, today });
     const rec = await atCreate(TABLES.commandes.id, cf);
     logger.info({ devisId, commandeId: rec.id, numero: numCmd, lignes: choisies.length, categorie, user: req.session?.user }, '[devis/commande-lignes] BC créé depuis la fiche devis');
     res.json({ ok: true, commande: { id: rec.id, numero: numCmd, lignes: choisies.length, fournisseur: groupe.fournisseurNom || null } });
@@ -3575,6 +3579,7 @@ app.post('/api/plaud/parse', requireAuth, async (req, res) => {
           if (cr.ok) clientNom = (await cr.json()).fields?.Nom || '';
         } catch (e) { /* fallback silencieux */ }
       }
+      const nomsActifs = new Set((await equipeActive()).map(m => m.nom));
       for (const action of parsed.prochaines_actions) {
         if (!action.titre) continue;
         const titre = clientNom && !action.titre.includes('[')
@@ -3585,7 +3590,7 @@ app.post('/api/plaud/parse', requireAuth, async (req, res) => {
             'Titre': titre,
             'Statut': 'À faire',
             'Priorité': 'Moyenne',
-            'Assignée à': action.assignee_suggere || 'Virginie',
+            ...(nomsActifs.has(action.assignee_suggere) ? { 'Assignée à': action.assignee_suggere } : {}),
             'Échéance': action.date_souhaitee || null,
             'Description': action.notes || `Tâche générée auto depuis Plaud R1 (type: ${action.type || 'autre'})`,
             'Projet': [projetId],
@@ -4119,7 +4124,7 @@ function renderBcHtml({ commande, fournisseur, lignes }) {
   </div>
 
   <div class="bc-meta">
-    <div class="row"><span class="label" style="display:inline-block;min-width:90px">Contact</span> : ${esc(commande['Contact Tanguy'] || 'Solène LORHO')}</div>
+    <div class="row"><span class="label" style="display:inline-block;min-width:90px">Contact</span> : ${esc(commande['Contact Tanguy'] || 'Tanguy Design')}</div>
     <div class="row"><span class="label" style="display:inline-block;min-width:90px">N° client</span> : </div>
   </div>
 
