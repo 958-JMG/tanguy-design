@@ -154,7 +154,7 @@ test('signature : Mobilier + Électroménager + Plan de travail vide + Divers en
   assert.match(parRef.A_CLASSER['Numéro'], /· À CLASSER · T-100-\d$/);
   const taches = [...table('tblDwUHL16LBVMSaz').values()].map(t => t.fields['Titre']);
   assert.ok(taches.some(t => /Router 1 commande\(s\) « À classer » — T-100/.test(t)), 'tâche de routage pour Virginie');
-  assert.equal(parRef.PLAN_CRED['Numéro'], 'CLIENT TEST · PLAN DE TRAVAIL & CRÉDENCE · T-100-1');
+  assert.equal(parRef.PLAN_CRED['Numéro'], 'CLIENT TEST · PLAN DE TRAVAIL · T-100-4');
   assert.equal(parRef.PLAN_CRED['Lignes BC'], '[]');
   assert.deepEqual(JSON.parse(parRef.MOBILIER['Lignes BC']).map(l => l.code), ['M1']);
   assert.equal(parRef.MOBILIER['Modèle choisi'], 'NOVA — CUC');

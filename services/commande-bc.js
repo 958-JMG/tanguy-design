@@ -17,13 +17,14 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 const { classifierCategorie } = require('./fournisseur-grille');
+const { ordonnerLignes, moduleWinner } = require('./winner-lignes');
 
 // Sprint 2 — Format BC en tableau structuré (Pos | Code | Description | SENS | Cote | Qté)
 // SANS MONTANTS, à la demande JMG. Retour : string ASCII alignée + version HTML pour mail.
 function buildBcTableau(lignes) {
   if (!lignes || lignes.length === 0) return { texte: '— Pas de ligne disponible —', html: '<p>Pas de ligne disponible.</p>' };
 
-  const rows = lignes.map(l => {
+  const rows = ordonnerLignes(lignes).map(l => {
     const f = l.fields || {};
     return {
       pos:   String(f['Position'] || ''),
@@ -64,9 +65,15 @@ function buildBcTableau(lignes) {
 
 // Lignes structurées (champ « Lignes BC », JSON) — éditables depuis la vue commande.
 function lignesBcStructurees(lignes) {
-  return (lignes || []).map(l => {
+  return ordonnerLignes(lignes).map(l => {
     const f = l.fields || {};
     return {
+      ...(l.id ? { ligneDevisId: l.id } : {}),
+      ...(f['Ordre Winner'] ? { ordreWinner: f['Ordre Winner'] } : {}),
+      ...(f['Section Winner'] ? { section: f['Section Winner'] } : {}),
+      ...(f['Catégorie'] ? { categorie: f['Catégorie'] } : {}),
+      ...(f['Fournisseur Winner'] ? { fournisseur: f['Fournisseur Winner'] } : {}),
+      ...(f['Marque Winner'] ? { marque: f['Marque Winner'] } : {}),
       pos: String(f.Position || ''),
       code: String(f['Code produit'] || ''),
       description: String(f['Désignation'] || ''),
@@ -112,6 +119,7 @@ const cleLigne = (pos, code) => `${String(pos ?? '').trim()}|${String(code ?? ''
  */
 function lignesSansCommande(lignesDevis, lignesBcJson) {
   const couvertes = new Set();
+  const couvertesIds = new Set();
   let bcIllisibles = 0;
   let bcSansListe = 0;
   for (const raw of lignesBcJson || []) {
@@ -119,10 +127,13 @@ function lignesSansCommande(lignesDevis, lignesBcJson) {
     let arr;
     try { arr = JSON.parse(raw); } catch (e) { bcIllisibles++; continue; }
     if (!Array.isArray(arr)) { bcIllisibles++; continue; }
-    for (const l of arr) couvertes.add(cleLigne(l && l.pos, l && l.code));
+    for (const l of arr) {
+      if (l?.ligneDevisId) couvertesIds.add(l.ligneDevisId);
+      else couvertes.add(cleLigne(l && l.pos, l && l.code));
+    }
   }
-  const lignes = (lignesDevis || [])
-    .filter(l => !couvertes.has(cleLigne(l.fields?.Position, l.fields?.['Code produit'])))
+  const lignes = ordonnerLignes(lignesDevis)
+    .filter(l => !couvertesIds.has(l.id) && !couvertes.has(cleLigne(l.fields?.Position, l.fields?.['Code produit'])))
     .map(l => {
       const f = l.fields || {};
       const cl = classifierCategorie(f['Catégorie']);
@@ -132,13 +143,15 @@ function lignesSansCommande(lignesDevis, lignesBcJson) {
         code: String(f['Code produit'] || ''),
         designation: String(f['Désignation'] || ''),
         categorie: f['Catégorie'] || null,
+        section: f['Section Winner'] || '',
+        fournisseur: f['Fournisseur Winner'] || '',
+        marque: f['Marque Winner'] || '',
         montantHT: Number(f['Montant HT']) || 0,
-        famille: cl.canon,
+        famille: cl.canon ? moduleWinner(f['Section Winner'] || f['Catégorie']) : null,
         commandeAuto: cl.commande,
         raison: cl.raison || null,
       };
-    })
-    .sort((a, b) => (parseFloat(a.position) || 0) - (parseFloat(b.position) || 0));
+    });
   return { lignes, bcIllisibles, bcSansListe };
 }
 
@@ -168,6 +181,18 @@ function modeleDepuisZone(z0) {
     'Finition gorges', 'Profondeur', 'Option ouverture', 'Finition socle'];
   const detailsModele = champs.filter(k => z0[k]).map(k => `${k} : ${z0[k]}`).join('\n');
   return { modeleHeader, detailsModele };
+}
+
+// Un fournisseur ne doit pas recevoir le modèle de la première zone d'un
+// autre fournisseur. En cas de plusieurs modèles, ne pas inventer d'en-tête commun.
+function modeleDepuisLignes(lignes, zones) {
+  const ids = new Set((lignes || []).flatMap(l => l.fields?.Zone || []));
+  const candidates = ids.size ? (zones || []).filter(z => ids.has(z.id)) : (zones || []);
+  if (candidates.length !== 1) return null;
+  const zone = candidates[0].fields;
+  const marques = new Set((lignes || []).map(l => l.fields?.['Marque Winner']).filter(Boolean));
+  if (marques.size && (marques.size !== 1 || !marques.has(zone?.Marque))) return null;
+  return modeleDepuisZone(zone);
 }
 
 /**
@@ -219,6 +244,6 @@ function numeroBc({ clientNom, type, numeroDevis, idx }) {
 }
 
 module.exports = {
-  buildBcTableau, lignesBcStructurees, dateEnvoiDepuisPose, modeleDepuisZone, champsCommande,
+  buildBcTableau, lignesBcStructurees, dateEnvoiDepuisPose, modeleDepuisZone, modeleDepuisLignes, champsCommande,
   cleLigne, lignesSansCommande, prochainIndexBc, numeroBc,
 };

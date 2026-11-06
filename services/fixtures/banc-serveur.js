@@ -82,6 +82,8 @@ module.exports = function creerBanc({ secret = 'secret-de-test-banc-serveur-tang
     const method = (opts.method || 'GET').toUpperCase();
     if (method === 'GET' && id) { const r = t.get(id); return r ? json(200, r) : json(404, { error: { type: 'NOT_FOUND' } }); }
     if (method === 'GET') {
+      const champAbsent = u.searchParams.getAll('fields[]').find(c => champsInconnus.get(tableId)?.has(c));
+      if (champAbsent) return json(422, { error: { type: 'UNKNOWN_FIELD_NAME', message: `Unknown field name: "${champAbsent}"` } });
       const f = u.searchParams.get('filterByFormula') || '';
       let recs = [...t.values()];
       if (f) {

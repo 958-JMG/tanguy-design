@@ -64,6 +64,9 @@ Analyse ce PDF de devis et retourne UNIQUEMENT un objet JSON valide, sans aucun 
     {
       "position": "1",
       "position_parent": "",
+      "section": "titre exact de la section Winner, ex. Meubles, Plans de travail, Panneaux de recouvrement, Electroménager, Sanitaires, Accessoires",
+      "fournisseur": "nom du fournisseur explicitement identifié dans le PDF, sinon chaîne vide",
+      "marque": "marque ou catalogue explicitement identifié, sinon chaîne vide",
       "zone_nom": "COTE EVIER ET ARMOIRES",
       "categorie": "Meubles | Panneaux de recouvrement | Plan de travail | Électroménager | Luminaire | Évier | Robinetterie | Eviers et robinetterie | Crédence | Produits de vente | Sanitaires | Dépose | Divers",
       "code_produit": "ZPL22A",
@@ -120,7 +123,12 @@ Analyse ce PDF de devis et retourne UNIQUEMENT un objet JSON valide, sans aucun 
 
 RÈGLES STRICTES :
 - Toutes les lignes d'articles doivent être extraites, y compris les sous-lignes numérotées (ex: 2.1, 2.2) qui référencent la ligne parent via "position_parent": "2".
-- Les sous-lignes n'ont généralement pas de zone (zone_nom = "").
+- Le tableau "lignes" suit STRICTEMENT l'ordre de lecture des pages puis des lignes dans le PDF. Ne trie JAMAIS par numéro, zone, famille ou fournisseur. Exemple : des meubles 450, 503 peuvent précéder le plan 20, le panneau 15, puis les accessoires 2.1 et 4.2 dans leur propre section en fin de document.
+- Les positions sont des CHAÎNES exactement recopiées ("3.1", "3.10", "450"), jamais des nombres décimaux. Ne renumérote rien, conserve les sauts de numérotation, les lignes sans code et les lignes à montant nul.
+- "section" conserve le titre imprimé exact et reste identique lors d'un saut de page. N'extrais ni les sous-totaux, ni le résumé des mêmes articles, ni les conditions générales comme de nouveaux articles.
+- Une ligne composite comme « plans et crédences selon devis fournisseur » reste UNE seule ligne dans sa section ; ne la duplique pas et ne répartis pas son prix arbitrairement.
+- Une sous-ligne conserve son position_parent même si elle est dans une autre section (ex. 2.1 en Accessoires). Elle reste à sa place dans le PDF. Reprends la zone du parent seulement si elle est explicite et applicable.
+- Distingue le fournisseur commercial de la marque : NOVA CUCINA, BORA, LIEBHERR, ASKO, NOVY, BRADANO ou LMC peuvent être des marques/catalogues, cela ne prouve pas le fournisseur de commande. "fournisseur" reste vide si le document ne permet pas de l'identifier. N'invente aucun nom ni correspondance. Le fabricant du modèle général ne s'applique pas à l'électroménager ou au sanitaire.
 - Les positions numériques peuvent aller jusqu'à 507 ou plus (lignes de finition, gorges, socles en fin de devis).
 - La catégorie décrit la FAMILLE FOURNISSEUR de l'article, alignée sur les familles de Tanguy : Meubles (caissons, façades, panneaux de recouvrement), Plan de travail, Électroménager, Luminaire (spots, appliques, suspensions), Évier, Robinetterie, Crédence, Produits de vente, Dépose, Divers. Déduis-la du titre de section ET du contenu de la ligne : dans une section « Eviers et robinetterie », une ligne de robinet/mitigeur → « Robinetterie », une ligne d'évier/cuve → « Évier ». Si la section ne se laisse pas trancher, garde son titre exact (ex. « Eviers et robinetterie »). Ne DEVINE JAMAIS une famille : si tu ne sais pas, reprends le titre de section tel quel plutôt que d'inventer.
 - Les montants sont en euros, toujours en nombre (pas de chaîne), avec point décimal. Ne mets jamais de séparateur de milliers.

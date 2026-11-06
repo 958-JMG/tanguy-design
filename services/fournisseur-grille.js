@@ -20,6 +20,8 @@
 // Refonte JMG 2026-09-14 : « Plan de travail & crédence » regroupe plan de
 // travail + évier + robinetterie + crédence ; « Meuble » devient « Mobilier » ;
 // ajout de « Luminaire ». Virginie tague chaque fournisseur sur ces 4 familles.
+const { moduleWinner, fournisseurWinner, ordonnerLignes } = require('./winner-lignes');
+
 const CATEGORIES_GRILLE = ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence'];
 
 // Type de bon de commande + référence courte (code fournisseur sur le BC) par
@@ -30,6 +32,10 @@ const CANON_BC = {
   'Luminaire':                  { type: 'Luminaire',                  ref: 'LUMIN' },
   'Plan de travail & crédence': { type: 'Plan de travail & crédence', ref: 'PLAN_CRED' },
   'Accessoires':                { type: 'Accessoires',                ref: 'ACCESS' },
+  'Plan de travail':            { type: 'Plan de travail',            ref: 'PLAN' },
+  'Crédence':                   { type: 'Crédence',                   ref: 'CREDENCE' },
+  'Sanitaire':                  { type: 'Sanitaire',                  ref: 'SANITAIRE' },
+  'Panneaux de recouvrement':    { type: 'Panneaux de recouvrement',    ref: 'PANNEAUX' },
 };
 
 // Normalise pour comparer sans se faire piéger par accents/casse/ponctuation.
@@ -115,36 +121,26 @@ function routeCommandes(lignes, fournisseurs, opts = {}) {
   const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
   const groupes = new Map();
 
-  // Catégories imposées (BC créé même à vide) : on pose le groupe d'abord, les
-  // lignes réelles s'y ajouteront ensuite s'il y en a.
-  for (const canon of (opts.forcer || [])) {
-    if (!CANON_BC[canon]) continue;
-    const bc = CANON_BC[canon];
-    groupes.set(canon, {
-      canon, aClasser: false, commande: true, grille: CATEGORIES_GRILLE.includes(canon),
-      type: bc.type, ref: bc.ref, raison: null, categorieBrute: null,
-      candidats: [], lignes: [], montant: 0,
-    });
-  }
-
-  for (const l of lignes || []) {
-    const raw = (l.fields && l.fields['Catégorie']) != null ? l.fields['Catégorie'] : l['Catégorie'];
-    const cl = classifierCategorie(raw);
-    const cle = cl.canon != null ? cl.canon : `__aclasser__:${normalize(raw) || '∅'}`;
+  for (const l of ordonnerLignes(lignes)) {
+    const raw = l.fields?.['Catégorie'] ?? l['Catégorie'];
+    const sectionCl = classifierCategorie(l.fields?.['Section Winner']);
+    const cl = sectionCl.canon ? sectionCl : classifierCategorie(raw);
+    const module = moduleWinner(l.fields?.['Section Winner'] || raw);
+    const source = fournisseurWinner(l, fournisseurs);
+    // Les marques distinctes sans fournisseur connu restent séparées : une
+    // grille générale ne prouve pas le distributeur d'une marque donnée.
+    const marque = l.fields?.['Marque Winner'] || '';
+    const cle = JSON.stringify([module, source.cle || normalize(marque)]);
     if (!groupes.has(cle)) {
-      const bc = cl.canon ? CANON_BC[cl.canon] : null;
+      const bc = CANON_BC[module] || CANON_BC[cl.canon];
       groupes.set(cle, {
-        canon: cl.canon,
+        canon: cl.canon, module,
         aClasser: cl.canon == null,
-        commande: cl.commande,
-        grille: cl.grille,
-        type: cl.canon == null ? 'À classer' : (bc ? bc.type : cl.canon),
-        ref: cl.canon == null ? 'A_CLASSER' : (bc ? bc.ref : normalize(cl.canon).replace(/ /g, '_').toUpperCase()),
-        raison: cl.raison || null,
-        categorieBrute: raw != null && String(raw).trim() ? String(raw).trim() : null,
-        candidats: [],
-        lignes: [],
-        montant: 0,
+        commande: cl.commande, grille: cl.grille,
+        type: bc?.type || 'À classer', ref: bc?.ref || 'A_CLASSER',
+        raison: source.raison || cl.raison || null,
+        categorieBrute: raw ? String(raw).trim() : null,
+        source, marque, candidats: [], lignes: [], montant: 0,
       });
     }
     const g = groupes.get(cle);
@@ -152,20 +148,37 @@ function routeCommandes(lignes, fournisseurs, opts = {}) {
     g.montant += montantDe(l);
   }
 
+  // Le BC de métrage reste disponible, après les groupes réels, sans déplacer
+  // les sections du PDF. Un plan réel remplace ce BC vide.
+  for (const canon of (opts.forcer || [])) {
+    if (!CANON_BC[canon]) continue;
+    const module = canon === 'Plan de travail & crédence' ? 'Plan de travail' : canon;
+    if ([...groupes.values()].some(g => g.module === module || g.module === canon)) continue;
+    groupes.set(`force:${canon}`, {
+      canon, module, aClasser: false, commande: true, grille: CATEGORIES_GRILLE.includes(canon),
+      type: module, ref: CANON_BC[canon].ref, raison: null, categorieBrute: null,
+      candidats: [], lignes: [], montant: 0,
+    });
+  }
+
   for (const g of groupes.values()) {
     g.montant = round2(g.montant);
-    if (g.grille && g.canon) {
+    if (g.source?.explicite) {
+      g.fournisseurNom = g.source.nom;
+      if (g.source.id) {
+        g.fournisseurId = g.source.id;
+        g.parFournisseur = true;
+      }
+    } else if (g.grille && g.canon) {
       const cands = idx.get(normalize(g.canon)) || [];
       g.candidats = cands;
-      if (cands.length === 1) {
+      if (cands.length === 1 && !g.marque) {
         g.fournisseurId = cands[0].id;
         g.fournisseurNom = cands[0].nom;
-      } else if (cands.length === 0) {
-        g.raison = g.raison || `Aucun fournisseur dans la grille pour « ${g.canon} » — à rattacher`;
       } else {
-        // Plusieurs fournisseurs possibles : on ne tranche PAS au hasard (leçon
-        // Barbier : un mauvais rattachement silencieux coûte plus qu'un champ vide).
-        g.raison = g.raison || `${cands.length} fournisseurs possibles (${cands.map(c => c.nom).join(', ')}) — à choisir`;
+        g.raison = g.raison || (cands.length === 0
+          ? `Aucun fournisseur dans la grille pour « ${g.canon} » — à rattacher`
+          : `${cands.length} fournisseur(s) possible(s) (${cands.map(c => c.nom).join(', ')})${g.marque ? ` ; marque ${g.marque}` : ''} — à choisir`);
       }
     }
   }
