@@ -572,26 +572,32 @@ async function createDraftQuote({ customer_id, date, deadline, lines, external_r
 // Le nom inclut l’empreinte du descriptif : une reprise ne joint pas deux fois
 // la même version, y compris si le premier upload a réussi avant une coupure.
 const annexesEnCours = new Map();
+async function trouverAnnexeDevis(quoteId, filename) {
+  if (!/^\d+$/.test(String(quoteId))) throw new Error('Identifiant Pennylane invalide');
+  let cursor = null;
+  const vus = new Set();
+  do {
+    await throttle();
+    const url = `${BASE}/quotes/${quoteId}/appendices?limit=100${cursor ? '&cursor=' + encodeURIComponent(cursor) : ''}`;
+    const r = await fetch(url, { headers: headers(), signal: AbortSignal.timeout(25000) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`Lecture des annexes Pennylane : HTTP ${r.status}${detailErreur(j) ? ' : ' + detailErreur(j) : ''}`);
+    if (!Array.isArray(j.items)) throw new Error('Liste des annexes Pennylane illisible');
+    const presente = j.items.find(a => a.filename === filename && a.id);
+    if (presente) return { id: presente.id, filename, already: true };
+    if (j.has_more && (!j.next_cursor || vus.has(j.next_cursor))) throw new Error('Pagination des annexes Pennylane incomplète');
+    cursor = j.has_more ? j.next_cursor : null;
+    if (cursor) vus.add(cursor);
+  } while (cursor);
+  return null;
+}
 async function joindreAnnexeDevis(quoteId, buffer, filename) {
   if (!/^\d+$/.test(String(quoteId))) throw new Error('Identifiant Pennylane invalide');
   const cle = `${quoteId}/${filename}`;
   if (annexesEnCours.has(cle)) return annexesEnCours.get(cle);
   const travail = (async () => {
-    let cursor = null;
-    const vus = new Set();
-    do {
-      await throttle();
-      const url = `${BASE}/quotes/${quoteId}/appendices?limit=100${cursor ? '&cursor=' + encodeURIComponent(cursor) : ''}`;
-      const r = await fetch(url, { headers: headers(), signal: AbortSignal.timeout(25000) });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(`Lecture des annexes Pennylane : HTTP ${r.status}`);
-      if (!Array.isArray(j.items)) throw new Error('Liste des annexes Pennylane illisible');
-      const presente = j.items.find(a => a.filename === filename);
-      if (presente) return { id: presente.id, filename, already: true };
-      if (j.has_more && (!j.next_cursor || vus.has(j.next_cursor))) throw new Error('Pagination des annexes Pennylane incomplète');
-      cursor = j.has_more ? j.next_cursor : null;
-      if (cursor) vus.add(cursor);
-    } while (cursor);
+    const presente = await trouverAnnexeDevis(quoteId, filename);
+    if (presente) return presente;
     const fd = new FormData();
     fd.append('file', new Blob([buffer], { type: 'application/pdf' }), filename);
     await throttle();
@@ -656,6 +662,6 @@ module.exports = {
   carveEcoParticipation, ecoLineImputation,
   // réseau
   findCustomerByName, createCustomer, createDraftQuote, createDraftInvoice,
-  fetchQuotePdf, fetchInvoicePdf, listAllCustomers, joindreAnnexeDevis,
+  fetchQuotePdf, fetchInvoicePdf, listAllCustomers, joindreAnnexeDevis, trouverAnnexeDevis,
   BASE,
 };
