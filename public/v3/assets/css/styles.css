@@ -2447,3 +2447,9 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
    heures supplémentaires — « 2 j / 2 » seul ne le dit pas. */
 .rtt-origine { font-size: 10px; line-height: 1.3; margin-top: 2px; white-space: normal; }
 .rtt-attente { color: var(--gold); font-weight: 600; }
+
+/* Retour immédiat lors des imports de documents. */
+.import-progress { display:flex; align-items:center; gap:16px; }
+.import-spinner { width:26px; height:26px; flex-shrink:0; border:3px solid var(--line2); border-top-color:var(--accent); border-radius:50%; animation:import-spin .8s linear infinite; }
+@keyframes import-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .import-spinner { animation:none; } }

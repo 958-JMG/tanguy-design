@@ -130,7 +130,7 @@ async function renderFacturation(body) {
       </table>` : `<div class="card" style="margin-bottom:24px"><p class="muted">${icon('check', 14)} Aucune facture en retard de paiement.</p></div>`}
 
       ${imp.echeancesAFacturer.length ? `
-      <div class="section-header"><h2 class="section-title">Échéances en retard à facturer</h2></div>
+      <div class="section-header"><h2 class="section-title">Échéances à facturer — devis signés</h2></div>
       <table class="pipeline-table" style="margin-bottom:24px">
         <thead><tr><th>Client</th><th>Échéance</th><th>Date prévue</th><th class="num">Montant</th><th class="num">Retard</th><th></th></tr></thead>
         <tbody>

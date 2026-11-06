@@ -83,6 +83,8 @@ function renderFiche(app, data) {
       <div class="header-actions">
         <button class="btn btn-ghost btn-sm" id="btn-edit-devis">${icon('edit', 14)} Éditer</button>
         <button class="btn btn-ghost btn-sm" id="btn-reimport-devis">${icon('plus', 14)} Re-importer PDF</button>
+        <a class="btn btn-ghost btn-sm" href="/api/devis/${encodeURIComponent(devis.id)}/descriptif.pdf">${icon('download', 14)} Télécharger le descriptif</a>
+        ${plQuote ? `<button class="btn btn-ghost btn-sm" id="btn-pennylane-annexe">${icon('file', 14)} Joindre le descriptif</button>` : ''}
         ${plQuote
           ? `<a class="btn btn-ghost btn-sm" href="${esc(pennylanePdfUrl(devis.id))}">${icon('download', 14)} Télécharger PDF</a>
              <a class="btn btn-ghost btn-sm" href="https://app.pennylane.com" target="_blank" rel="noopener">${icon('external-link', 14)} Ouvrir dans Pennylane</a>
@@ -181,6 +183,16 @@ function renderFiche(app, data) {
   document.getElementById('btn-edit-devis')?.addEventListener('click', () => openModalEditDevis(devis));
   document.getElementById('btn-reimport-devis')?.addEventListener('click', () => openReimportDevis(devis, projet));
   document.getElementById('btn-sign-devis')?.addEventListener('click', () => signFlow(devis, projet));
+  document.getElementById('btn-pennylane-annexe')?.addEventListener('click', async e => {
+    const btn = e.currentTarget; btn.disabled = true; btn.textContent = 'Annexe en cours…';
+    try {
+      const r = await fetch(`/api/devis/${encodeURIComponent(devis.id)}/pennylane/annexe`, { method: 'POST' });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Annexe non jointe');
+      toast(d.annexe.already ? 'Ce descriptif est déjà joint dans Pennylane' : 'Descriptif joint dans Pennylane', 'success');
+    } catch (err) { toast(err.message, 'error', 9000); }
+    finally { btn.disabled = false; btn.textContent = 'Joindre le descriptif'; }
+  });
   document.getElementById('btn-pennylane')?.addEventListener('click', () => pennylaneFlow(devis));
   // Régénérer : recrée le devis dans Pennylane (NOUVEAU numéro), description et montants
   // à jour. Pennylane numérote un devis dès sa création (ce n'est pas un brouillon) et
@@ -277,6 +289,7 @@ async function pennylaneFlow(devis, opts = {}) {
       toast('Ce devis est déjà dans Pennylane', 'info', 5000);
     } else {
       toast(`Devis ${r.number ? r.number + ' ' : ''}créé dans Pennylane, pas encore envoyé` + (r.customerCreated ? ' · client créé' : '')
+        + (r.annexe ? ' · descriptif complet joint' : '')
         + (r.eco ? ` · éco-participation ${euros(r.eco.ttc)} TTC sur une ligne dédiée` : ''), 'success', 7000);
       if (r.reconciliation && r.reconciliation.ok === false) {
         toast(`⚠️ Écart TTC ${r.reconciliation.diff} € — vérifie le devis dans Pennylane avant envoi`, 'error', 9000);
@@ -684,7 +697,7 @@ async function openReimportDevis(devis, projet) {
     if (!file || file.size === 0) return;
     const btn = document.getElementById('submit-btn');
     btn.disabled = true;
-    btn.innerHTML = 'Parsing (1-2 min)…';
+    btn.innerHTML = '<span class="import-spinner" style="display:inline-block;width:14px;height:14px" aria-hidden="true"></span> Analyse en cours…';
     try {
       const result = await importDevisClient({ file, projetId, type });
       close();

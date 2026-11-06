@@ -1,18 +1,10 @@
-// Vue « Devis express » (P-H3) — accessible à toute l'équipe.
-//
-// Flux : on dépose un PDF de devis FOURNISSEUR → le backend le parse via Claude
-// (POST /api/devis-fournisseur/parse, requireAuth) et renvoie le parsing enrichi
-// (coefficient de marge du fournisseur + éco-participation suggérée + prix client
-// suggéré). La vue affiche un tableau de saisie éditable qui recalcule le prix
-// client HT et le TTC en temps réel.
-//
-// La CRÉATION du devis client (rattachement projet + insert Airtable) est l'étape
-// suivante (P-H4) : le bouton est présent mais désactivé tant que l'endpoint create
-// n'est pas livré.
-
+// Import d'un prix de vente HT : aucune marge ajoutée, éco comptée une seule fois.
 import { icon, hydrateIcons } from '../core/lucide.js';
 import { toast } from '../core/ui.js';
 import { parseDevisFournisseur, creerDevisClientExpress, calculEcoContribution } from '../core/api.js';
+import { libelleProjet, filtrerProjets } from '../core/projet-recherche.mjs';
+import { calculPrixImport } from '../core/devis-prix.mjs';
+import { importProgress } from '../core/import-progress.js';
 import { state } from '../core/state.js';
 import { renderElectro } from './devis-electro.js';
 
@@ -23,9 +15,12 @@ const eur = (n) => (n == null || Number.isNaN(Number(n)))
 
 // État courant du dernier parsing (pour le recalcul live).
 let current = null;
+let importEnCours = false;
+let fichierEnCours = '', erreurImport = '', debutImport = 0;
+let stopAnimation = null;
 
 // Deux modes (demande JMG 14/10/2026) : le devis FOURNISSEUR d'avant (meubles,
-// plans de travail : total net × coefficient) et l'ÉLECTROMÉNAGER (projet FINDIS :
+// plans de travail : prix de vente HT du document) et l'ÉLECTROMÉNAGER (projet FINDIS :
 // prix de vente, d'achat et éco article par article). Mode mémorisé par navigateur.
 const MODE_CLE = 'tanguy.devisExpress.mode';
 function modeMemorise() {
@@ -58,7 +53,7 @@ export function renderDevisFournisseur(app) {
     });
     app.querySelector('#dx-intro').textContent = mode === 'electro'
       ? 'Déposez le projet FINDIS → un devis client article par article, avec le prix d\'achat et la marge.'
-      : 'Déposez un devis fournisseur (PDF) → un devis client pré-rempli, avec votre marge et l\'éco-participation.';
+      : 'Déposez un devis fournisseur (PDF) → le prix de vente HT du document est conservé, sans coefficient supplémentaire.';
     const panel = app.querySelector('#dx-panel');
     if (mode === 'electro') renderElectro(panel);
     else renderPanelFournisseur(panel);
@@ -98,27 +93,32 @@ function renderPanelFournisseur(app) {
     const f = e.dataTransfer.files[0];
     if (f) handleFile(f);
   });
+  afficherEtatImport();
 }
 
-async function handleFile(file) {
+function afficherEtatImport() {
+  stopAnimation?.(); stopAnimation = null;
   const statusEl = document.getElementById('df-status');
   const resultEl = document.getElementById('df-result');
-  resultEl.innerHTML = '';
-  if (file.type !== 'application/pdf') {
-    statusEl.innerHTML = `<div class="card" style="color:var(--accent)">Seuls les fichiers PDF sont acceptés.</div>`;
-    return;
-  }
-  statusEl.innerHTML = `<div class="card"><p class="muted">${icon('clock', 14)} Analyse de « ${esc(file.name)} » en cours… (peut prendre 1 à 2 minutes)</p></div>`;
-  try {
-    const res = await parseDevisFournisseur({ file });
-    statusEl.innerHTML = '';
-    current = res;
-    renderResult(resultEl, res);
-  } catch (e) {
-    statusEl.innerHTML = `<div class="card" style="color:var(--accent)">Échec de l'analyse : ${esc(e.message)}</div>`;
+  if (!statusEl || !resultEl) return;
+  document.querySelectorAll('#df-file, [data-mode]').forEach(el => el.disabled = importEnCours);
+  if (importEnCours) {
+    resultEl.innerHTML = '';
+    stopAnimation = importProgress(statusEl, `Analyse de « ${fichierEnCours} » en cours`, debutImport);
+  } else {
+    statusEl.innerHTML = erreurImport ? `<div class="card" role="alert" style="color:var(--accent)">${esc(erreurImport)}</div>` : '';
+    if (current) renderResult(resultEl, current);
   }
 }
-
+async function handleFile(file) {
+  if (importEnCours) { toast('Un import est déjà en cours. Patiente sans le relancer.', 'info'); return; }
+  if (file.type !== 'application/pdf') { toast('Seuls les fichiers PDF sont acceptés.', 'error'); return; }
+  importEnCours = true; debutImport = Date.now(); fichierEnCours = file.name; current = null; erreurImport = '';
+  afficherEtatImport();
+  try { current = await parseDevisFournisseur({ file }); }
+  catch (e) { erreurImport = `Échec de l’analyse : ${e.message}`; }
+  finally { importEnCours = false; afficherEtatImport(); }
+}
 
 // ---------------------------------------------------------------------------
 // Éco-contribution des tablettes et panneaux (barème Ecomaison 2026)
@@ -317,9 +317,8 @@ function wireEco(out) {
     recomputeEco(out);
     tbody.querySelector(`tr[data-eco-row="${index}"] [data-eco=designation]`)?.focus();
   });
-  // Calcul initial, puis report automatique UNIQUEMENT si tout est chiffré : un
-  // total partiel ne s'invite pas dans le prix sans que quelqu'un l'ait décidé.
-  recomputeEco(out).then(r => { if (r && r.lignes && !r.incalculables) reporterEco(out, { silencieux: true }); });
+  // Le barème est une aide : seul un report explicite remplace le montant lu.
+  recomputeEco(out);
 }
 
 
@@ -330,14 +329,11 @@ function wireEco(out) {
 // projet est créé à la volée. Le devis part en BROUILLON et reste modifiable.
 
 function openModalCreerDevis(out) {
-  const coef = Number(out.querySelector('#df-coef')?.value);
-  const prixHtTexte = out.querySelector('#df-prixht')?.textContent || '';
-  if (!coef || coef <= 0) { toast('Renseigne d\'abord le coefficient de marge', 'error'); return; }
-
-  const totalHt = Number(out.querySelector('#df-totalht').dataset.v) || 0;
-  const eco = Number(out.querySelector('#df-eco').value) || 0;
+  let prix;
+  try { prix = prixDepuisEcran(out); } catch (e) { toast(e.message, 'error'); return; }
+  const { prixClientHt, ecoHt: eco } = prix;
+  const totalHt = Number(out.querySelector('#df-totalht').value);
   const tva = Number(out.querySelector('#df-tva').value) || 0;
-  const prixClientHt = Math.round((totalHt * coef + eco) * 100) / 100;
   const designation = out.querySelector('#df-designation')?.value || '';
   // Famille proposée d'après le fournisseur lu : les plans de travail chez Granit
   // Evolution, le reste en mobilier. Virginie corrige si besoin.
@@ -369,10 +365,12 @@ function openModalCreerDevis(out) {
       </div>
 
       <div id="cd-bloc-projet">
+        <label>Rechercher un projet ou un client <input id="cd-recherche" type="search" placeholder="Nom du client, référence du projet…" autocomplete="off"></label>
+        <p id="cd-recherche-info" class="muted" aria-live="polite"></p>
         <label>Projet
           <select id="cd-projet" style="width:100%">
             <option value="">— choisir —</option>
-            ${projets.map(p => `<option value="${esc(p.id)}">${esc(p['Référence'] || '(sans référence)')}</option>`).join('')}
+            ${projets.map(p => `<option value="${esc(p.id)}">${esc(libelleProjet(p, clients))}</option>`).join('')}
           </select>
         </label>
         ${projets.length ? '' : '<p class="muted" style="font-size:13px">Aucun projet chargé — utilise « Nouveau chantier pour un client ».</p>'}
@@ -391,7 +389,7 @@ function openModalCreerDevis(out) {
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:10px">
         <label>Famille (commande et marge)
           <select id="cd-famille" style="width:100%">
-            ${['Mobilier', 'Plan de travail & crédence', 'Électroménager', 'Luminaire', 'Accessoires'].map(f => `<option ${f === familleParDefaut ? 'selected' : ''}>${f}</option>`).join('')}
+            ${['Mobilier', 'Plan de travail & crédence', 'Sanitaire', 'Électroménager', 'Luminaire', 'Accessoires'].map(f => `<option ${f === familleParDefaut ? 'selected' : ''}>${f}</option>`).join('')}
           </select>
         </label>
         <label>Type de devis
@@ -402,7 +400,7 @@ function openModalCreerDevis(out) {
           </select>
         </label>
       </div>
-      <p class="muted" style="font-size:12px;margin:6px 0 0">Le total net fournisseur (${eur(totalHt)} HT) est gardé comme prix d'achat : il sert à la marge de cette partie.</p>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">Le prix de vente est conservé. Le prix d’achat n’est enregistré que si vous l’avez renseigné séparément.</p>
       <div class="modal-actions" style="margin-top:18px">
         <button type="button" class="btn btn-ghost" id="cd-cancel">Annuler</button>
         <button type="button" class="btn btn-primary" id="cd-ok">Créer le devis</button>
@@ -412,6 +410,14 @@ function openModalCreerDevis(out) {
   hydrateIcons(modal);
   const close = () => modal.remove();
   modal.querySelector('#cd-cancel').onclick = close;
+  modal.querySelector('#cd-recherche').addEventListener('input', e => {
+    const select = modal.querySelector('#cd-projet');
+    const retenus = filtrerProjets(projets, clients, e.target.value);
+    const selected = select.value;
+    select.innerHTML = '<option value="">— choisir —</option>' + retenus.map(p => `<option value="${esc(p.id)}">${esc(libelleProjet(p, clients))}</option>`).join('');
+    if (retenus.some(p => p.id === selected)) select.value = selected;
+    modal.querySelector('#cd-recherche-info').textContent = `${retenus.length} projet(s) trouvé(s)`;
+  });
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
 
   modal.querySelectorAll('input[name=cd-mode]').forEach(r => r.addEventListener('change', () => {
@@ -440,7 +446,10 @@ function openModalCreerDevis(out) {
         origine: current?.parsed?.document?.numero || '',
         famille: modal.querySelector('#cd-famille').value,
         typeDevis: modal.querySelector('#cd-type').value || undefined,
-        prixAchatHt: totalHt || undefined,
+        montantDocumentHt: totalHt,
+        ecoIncluse: out.querySelector('#df-eco-incluse').value === 'oui',
+        prixAchatHt: Number(out.querySelector('#df-achat').value) || undefined,
+        descriptif: out.querySelector('#df-descriptif').value.trim(),
       });
       close();
       // Jamais de silence : ce qui n'a pas pu être fait est annoncé, pas avalé
@@ -461,13 +470,11 @@ function renderResult(out, res) {
   const four = p.fournisseur || {};
   const doc = p.document || {};
   const tot = p.totaux || {};
-  const marge = enr.marge || {};
   const ecopart = enr.ecopart || {};
   const ecoPieces = enr.eco_pieces || null;
 
   const variante = p.variante_prix && p.variante_prix !== 'INCONNU'
     ? `<span class="badge">${esc(p.variante_prix)}</span>` : '';
-  const coefInit = marge.coefficient != null ? marge.coefficient : '';
   const ecoInit = ecopart.montant_ht != null ? ecopart.montant_ht : 0;
   const tvaInit = tot.tva_taux != null ? tot.tva_taux : 20;
 
@@ -475,8 +482,7 @@ function renderResult(out, res) {
     ? `<p class="muted" style="font-size:13px;color:var(--accent)">${icon('alert', 13)} Prix par ligne masqués sur ce devis — on travaille sur le total net.</p>` : '';
   const alerteParsing = p.alertes_parsing
     ? `<p class="muted" style="font-size:13px">${icon('alert', 13)} ${esc(p.alertes_parsing)}</p>` : '';
-  const alerteCoef = marge.coefficient == null
-    ? `<p class="muted" style="font-size:13px;color:var(--accent)">${icon('alert', 13)} Aucun coefficient de marge connu pour « ${esc(four.nom || four.type_detecte || 'ce fournisseur')} ». Saisissez-le ci-dessous (ou complétez la grille dans Admin).</p>` : '';
+
 
   out.innerHTML = `
     <div class="card">
@@ -487,27 +493,28 @@ function renderResult(out, res) {
         ${doc.numero ? 'N° ' + esc(doc.numero) : ''}${doc.reference_chantier ? ' · réf. ' + esc(doc.reference_chantier) : ''}${doc.date ? ' · ' + esc(doc.date) : ''}
       </p>
       <p style="margin-top:6px">${esc(p.produit_resume || '')}</p>
-      ${alerteMasque}${alerteParsing}${alerteCoef}
+      ${alerteMasque}${alerteParsing}
 
       <table class="pipeline-table" style="margin-top:14px">
         <tbody>
-          <tr><td>Total net fournisseur HT</td><td class="num"><strong id="df-totalht" data-v="${tot.total_ht ?? ''}">${eur(tot.total_ht)}</strong></td></tr>
+          <tr><td>Prix de vente HT du document</td><td class="num"><input id="df-totalht" aria-label="Prix de vente HT du document" type="number" step="0.01" min="0" value="${esc(tot.total_ht ?? '')}" style="width:140px;text-align:right"> €</td></tr>
           <tr>
             <td>Désignation (ligne client)</td>
-            <td><input id="df-designation" value="${esc(p.produit_resume || (four.nom || '') )}" style="width:100%"></td>
-          </tr>
-          <tr>
-            <td>Coefficient de marge (×)</td>
-            <td class="num"><input id="df-coef" type="number" step="0.01" min="0" value="${coefInit}" placeholder="ex. 2" style="width:90px;text-align:right"></td>
+            <td><input id="df-designation" aria-label="Désignation" value="${esc(p.produit_resume || (four.nom || '') )}" style="width:100%"></td>
           </tr>
           <tr>
             <td>Éco-participation HT${ecopart.categorie ? ' (' + esc(ecopart.categorie) + ')' : ''}</td>
-            <td class="num"><input id="df-eco" type="number" step="0.01" min="0" value="${ecoInit}" style="width:90px;text-align:right"> €</td>
+            <td class="num"><input id="df-eco" aria-label="Éco-participation HT" type="number" step="0.01" min="0" value="${ecoInit}" style="width:90px;text-align:right"> €</td>
           </tr>
+          <tr>
+            <td>L’éco-participation est-elle dans le montant ci-dessus ?</td>
+            <td><select id="df-eco-incluse" aria-label="Traitement de l’éco-participation"><option value="">À confirmer si éco &gt; 0</option><option value="oui" ${tot.eco_incluse === true ? 'selected' : ''}>Oui, déjà incluse</option><option value="non" ${tot.eco_incluse === false ? 'selected' : ''}>Non, à ajouter une fois</option></select></td>
+          </tr>
+          <tr><td>Prix d’achat HT (facultatif, si connu)</td><td class="num"><input id="df-achat" aria-label="Prix d’achat HT si connu" type="number" min="0" step="0.01" placeholder="Non renseigné" style="width:140px"></td></tr>
           <tr>
             <td>TVA</td>
             <td class="num">
-              <select id="df-tva" style="width:90px">
+              <select id="df-tva" aria-label="TVA" style="width:90px">
                 <option value="10" ${Number(tvaInit) === 10 ? 'selected' : ''}>10 %</option>
                 <option value="20" ${Number(tvaInit) === 20 ? 'selected' : ''}>20 %</option>
                 <option value="5.5" ${Number(tvaInit) === 5.5 ? 'selected' : ''}>5,5 %</option>
@@ -521,6 +528,10 @@ function renderResult(out, res) {
         </tfoot>
       </table>
 
+      <label style="margin-top:16px">Descriptif complet pour l’annexe du devis
+        <textarea id="df-descriptif" rows="8">${esc(p.descriptif_complet || p.produit_resume || '')}</textarea>
+      </label>
+      <p class="muted" id="df-prix-erreur" role="status"></p>
       <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" id="df-create">${icon('filePlus', 14)} Créer le devis client</button>
         <span class="muted" style="font-size:12px;align-self:center">Le devis part en brouillon et reste modifiable.</span>
@@ -532,21 +543,24 @@ function renderResult(out, res) {
   hydrateIcons(out);
 
   const recompute = () => {
-    const totalHt = Number(out.querySelector('#df-totalht').dataset.v) || 0;
-    const coef = Number(out.querySelector('#df-coef').value);
-    const eco = Number(out.querySelector('#df-eco').value) || 0;
     const tva = Number(out.querySelector('#df-tva').value) || 0;
-    if (!coef || coef <= 0) {
+    let prix;
+    try { prix = prixDepuisEcran(out); }
+    catch (e) {
       out.querySelector('#df-prixht').textContent = '—';
       out.querySelector('#df-prixttc').textContent = '—';
+      out.querySelector('#df-prix-erreur').textContent = e.message;
+      out.querySelector('#df-create').disabled = true;
       return;
     }
-    const ht = Math.round((totalHt * coef + eco) * 100) / 100;
+    out.querySelector('#df-prix-erreur').textContent = 'Aucun coefficient ajouté. L’éco-participation est comptée une seule fois.';
+    out.querySelector('#df-create').disabled = false;
+    const ht = prix.prixClientHt;
     const ttc = Math.round(ht * (1 + tva / 100) * 100) / 100;
     out.querySelector('#df-prixht').textContent = eur(ht);
     out.querySelector('#df-prixttc').textContent = eur(ttc);
   };
-  ['#df-coef', '#df-eco', '#df-tva'].forEach(sel => {
+  ['#df-totalht', '#df-eco', '#df-eco-incluse', '#df-tva'].forEach(sel => {
     out.querySelector(sel).addEventListener('input', recompute);
     out.querySelector(sel).addEventListener('change', recompute);
   });
@@ -557,4 +571,9 @@ function renderResult(out, res) {
 
   // P-H4 — création du devis client à partir du chiffrage affiché.
   out.querySelector('#df-create')?.addEventListener('click', () => openModalCreerDevis(out));
+}
+
+function prixDepuisEcran(out) {
+  const inclusion = out.querySelector('#df-eco-incluse').value;
+  return calculPrixImport({ montantDocumentHt: out.querySelector('#df-totalht').value, ecoHt: out.querySelector('#df-eco').value, ecoIncluse: inclusion === 'oui' ? true : inclusion === 'non' ? false : undefined });
 }

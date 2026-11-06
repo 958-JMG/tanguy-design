@@ -77,8 +77,8 @@ window.addEventListener('unhandledrejection', e => showStatus('Promise rejetée 
     showStatus('Authentification…', false);
     await loadMe();
     document.getElementById('user-name').textContent = state.user || '?';
+    document.documentElement.style.setProperty('--admin-display', state.isAdmin ? 'flex' : 'none');
     if (!state.isAdmin) {
-      document.documentElement.style.setProperty('--admin-display', 'none');
       document.querySelectorAll('.nav-admin-only').forEach(el => el.style.display = 'none');
     }
     showStatus(`Connecté en tant que ${state.user}. Chargement clients + projets…`, false);
