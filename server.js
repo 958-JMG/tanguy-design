@@ -1931,7 +1931,7 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
 });
 
 // Annexe disponible indépendamment de Pennylane, pour relecture et repli manuel.
-async function chargerAnnexe(devisId) {
+async function chargerAnnexe(devisId, { genererPdf = true } = {}) {
   const [devis] = await atFetchByIds(TABLES.devis.id, [devisId]);
   if (!devis) throw Object.assign(new Error('Devis introuvable'), { status: 404 });
   const f = devis.fields || {};
@@ -1940,13 +1940,24 @@ async function chargerAnnexe(devisId) {
     atFetchByIds(TABLES['zones-devis'].id, f['Zones devis'] || []),
   ]);
   const contenu = contenuAnnexe(f, lignes, zones);
-  return { devis, contenu, pdf: await genererAnnexe(contenu) };
+  return { devis, contenu, pdf: genererPdf ? await genererAnnexe(contenu) : null };
 }
 app.get('/api/devis/:id/descriptif.pdf', requireAuth, async (req, res) => {
   try {
     const a = await chargerAnnexe(req.params.id);
     res.type('application/pdf').set('Content-Disposition', `attachment; filename="${a.contenu.filename}"`).send(a.pdf);
   } catch (e) { res.status(e.status || 422).json({ error: e.message }); }
+});
+// Contrôle en lecture seule, y compris après rechargement de la fiche.
+app.get('/api/devis/:id/pennylane/annexe', requireAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const a = await chargerAnnexe(req.params.id, { genererPdf: false });
+    const quoteId = a.devis.fields[PL_QUOTE_FIELD];
+    if (!quoteId) return res.status(422).json({ error: 'Crée d’abord le devis dans Pennylane.' });
+    const annexe = await pennylane.trouverAnnexeDevis(quoteId, a.contenu.filename);
+    res.json({ ok: true, jointe: Boolean(annexe), filename: a.contenu.filename, annexe });
+  } catch (e) { res.status(e.status || 502).json({ error: e.message }); }
 });
 app.post('/api/devis/:id/pennylane/annexe', requireAuth, async (req, res) => {
   try {

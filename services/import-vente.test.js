@@ -60,6 +60,34 @@ test('Pennylane : annexe complète jointe, puis reprise sans doublon', async () 
   assert.equal(reprise.json.annexe.already, true);
   assert.equal(attachments.length, 1);
 });
+test('fiche : vérifie l’annexe réelle, sans écrire, et distingue une version modifiée', async () => {
+  const devis = get(T.devis, devisId);
+  const quoteId = devis.fields['Pennylane quote ID'];
+  const avant = banc.pennylaneRecu.length;
+  const lire = () => banc.appel('GET', `/api/devis/${devisId}/pennylane/annexe`);
+  let r = await lire();
+  assert.equal(r.status, 200);
+  assert.equal(r.json.jointe, true);
+  assert.match(r.json.filename, /^descriptif-/);
+  const ligne = get(T.lignes, devis.fields['Lignes devis'][0]);
+  const initial = ligne.fields.Désignation;
+  ligne.fields.Désignation += '\nNouvelle finition';
+  try {
+    r = await lire();
+    assert.equal(r.json.jointe, false);
+    assert.equal(r.json.annexe, null);
+    banc.annexeErreur.status = 403;
+    r = await lire();
+    assert.equal(r.status, 502);
+    assert.match(r.json.error, /403/);
+    assert.equal(r.json.jointe, undefined);
+  } finally {
+    ligne.fields.Désignation = initial;
+    banc.annexeErreur.status = 0;
+  }
+  assert.equal(banc.pennylaneRecu.length, avant);
+  assert.equal(banc.pennylaneAnnexes.get(quoteId).length, 1);
+});
 test('annexe refusée : message explicite, devis Pennylane inchangé, reprise possible', async () => {
   const avant = banc.pennylaneRecu.length;
   banc.annexeErreur.status = 403;

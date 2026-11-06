@@ -100,8 +100,10 @@ function renderFiche(app, data) {
     <!-- Devis signé : lignes qu'aucun bon de commande ne porte (rempli après coup, cf. checkLignesSansCommande) -->
     <div id="sans-commande-banner"></div>
 
-    ${plQuote ? `<div class="card" style="margin-bottom:16px;display:flex;align-items:center;gap:8px">
-      ${icon('check-circle', 16)}<span>Devis${f['Pennylane numéro'] ? ` ${esc(f['Pennylane numéro'])}` : ''} créé dans Pennylane, pas encore envoyé. Virginie l'envoie depuis Pennylane ou télécharge le PDF pour l'envoyer depuis sa boîte mail.</span>
+    ${plQuote ? `<div class="card" style="margin-bottom:16px;display:flex;flex-direction:column;align-items:flex-start;gap:10px">
+      <div>${icon('check-circle', 16)} <span>Devis${f['Pennylane numéro'] ? ` ${esc(f['Pennylane numéro'])}` : ''} associé à Pennylane.</span></div>
+      <div id="pennylane-annexe-etat" role="status" aria-live="polite">Vérification du descriptif dans Pennylane…</div>
+      <p class="muted" style="margin:0">Le descriptif est une annexe PDF séparée du devis commercial. Lors de l’envoi dans Pennylane, vérifie sa présence dans les pièces jointes.</p>
     </div>` : ''}
 
     <!-- Totaux KPIs -->
@@ -179,6 +181,9 @@ function renderFiche(app, data) {
   checkArtefactsGeneres(devis, statut);
   if (isSigned) checkLignesSansCommande(devis);
 
+  const annexeEtat = document.getElementById('pennylane-annexe-etat');
+  if (plQuote) verifierAnnexePennylane(devis.id, annexeEtat);
+
   // Bindings
   document.getElementById('btn-edit-devis')?.addEventListener('click', () => openModalEditDevis(devis));
   document.getElementById('btn-reimport-devis')?.addEventListener('click', () => openReimportDevis(devis, projet));
@@ -189,8 +194,11 @@ function renderFiche(app, data) {
       const r = await fetch(`/api/devis/${encodeURIComponent(devis.id)}/pennylane/annexe`, { method: 'POST' });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Annexe non jointe');
-      toast(d.annexe.already ? 'Ce descriptif est déjà joint dans Pennylane' : 'Descriptif joint dans Pennylane', 'success');
-    } catch (err) { toast(err.message, 'error', 9000); }
+      await verifierAnnexePennylane(devis.id, annexeEtat);
+    } catch (err) {
+      if (annexeEtat?.isConnected) annexeEtat.textContent = 'Descriptif non confirmé : ' + err.message;
+      toast(err.message, 'error', 9000);
+    }
     finally { btn.disabled = false; btn.textContent = 'Joindre le descriptif'; }
   });
   document.getElementById('btn-pennylane')?.addEventListener('click', () => pennylaneFlow(devis));
@@ -265,6 +273,28 @@ async function pennylaneEcheancesFlow(devis, opts = {}) {
   } catch (err) {
     toast('Erreur factures Pennylane : ' + err.message, 'error', 8000);
     if (btn) { btn.disabled = false; btn.innerHTML = 'Factures d\'échéance (brouillon)'; }
+  }
+}
+
+// La confirmation vient de Pennylane, jamais du simple identifiant du devis.
+const verificationsAnnexe = new WeakMap();
+async function verifierAnnexePennylane(devisId, element) {
+  if (!element) return;
+  const verification = {};
+  verificationsAnnexe.set(element, verification);
+  const actuelle = () => element.isConnected && verificationsAnnexe.get(element) === verification;
+  element.textContent = 'Vérification du descriptif dans Pennylane…';
+  try {
+    const r = await fetch(`/api/devis/${encodeURIComponent(devisId)}/pennylane/annexe`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Vérification indisponible');
+    if (!actuelle()) return;
+    element.innerHTML = d.jointe
+      ? `${icon('check-circle', 16)} <strong>Descriptif joint dans Pennylane</strong><br><span class="muted" style="overflow-wrap:anywhere">${esc(d.filename)}</span>`
+      : `${icon('alert', 16)} <strong>Version actuelle du descriptif non jointe</strong> — utilise « Joindre le descriptif » pour l’ajouter au devis existant.`;
+    hydrateIcons(element);
+  } catch (err) {
+    if (actuelle()) element.textContent = 'Présence du descriptif non vérifiée : ' + err.message + '. Le téléchargement reste disponible.';
   }
 }
 
