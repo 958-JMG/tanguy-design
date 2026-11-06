@@ -688,8 +688,8 @@ function renderAnalysis(container, data) {
 // Quel fournisseur couvre quelle famille de produits. Sert au routage AUTOMATIQUE
 // des commandes à la signature du devis (services/fournisseur-grille.js). Un
 // fournisseur peut couvrir plusieurs familles (ex. Bradano/Franke = Évier +
-// Robinetterie). Source de vérité des 6 familles : CATEGORIES_GRILLE côté serveur.
-const CATEGORIES_GRILLE = ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence'];
+// Robinetterie). Source de vérité des 5 familles : CATEGORIES_GRILLE côté serveur.
+const CATEGORIES_GRILLE = ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence', 'Sanitaire'];
 
 async function loadGrilleFournisseurs() {
   const out = document.getElementById('grille-fourn-output');
@@ -722,7 +722,7 @@ function renderGrilleFournisseurs(out, records) {
           ${rows.length === 0 ? `<tr><td colspan="${CATEGORIES_GRILLE.length + 2}" class="muted">Aucun fournisseur. Ajoutes-en un.</td></tr>` : rows.map(rec => {
             const f = rec.fields || {};
             return `
-            <tr data-id="${esc(rec.id)}">
+            <tr data-id="${esc(rec.id)}" data-autres-categories="${esc(JSON.stringify((f['Catégories'] || []).filter(c => !CATEGORIES_GRILLE.includes(c))))}">
               <td><input class="gf-nom" value="${esc(f.Nom || '')}" style="width:100%;min-width:150px"></td>
               ${cellChecks(f)}
               <td><button class="btn btn-ghost btn-sm" data-action="gf-save" data-id="${esc(rec.id)}">${icon('check', 12)} Enregistrer</button></td>
@@ -737,7 +737,8 @@ function renderGrilleFournisseurs(out, records) {
 }
 
 function lireCategoriesLigne(tr) {
-  return [...tr.querySelectorAll('.gf-cat')].filter(c => c.checked).map(c => c.dataset.cat);
+  const autres = JSON.parse(tr.dataset.autresCategories || '[]');
+  return [...autres, ...[...tr.querySelectorAll('.gf-cat')].filter(c => c.checked).map(c => c.dataset.cat)];
 }
 
 async function saveGrilleRow(id) {

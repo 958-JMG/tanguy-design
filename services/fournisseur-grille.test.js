@@ -168,7 +168,18 @@ describe('routeCommandes — aucune ligne jetée, aucun rattachement au hasard',
     assert.equal(idx.get('luminaire').length, 1);
   });
 
-  test('les 4 familles de la grille sont bien exposées', () => {
-    assert.deepEqual(CATEGORIES_GRILLE, ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence']);
+  test('les 5 familles de la grille sont bien exposées', () => {
+    assert.deepEqual(CATEGORIES_GRILLE, ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence', 'Sanitaire']);
   });
+});
+
+test('Sanitaire utilise sa propre colonne, sans reprendre le fournisseur du plan', () => {
+  const plan = { id: 'fPlanTest', fields: { Nom: 'Plans fictifs', Catégories: [PTC] } };
+  const sanitaire = { id: 'fSanTest', fields: { Nom: 'Sanitaires fictifs', Catégories: ['Sanitaire'] } };
+  const [s, p] = routeCommandes([ligne('Sanitaires'), ligne('Plan de travail')], [plan, sanitaire]);
+  assert.equal(s.fournisseurId, 'fSanTest');
+  assert.equal(p.fournisseurId, 'fPlanTest');
+  const [sans] = routeCommandes([ligne('Sanitaires')], [plan]);
+  assert.equal(sans.fournisseurId, undefined);
+  assert.match(sans.raison, /Aucun fournisseur.*Sanitaire/);
 });

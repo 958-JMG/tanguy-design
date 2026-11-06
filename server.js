@@ -4543,6 +4543,23 @@ app.get('/api/factures-clients/impayes', requireAdmin, async (req, res) => {
       }))
       .sort((a, b) => b.joursRetard - a.joursRetard);
 
+    const devisIds = [...new Set(echeancesAFacturer.map(e => e.devisId).filter(Boolean))];
+    const devisEch = devisIds.length ? await atFetchByIds(TABLES.devis.id, devisIds) : [];
+    const devisById = new Map(devisEch.map(d => [d.id, d.fields]));
+    const projetIds = [...new Set(devisEch.flatMap(d => d.fields.Projet || []))];
+    const projetsEch = projetIds.length ? await atFetchByIds(TABLES.projets.id, projetIds) : [];
+    const projetById = new Map(projetsEch.map(p => [p.id, p.fields]));
+    for (const e of echeancesAFacturer) {
+      const d = devisById.get(e.devisId);
+      e.projetId = d?.Projet?.[0] || null;
+      const p = projetById.get(e.projetId);
+      e.clientId = p?.Client?.[0] || d?.Client?.[0] || null;
+      e.devisNumero = d?.['Numéro'] || '';
+    }
+    const clientsManquants = [...new Set(echeancesAFacturer.map(e => e.clientId).filter(id => id && !clientById.has(id)))];
+    for (const c of clientsManquants.length ? await atFetchByIds(TABLES.clients.id, clientsManquants) : []) clientById.set(c.id, c);
+    for (const e of echeancesAFacturer) e.clientNom = clientById.get(e.clientId)?.fields.Nom || 'Client non renseigné';
+
     res.json({ ok: true, impayes, echeancesAFacturer });
   } catch (e) {
     logger.error('[factures-clients/impayes] error:', e.message);

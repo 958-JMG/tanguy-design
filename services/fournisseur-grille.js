@@ -19,10 +19,11 @@
 // Les catégories de la grille (dimensions du champ Fournisseurs.Catégories).
 // Refonte JMG 2026-09-14 : « Plan de travail & crédence » regroupe plan de
 // travail + évier + robinetterie + crédence ; « Meuble » devient « Mobilier » ;
-// ajout de « Luminaire ». Virginie tague chaque fournisseur sur ces 4 familles.
+// ajout de « Luminaire ». Le 06/11/2026, Sanitaire devient une colonne de routage
+// distincte ; la ventilation financière historique reste inchangée.
 const { moduleWinner, fournisseurWinner, ordonnerLignes } = require('./winner-lignes');
 
-const CATEGORIES_GRILLE = ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence'];
+const CATEGORIES_GRILLE = ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence', 'Sanitaire'];
 
 // Type de bon de commande + référence courte (code fournisseur sur le BC) par
 // catégorie canonique.
@@ -170,14 +171,16 @@ function routeCommandes(lignes, fournisseurs, opts = {}) {
         g.parFournisseur = true;
       }
     } else if (g.grille && g.canon) {
-      const cands = idx.get(normalize(g.canon)) || [];
+      // Sanitaire a sa propre colonne de routage ; canon garde la ventilation de marge historique.
+      const famille = g.module === 'Sanitaire' ? 'Sanitaire' : g.canon;
+      const cands = idx.get(normalize(famille)) || [];
       g.candidats = cands;
       if (cands.length === 1 && !g.marque) {
         g.fournisseurId = cands[0].id;
         g.fournisseurNom = cands[0].nom;
       } else {
         g.raison = g.raison || (cands.length === 0
-          ? `Aucun fournisseur dans la grille pour « ${g.canon} » — à rattacher`
+          ? `Aucun fournisseur dans la grille pour « ${famille} » — à rattacher`
           : `${cands.length} fournisseur(s) possible(s) (${cands.map(c => c.nom).join(', ')})${g.marque ? ` ; marque ${g.marque}` : ''} — à choisir`);
       }
     }

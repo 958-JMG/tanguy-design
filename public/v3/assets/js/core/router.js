@@ -47,7 +47,7 @@ export function router() {
       case 'pose':             return renderPose(app);
       case 'devis-fournisseur': return renderDevisFournisseur(app);
       case 'gestion':          return renderGestion(app, rest.length ? decodeURIComponent(rest[0]) : 'facturation');
-      case 'sav':              return renderSav(app);
+      case 'sav':              return renderSav(app, rest.length ? decodeURIComponent(rest[0]) : null);
       case 'taches':           return renderTaches(app);
       case 'admin':            return renderAdmin(app);
       case 'aide':             return renderAide(app);

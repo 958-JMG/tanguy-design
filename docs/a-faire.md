@@ -12,14 +12,22 @@
 
 ### 🧪 Validation locale
 
-- Suite complète Node : **674 tests réussis, 0 échec, 0 ignoré**, avec environnement vidé des secrets hérités ; vérifications de syntaxe et `git diff --check` réussies.
+- Suite complète Node : **677 tests réussis, 0 échec, 0 ignoré**, puis test ciblé de conservation des catégories fournisseurs réussi, avec environnement vidé des secrets hérités ; vérifications de syntaxe et `git diff --check` réussies.
 - Tests de routes : import → détail dans un ordre Airtable inversé → signature → six commandes → aucune des 40 lignes perdue ; refus des sélections manuelles multi-fournisseurs.
 - Tests de migration simulée, anciens imports, repères décimaux, homonymes fournisseurs, modèle par zone, marges et PDF.
 - Rendu navigateur et PDF vérifiés visuellement sur données fictives. Aucun appel réel à l’IA ni test d’import du document client dans la base de production.
 
-### ⏳ À réaliser après revue / accord de mise en ligne
+### ✅ Compléments et accord du 6 novembre
 
-1. Vérifier le schéma cible avec le script en simulation, puis créer les quatre champs dans la base Tanguy autorisée ; aucun changement destructif.
+- JMG a autorisé la migration additive et la mise en ligne. Les quatre champs Winner sont créés et leur type vérifié en production ; aucun enregistrement client modifié.
+- Tâches : raccourci direct pour les administrateurs, Kanban par défaut, préférence Liste/Kanban mémorisée, création/édition avec client et dossier, statut, affectations, priorité et échéance.
+- Planning : une réception SAV ouvre le ticket précis ; ticket absent signalé. Recette navigateur fictive réussie, ainsi que création et modification d’une tâche.
+- Échéances : nom du client résolu par le projet du devis, puis par le lien Client du devis en repli. L’absence de client reste explicite. Route testée avec données fictives.
+- Fournisseurs : colonne Sanitaire indépendante pour les commandes ; ventilation financière historique conservée. Les anciens tags invisibles restent préservés à la sauvegarde. L’option Airtable sera créée au premier cochage enregistré via le `typecast` déjà utilisé par l’API. Aucun fournisseur n’est coché automatiquement.
+
+### ⏳ Mise en ligne autorisée et suite
+
+1. Migration Winner additive : réalisée et vérifiée.
 2. Publier la branche, fusionner après revue et déployer ; vérifier la version effectivement servie.
 3. Faire la recette d’un nouvel import : ordre, sections, marques/fournisseurs, contenu et destination des bons. La fidélité de la lecture IA reste à vérifier sur un import réel autorisé.
 4. Décider séparément de la reprise des anciens imports et BC : le même PDF est dédupliqué, un réimport identique ne répare pas les anciens enregistrements. Ne pas supprimer ni recréer de commandes signées sans plan validé.
