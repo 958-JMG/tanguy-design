@@ -14,7 +14,7 @@
  * D'où le contrôle de cohérence renvoyé avec les champs.
  *
  * L'éco-contribution est DÉJÀ COMPRISE dans le prix client calculé par l'écran
- * (prix = total fournisseur × coefficient + éco-contribution). Elle est donc
+ * (montant du document, avec ajout de l’éco seulement si elle est exclue). Elle est donc
  * reportée pour information dans « Eco-participation mobilier », et surtout PAS
  * ajoutée une seconde fois au total.
  */
@@ -57,7 +57,7 @@ function numeroDevisExpress(numerosExistants, annee) {
  * @param {number} [p.prixAchatHt] - total net fournisseur HT (le prix d'achat), conservé pour la marge
  * @returns {{ fields:object, ligne:object, coherence:object, avertissements:string[] }}
  */
-function construireDevisClient({ numero, designation, prixClientHt, tvaTaux, ecoHt = 0, dateDevis, origine = '', typeDevis = 'Principal', categorie = '', prixAchatHt = null }) {
+function construireDevisClient({ numero, designation, prixClientHt, tvaTaux, ecoHt = 0, dateDevis, origine = '', typeDevis = 'Principal', categorie = '', prixAchatHt = null, descriptif = '' }) {
   const avertissements = [];
   const prix = Number(prixClientHt);
   const tva = Number(tvaTaux);
@@ -105,7 +105,7 @@ function construireDevisClient({ numero, designation, prixClientHt, tvaTaux, eco
 
   const ligne = {
     'Position': '1',
-    'Désignation': designation || 'Prestation',
+    'Désignation': [designation, descriptif && descriptif !== designation ? descriptif : ''].filter(Boolean).join('\n\n') || 'Prestation',
     'Quantité': 1,
     'Montant HT': totalHtFinal,
     'TVA pourcentage': tvaOk ? tva : null,

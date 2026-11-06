@@ -33,3 +33,16 @@
 4. Décider séparément de la reprise des anciens imports et BC : le même PDF est dédupliqué, un réimport identique ne répare pas les anciens enregistrements. Ne pas supprimer ni recréer de commandes signées sans plan validé.
 
 **Déploiement prouvé : non. Livraison client confirmée : non. Aucune date de mise en ligne confirmée.**
+
+
+## 6 novembre 2026 · Compléments import et Pennylane · Codex / retours JMG
+
+- Prix du document traité comme **vente HT**, sans coefficient ; prix d’achat facultatif distinct. Éco explicitement incluse ou ajoutée une seule fois. Contrôle identique dans l’écran et côté serveur ; ambiguïté bloquée avant création. Le calcul des panneaux ne remplace plus automatiquement l’éco lue.
+- Recherche des projets par référence et nom client, insensible aux accents ; disponible en devis fournisseur et FINDIS.
+- Animation dès le dépôt, temps écoulé réel, protection contre le double dépôt. Résultat fournisseur retrouvé après navigation. Animation également sur les imports Winner et FINDIS.
+- Lecture locale des PDF textuels avant analyse ; repli au PDF pour les pages peu lisibles/scannées. Suppression des consultations de grille marge/forfait éco devenues inutiles. Résultats en mémoire dix minutes (8 fichiers maximum), appels simultanés du même fichier mutualisés ; échecs non mémorisés. Aucun gain chiffré promis sans mesure sur les documents réels.
+- Descriptif technique complet relisible et modifiable avant création ; conservé dans la désignation. PDF annexe sans reprise des champs prix d’achat, marges ou notes internes, ordre Winner conservé. Téléchargement local disponible.
+- Pennylane : ajout au devis via `POST /api/external/v2/quotes/{id}/appendices`, scope `quotes:all`. Vérification préalable de l’empreinte dans le nom du fichier, pagination et protection contre les reprises. Échec signalé sans recréer le devis ; bouton « Joindre le descriptif » pour réessayer. Aucun email automatique.
+- Sources API officielles vérifiées : https://pennylane.readme.io/reference/postquoteappendices et https://pennylane.readme.io/reference/getquoteappendices (schémas OpenAPI inclus dans leurs versions `.md`).
+- Validation : **687 tests complets réussis**, dont prix/éco aux coefficients 1/2/3, recalcul serveur, descriptif > 1000 caractères, annexe et reprise sans doublon, refus API explicite et recherche projet. Recette navigateur avec API fictive : attente visible, prix inclus/exclus, recherche sans résultat puis sélection. Trois pages d’annexe PDF fictive rendues et vérifiées.
+- Limites : lecture IA réelle et autorisation effective de l’annexe avec le jeton Pennylane de production à confirmer lors de la recette métier. Aucun ancien montant recalculé, aucun ancien devis Pennylane modifié par ces tests. Le descriptif anciennement perdu à l’import ne peut pas être recréé sans sa source.

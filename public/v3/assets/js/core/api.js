@@ -267,7 +267,7 @@ export async function importDevisClient({ file, projetId = null, clientId = null
 }
 
 // Devis express (P-H3) — upload + parse d'un devis FOURNISSEUR. Ne crée rien :
-// retourne le parsing enrichi (coefficient de marge + éco-part + prix client suggéré).
+// retourne le prix de vente lu et le traitement explicite de l’éco-participation.
 // (withKeepAlive → check j.error en plus de r.ok, cf. importDevisClient.)
 export async function parseDevisFournisseur({ file, signal = null }) {
   const fd = new FormData();

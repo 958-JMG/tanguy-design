@@ -18,6 +18,7 @@ const { generateBcPdf } = require('./services/bc-pdf-generator');
 const { enrichEcheancesAvecDates } = require('./services/echeances-helper');
 const { parseFactureFournisseurPdf } = require('./services/facture-fournisseur-parser');
 const { adresseFacturation } = require('./services/adresse-client');
+const { contenuAnnexe, genererAnnexe } = require('./services/devis-annexe');
 const { parseDevisFournisseurPdf } = require('./services/devis-fournisseur-parser');
 const { routeCommandes: routeCommandesGrille, CANON_BC } = require('./services/fournisseur-grille');
 const { buildBcTableau, dateEnvoiDepuisPose, modeleDepuisLignes, champsCommande, lignesSansCommande, prochainIndexBc, numeroBc } = require('./services/commande-bc');
@@ -1862,7 +1863,8 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
 
     // 3) Lignes Pennylane (mapping par nature + réconciliation TTC)
     //    Le descriptif du devis alimente la description des lignes.
-    const { description: descDevis, libelles } = await contextePennylane(f);
+    const contexte = await contextePennylane(f);
+    const { description: descDevis, libelles } = contexte;
     const built = pennylane.buildInvoiceLines(f, { description: descDevis, libelles });
     const { reconciliation } = built;
     if (!built.lines.length) return res.status(422).json({ error: 'Devis sans montant exploitable — rien à pousser', warnings: built.warnings });
@@ -1898,11 +1900,20 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
     // 6) Persiste les identifiants sur le devis
     await atPatch(TABLES.devis.id, devisId, { [PL_QUOTE_FIELD]: String(quote.id), [PL_NUM_FIELD]: quote.number || '' });
 
+    let annexe = null;
+    try {
+      if (!contexte.lignes) throw new Error('Descriptif non chargé');
+      const contenu = contenuAnnexe(f, contexte.lignes, contexte.zones);
+      annexe = await pennylane.joindreAnnexeDevis(quote.id, await genererAnnexe(contenu), contenu.filename);
+    } catch (e) {
+      warnings.push(`Le devis est créé, mais l’annexe descriptive n’est pas jointe : ${e.message}. Télécharge le descriptif ou utilise « Joindre le descriptif » sans recréer le devis.`);
+    }
+
     logger.info({ devisId, quoteId: quote.id, customerCreated, reconOk: reconciliation.ok }, 'devis créé dans Pennylane');
     res.json({
       ok: true, quoteId: quote.id, number: quote.number, status: quote.status,
       openUrl: pennylaneQuoteUrl(quote.raw, quote.id),
-      customerId, customerCreated, reconciliation, warnings,
+      customerId, customerCreated, reconciliation, warnings, annexe,
       // Preuve de ce qui est parti : la ligne éco réellement posée (null = aucune).
       eco: eco.ecoLine ? { ttc: eco.ecoTtc, ht: eco.ecoHt } : null,
     });
@@ -1910,6 +1921,34 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
     logger.error({ err: e.message, devisId }, 'échec push devis Pennylane');
     res.status(500).json({ error: e.message });
   }
+});
+
+// Annexe disponible indépendamment de Pennylane, pour relecture et repli manuel.
+async function chargerAnnexe(devisId) {
+  const [devis] = await atFetchByIds(TABLES.devis.id, [devisId]);
+  if (!devis) throw Object.assign(new Error('Devis introuvable'), { status: 404 });
+  const f = devis.fields || {};
+  const [lignes, zones] = await Promise.all([
+    atFetchByIds(TABLES['lignes-devis'].id, f['Lignes devis'] || []),
+    atFetchByIds(TABLES['zones-devis'].id, f['Zones devis'] || []),
+  ]);
+  const contenu = contenuAnnexe(f, lignes, zones);
+  return { devis, contenu, pdf: await genererAnnexe(contenu) };
+}
+app.get('/api/devis/:id/descriptif.pdf', requireAuth, async (req, res) => {
+  try {
+    const a = await chargerAnnexe(req.params.id);
+    res.type('application/pdf').set('Content-Disposition', `attachment; filename="${a.contenu.filename}"`).send(a.pdf);
+  } catch (e) { res.status(e.status || 422).json({ error: e.message }); }
+});
+app.post('/api/devis/:id/pennylane/annexe', requireAuth, async (req, res) => {
+  try {
+    const a = await chargerAnnexe(req.params.id);
+    const quoteId = a.devis.fields[PL_QUOTE_FIELD];
+    if (!quoteId) return res.status(422).json({ error: 'Crée d’abord le devis dans Pennylane.' });
+    const annexe = await pennylane.joindreAnnexeDevis(quoteId, a.pdf, a.contenu.filename);
+    res.json({ ok: true, annexe });
+  } catch (e) { res.status(e.status || 502).json({ error: e.message + ' — Le descriptif reste téléchargeable dans le cockpit.' }); }
 });
 
 // Télécharge le PDF officiel du devis Pennylane (bouton « télécharger »).
@@ -1960,6 +1999,7 @@ async function contextePennylane(devisFields) {
     return {
       description: lignesTxt ? `Détail du devis\n\n${lignesTxt}` : '',
       libelles: pennylane.libellesParTaux(lignes, devisFields),
+      lignes, zones,
     };
   } catch (e) {
     logger.warn({ err: e.message }, '[pennylane] descriptif du devis non lu');
@@ -2290,10 +2330,8 @@ app.get('/api/devis/:id/facture-acompte/pdf', requireAuth, async (req, res) => {
 // En mode Additif : projetId requis, pas de création auto client/projet.
 // ──────────────────────────────────────────────────────────────────────────
 // Devis express (P-H3) — parsing d'un DEVIS FOURNISSEUR pour pré-remplir un
-// devis client. Accessible à TOUTE l'équipe (requireAuth, pas requireAdmin).
-// Ne crée rien : retourne le parsing enrichi (coefficient de marge fournisseur
-// + éco-participation suggérée + prix client suggéré). La création du devis
-// client se fait en aval (P-H4).
+// devis client. Accès administrateur. Ne crée rien : conserve le prix de vente
+// HT, le descriptif et l’éco-participation lus. La création est une étape distincte.
 // ──────────────────────────────────────────────────────────────────────────
 app.post('/api/devis-fournisseur/parse', requireAdmin, upload.single('pdf'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'PDF requis' });
@@ -2306,21 +2344,11 @@ app.post('/api/devis-fournisseur/parse', requireAdmin, upload.single('pdf'), asy
     const parsed = await parseDevisFournisseurPdf(req.file.buffer);
     logger.info(`[devis-fournisseur/parse] ✓ parsed in ${Date.now() - t0}ms: ${parsed?.fournisseur?.type_detecte || '?'}, total_ht=${parsed?.totaux?.total_ht}`);
 
-    // Enrichissement best-effort : on lit les grilles de référence (marge + éco-part)
-    // pour suggérer un prix client. Si une grille est absente/non configurée, on
-    // dégrade proprement (coefficient null + alerte), sans jamais bloquer le parsing.
-    let marge = { coefficient: null, source: 'aucune', fournisseur_grille: null };
-    let ecopart = { categorie: null, montant_ht: null, source: 'aucune' };
-    try {
-      const margeRecs = await atFetchAll(TABLES['marges-fournisseurs'].id).catch(() => []);
-      const m = matchMargeFournisseur(margeRecs, parsed?.fournisseur);
-      if (m) marge = { coefficient: m.coefficient, source: 'grille', fournisseur_grille: m.nom };
-    } catch (e) { logger.warn(`[devis-fournisseur/parse] marge non résolue: ${e.message}`); }
-    try {
-      const ecoRecs = await atFetchAll(TABLES['eco-participation'].id).catch(() => []);
-      const eco = matchEcoParticipation(ecoRecs, parsed?.categorie_suggeree);
-      if (eco) ecopart = { categorie: eco.categorie, montant_ht: eco.montant, source: 'grille' };
-    } catch (e) { logger.warn(`[devis-fournisseur/parse] éco-part non résolue: ${e.message}`); }
+    // Le document contient un prix de vente : aucune lecture de grille de marge,
+    // aucun supplément forfaitaire déduit. L’éco vient du document ou de la saisie.
+    const ecoDocument = parsed?.totaux?.eco_ht;
+    const ecopart = { categorie: parsed?.categorie_suggeree || null,
+      montant_ht: ecoDocument != null ? Number(ecoDocument) : 0, source: ecoDocument != null ? 'document' : 'aucune' };
 
     // Éco-contribution des tablettes / panneaux : on renvoie les pièces lues telles
     // quelles (dimensions + matériau). Le CALCUL se fait côté client via l'endpoint
@@ -2341,21 +2369,20 @@ app.post('/api/devis-fournisseur/parse', requireAdmin, upload.single('pdf'), asy
       }));
     } catch (e) { logger.warn(`[devis-fournisseur/parse] pièces éco non lues: ${e.message}`); }
 
-    // Prix client suggéré = total net fournisseur × coefficient (+ éco-part).
-    // Si pas de coefficient connu : on laisse null → l'équipe le saisit dans le builder.
     const totalHt = Number(parsed?.totaux?.total_ht) || null;
-    const prixClientHt = (totalHt != null && marge.coefficient != null)
-      ? Math.round((totalHt * marge.coefficient + (ecopart.montant_ht || 0)) * 100) / 100
-      : null;
+    let prixClientHt = null;
+    try {
+      const { calculPrixImport } = await import('./public/v3/assets/js/core/devis-prix.mjs');
+      prixClientHt = calculPrixImport({ montantDocumentHt: totalHt, ecoHt: ecopart.montant_ht, ecoIncluse: parsed?.totaux?.eco_incluse }).prixClientHt;
+    } catch { /* le formulaire demandera de confirmer le traitement de l’éco */ }
 
     return {
       ok: true,
       parsed,
       enrichissement: {
-        marge,
         ecopart,
         eco_pieces: ecoPieces,
-        suggestion: { total_ht_fournisseur: totalHt, prix_client_ht: prixClientHt },
+        suggestion: { prix_vente_document_ht: totalHt, prix_client_ht: prixClientHt },
       },
     };
   });
@@ -2983,11 +3010,18 @@ const avertirChampsIgnores = ignores => ignores.length
 
 app.post('/api/devis-express/creer-devis', requireAdmin, async (req, res) => {
   const b = req.body || {};
-  const { projetId, clientId, designation, prixClientHt, tvaTaux, ecoHt, origine, famille, prixAchatHt } = b;
+  const { projetId, clientId, designation, tvaTaux, ecoHt, origine, famille, prixAchatHt } = b;
+  let prixClientHt = b.prixClientHt;
   try {
     if (!projetId && !clientId) return res.status(400).json({ error: 'projetId ou clientId requis' });
-    if (!(Number(prixClientHt) > 0)) return res.status(422).json({ error: 'Prix client HT requis' });
 
+    if (b.montantDocumentHt !== undefined) {
+      const { calculPrixImport } = await import('./public/v3/assets/js/core/devis-prix.mjs');
+      try { prixClientHt = calculPrixImport({ montantDocumentHt: b.montantDocumentHt, ecoHt: ecoHt ?? 0, ecoIncluse: b.ecoIncluse }).prixClientHt; }
+      catch (e) { return res.status(422).json({ error: e.message }); }
+    }
+
+    if (!(Number(prixClientHt) > 0)) return res.status(422).json({ error: 'Prix client HT requis' });
     // 1. Projet : existant, ou créé à la volée pour le client choisi.
     const pr = await projetPourDevisExpress({ projetId, clientId, libelle: designation, budgetHt: prixClientHt });
     if (pr.erreur) return res.status(pr.erreur.status).json({ error: pr.erreur.message });
@@ -2998,6 +3032,7 @@ app.post('/api/devis-express/creer-devis', requireAdmin, async (req, res) => {
     const { fields, ligne, coherence, avertissements } = construireDevisClient({
       numero,
       designation,
+      descriptif: b.descriptif,
       prixClientHt: Number(prixClientHt),
       tvaTaux: Number(tvaTaux),
       ecoHt: Number(ecoHt) || 0,
@@ -4554,7 +4589,7 @@ app.get('/api/factures-clients/impayes', requireAdmin, async (req, res) => {
       e.projetId = d?.Projet?.[0] || null;
       const p = projetById.get(e.projetId);
       e.clientId = p?.Client?.[0] || d?.Client?.[0] || null;
-      e.devisNumero = d?.['Numéro'] || '';
+      e.devisNumero = d?.['Numéro devis'] || d?.['Numéro'] || '';
     }
     const clientsManquants = [...new Set(echeancesAFacturer.map(e => e.clientId).filter(id => id && !clientById.has(id)))];
     for (const c of clientsManquants.length ? await atFetchByIds(TABLES.clients.id, clientsManquants) : []) clientById.set(c.id, c);

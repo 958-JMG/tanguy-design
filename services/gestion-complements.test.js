@@ -8,8 +8,8 @@ before(async () => {
   put(T.clients, 'recClientA', { Nom: 'CLIENT FICTIF A' });
   put(T.clients, 'recClientB', { Nom: 'CLIENT FICTIF B' });
   put(T.projets, 'recProjetA', { Client: ['recClientA'] });
-  put(T.devis, 'recDevisA', { Projet: ['recProjetA'], Client: ['recClientB'], Numéro: 'TEST-1' });
-  put(T.devis, 'recDevisB', { Client: ['recClientB'], Numéro: 'TEST-2' });
+  put(T.devis, 'recDevisA', { Projet: ['recProjetA'], Client: ['recClientB'], 'Numéro devis': 'TEST-1' });
+  put(T.devis, 'recDevisB', { Client: ['recClientB'], 'Numéro devis': 'TEST-2' });
   for (const [id, devis] of [['recEchA', 'recDevisA'], ['recEchB', 'recDevisB'], ['recEchC', 'recAbsent']]) {
     put(ECH, id, { Devis: [devis], Libellé: 'Solde fictif', 'Montant prévu': 100, 'Date prévue': '2000-01-01' });
   }

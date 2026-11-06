@@ -14,6 +14,8 @@
 import { icon, hydrateIcons } from '../core/lucide.js';
 import { toast } from '../core/ui.js';
 import { lireProjetFindis, creerDevisElectro } from '../core/api.js';
+import { importProgress } from '../core/import-progress.js';
+import { libelleProjet, filtrerProjets } from '../core/projet-recherche.mjs';
 import { state } from '../core/state.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -24,6 +26,7 @@ const pct = (n) => (n == null ? '—' : String(Number(n).toFixed(1)).replace('.'
 const round2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const FAMILLES = ['Électroménager', 'Robinetterie', 'Luminaire'];
 
+let importEnCours = false;
 let lecture = null;        // réponse de /findis/lire
 let retenus = new Map();   // id article → coché ?
 let tva = 20;
@@ -91,12 +94,14 @@ export function renderElectro(panel) {
 }
 
 async function lire(files) {
+  if (importEnCours) { toast('Un import FINDIS est déjà en cours.', 'info'); return; }
   const statusEl = document.getElementById('dx-status');
   const resultEl = document.getElementById('dx-result');
   resultEl.innerHTML = '';
-  const images = files.filter(f => /^image\//.test(f.type)).length;
-  statusEl.innerHTML = `<div class="card"><p class="muted" style="margin:0">${icon('clock', 14)} Lecture de ${files.length} fichier${files.length > 1 ? 's' : ''}…${images ? ' Les captures passent par l\'IA : compter 15 à 45 secondes.' : ''}</p></div>`;
-  hydrateIcons(statusEl);
+  importEnCours = true;
+  const stop = importProgress(statusEl, `Lecture de ${files.length} fichier(s) FINDIS en cours`);
+  const commandes = [...document.querySelectorAll('#dx-files, [data-mode]')];
+  commandes.forEach(el => el.disabled = true);
   try {
     lecture = await lireProjetFindis(files);
   } catch (e) {
@@ -104,12 +109,13 @@ async function lire(files) {
     statusEl.innerHTML = `<div class="card" style="border-left:3px solid var(--accent)"><p style="margin:0">${icon('alert', 14)} Lecture impossible : ${esc(e.message)}</p><p class="muted" style="font-size:13px;margin:6px 0 0">Dépose de nouveau le fichier, ou le PDF « Imprimer mon projet » plutôt qu'une capture.</p></div>`;
     hydrateIcons(statusEl);
     return;
-  }
+  } finally { stop(); importEnCours = false; commandes.forEach(el => el.disabled = false); }
   statusEl.innerHTML = '';
   // Pré-sélection : tout ce qui a un prix, SAUF les articles d'un comparatif — ceux-là
   // se choisissent (cocher d'office trois réfrigérateurs ferait un devis faux).
   const enComparatif = new Set((lecture.comparatifs || []).flatMap(c => c.ids));
   retenus = new Map(lecture.articles.map(a => [a.id, a.selectionnable && !enComparatif.has(a.id)]));
+  if (!resultEl.isConnected) return;
   renderResultat();
 }
 
@@ -262,9 +268,11 @@ function openModalCreer() {
         <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="radio" name="dxc-mode" value="client"> Nouveau chantier pour un client</label>
       </div>
       <div id="dxc-bloc-projet">
+        <label>Rechercher un projet ou un client <input id="dxc-recherche" type="search" placeholder="Nom du client, référence du projet…" autocomplete="off"></label>
+        <p id="dxc-recherche-info" class="muted" aria-live="polite"></p>
         <label>Projet
           <select id="dxc-projet" style="width:100%"><option value="">— choisir —</option>
-            ${projets.map(p => `<option value="${esc(p.id)}">${esc(p['Référence'] || '(sans référence)')}</option>`).join('')}
+            ${projets.map(p => `<option value="${esc(p.id)}">${esc(libelleProjet(p, clients))}</option>`).join('')}
           </select>
         </label>
       </div>
@@ -291,6 +299,13 @@ function openModalCreer() {
   document.body.appendChild(modal);
   const close = () => modal.remove();
   modal.querySelector('#dxc-cancel').onclick = close;
+  modal.querySelector('#dxc-recherche').addEventListener('input', e => {
+    const select = modal.querySelector('#dxc-projet'), selected = select.value;
+    const visibles = filtrerProjets(projets, clients, e.target.value);
+    select.innerHTML = '<option value="">— choisir —</option>' + visibles.map(p => `<option value="${esc(p.id)}">${esc(libelleProjet(p, clients))}</option>`).join('');
+    if (visibles.some(p => p.id === selected)) select.value = selected;
+    modal.querySelector('#dxc-recherche-info').textContent = `${visibles.length} projet(s) trouvé(s)`;
+  });
   modal.addEventListener('click', e => { if (e.target === modal) close(); });
   modal.querySelectorAll('input[name=dxc-mode]').forEach(r => r.addEventListener('change', () => {
     const parProjet = modal.querySelector('input[name=dxc-mode]:checked').value === 'projet';

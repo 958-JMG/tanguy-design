@@ -1928,7 +1928,7 @@ function openModalImportDevis(projet, devisExistants) {
       const sec = Math.floor((Date.now() - startTime) / 1000);
       const min = Math.floor(sec / 60);
       const remSec = sec % 60;
-      btn.innerHTML = `Analyse… ${min > 0 ? min + 'min ' : ''}${remSec}s`;
+      btn.innerHTML = `<span class="import-spinner" style="display:inline-block;width:14px;height:14px" aria-hidden="true"></span> Analyse… ${min > 0 ? min + 'min ' : ''}${remSec}s`;
     };
     const interval = setInterval(update, 1000);
     update();

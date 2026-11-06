@@ -119,10 +119,22 @@ module.exports = function creerBanc({ secret = 'secret-de-test-banc-serveur-tang
 
   // ── Pennylane simulé : on garde ce qu'il reçoit ───────────────────────────
   const pennylaneRecu = [];
+  const pennylaneAnnexes = new Map();
+  const annexeErreur = { status: 0 };
   // Références externes déjà prises (document supprimé ou archivé) : le vrai
   // Pennylane les refuse — constaté et documenté dans server.js.
   const referencesPrises = new Set();
-  function pennylane(u, opts) {
+  async function pennylane(u, opts) {
+    const annexe = u.pathname.match(/^\/api\/external\/v2\/quotes\/(\d+)\/appendices$/);
+    if (annexe) {
+      if (annexeErreur.status) return json(annexeErreur.status, { message: 'Annexe refusée (simulation)' });
+      const items = pennylaneAnnexes.get(annexe[1]) || [];
+      if ((opts.method || 'GET') === 'GET') return json(200, { items, has_more: false, next_cursor: null });
+      const file = opts.body.get('file');
+      const a = { id: items.length + 1, filename: file.name, pdf: Buffer.from(await file.arrayBuffer()) };
+      items.push(a); pennylaneAnnexes.set(annexe[1], items);
+      return json(201, { id: a.id, filename: a.filename });
+    }
     if ((opts.method || 'GET').toUpperCase() === 'POST' && u.pathname === '/api/external/v2/quotes') {
       const body = JSON.parse(opts.body);
       if (referencesPrises.has(body.external_reference)) {
@@ -152,7 +164,7 @@ module.exports = function creerBanc({ secret = 'secret-de-test-banc-serveur-tang
 
   let base, srv;
   return {
-    T, table, put, get, lier, champsInconnus, pennylaneRecu, referencesPrises, cookiePour,
+    T, table, put, get, lier, champsInconnus, pennylaneRecu, pennylaneAnnexes, annexeErreur, referencesPrises, cookiePour,
     metaTables, declarerTableMeta,
     async demarrer() {
       const app = require('../../server');

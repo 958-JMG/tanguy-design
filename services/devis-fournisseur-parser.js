@@ -21,15 +21,14 @@
  *      code/description/x y z/qté/montant, total « total X € ». Le montant
  *      par ligne est parfois MASQUÉ → seul le total est exploitable.
  *
- * STRATÉGIE (reco validée JMG 2026-06-25) : on extrait avant tout le TOTAL NET
- * fournisseur (seule donnée fiable sur les 3 formats, y compris prix masqués)
- * pour produire 1 ligne client par produit. Le détail ligne-à-ligne n'est
- * remonté que lorsqu'il est réellement présent et vendable (cas Granit Evolution).
- * La marge (coefficient) et l'éco-participation sont appliquées EN AVAL
- * (P-H3/P-H4), pas ici : ce service ne fait que LIRE.
+ * Depuis le 06/11/2026 : le montant du document est un prix de vente HT,
+ * sans coefficient supplémentaire. L’éco est lue séparément avec son inclusion.
+ * Le descriptif technique complet est conservé pour l’annexe Pennylane.
+ * PDF textuels lus localement avant analyse ; PDF scannés lus visuellement.
  */
 
 const { completer } = require('./ai');
+const { createHash } = require('node:crypto');
 
 // Modèle aligné sur les autres parsers du cockpit (devis-parser, facture-fournisseur-parser).
 const MODEL = 'claude-sonnet-4-5';
@@ -51,9 +50,12 @@ Analyse ce PDF de devis fournisseur et retourne UNIQUEMENT un objet JSON valide 
   },
   "variante_prix": "PRO | CLIENT | INCONNU",
   "produit_resume": "1 à 2 phrases décrivant CE QUE FOURNIT ce devis, au niveau vendable (ex: 'Dressing Night collection — 2 modules battants + portique maxi, finition Foglia mat'). PAS la liste des micro-pièces.",
+  "descriptif_complet": "Descriptif technique COMPLET dans l’ordre du document : produits, repères, références, quantités, dimensions, finitions, options et prestations. Inclure aussi les composants des nomenclatures. Aucun prix, aucune remise, aucun coefficient, aucun montant d’achat ou de vente, aucune coordonnée bancaire ni condition commerciale.",
   "categorie_suggeree": "Meuble | Plan de travail | Évier | Robinetterie | Électroménager | Autre",
   "totaux": {
     "total_ht": 7762.00,
+    "eco_ht": null,
+    "eco_incluse": null,
     "tva_taux": 10,
     "tva_montant": 776.20,
     "total_ttc": 8538.20
@@ -83,7 +85,9 @@ Analyse ce PDF de devis fournisseur et retourne UNIQUEMENT un objet JSON valide 
 }
 
 RÈGLES :
-- Le champ le plus important est totaux.total_ht (le TOTAL NET du fournisseur, HORS taxes). C'est la donnée pivot. Cherche « Totale Netto », « TOTAL HT », « total … € ». Si seul un TTC est donné avec un taux de TVA, déduis le HT.
+- Le champ le plus important est totaux.total_ht (le montant HORS taxes imprimé sur le document, sans appliquer de marge ni le convertir en prix d’achat). C'est la donnée pivot. Cherche « Totale Netto », « TOTAL HT », « total … € ». Si seul un TTC est donné avec un taux de TVA, déduis le HT.
+- totaux.eco_ht : montant total HT d’éco-participation explicitement imprimé ; null si absent. totaux.eco_incluse : true si ce montant est déjà dans total_ht, false si le document le présente comme supplément, null si ambigu. Ne jamais ajouter l’éco dans total_ht si elle n’y figure pas, ni compter deux fois une ligne « dont éco ».
+- descriptif_complet : transcrire les détails techniques de TOUTES les pages, sans les condenser en deux phrases. Respecter les retours à la ligne. Le produit_resume reste un résumé séparé.
 - Montants = nombres (point décimal, pas de séparateur de milliers). Les devis italiens écrivent « EUR 7 762,00 » → renvoie 7762.00.
 - "prix_par_ligne_disponible" : mets false si le document ne montre PAS de prix unitaire/montant par ligne (cas fréquent des nomenclatures Novamobili « ADA » et Metron, où seul le total apparaît). Dans ce cas, "lignes_detail" doit être un tableau VIDE [].
 - "lignes_detail" : ne le remplis QUE si le devis est déjà au niveau « vendable » avec un prix par ligne (typiquement Granit Evolution : Plans de travail / Usinages / Services). Pour les nomenclatures de fabrication (Novamobili, Metron) qui détaillent des dizaines de micro-composants (recoupe, côté, porte, tablette… souvent à 0), NE LISTE PAS ces pièces : laisse "lignes_detail" vide et résume dans "produit_resume".
@@ -102,23 +106,44 @@ RÈGLES :
  * @param {Buffer} pdfBuffer - contenu binaire du PDF
  * @returns {Promise<object>}
  */
-async function parseDevisFournisseurPdf(pdfBuffer) {
-
-  const base64Pdf = pdfBuffer.toString('base64');
-
-  const { texte: text } = await completer({
-    niveau: 'standard',
-    maxTokens: 8000,
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf } },
-        { type: 'text', text: SCHEMA_PROMPT }
-      ]
-    }]
-  });
-  return extractJson(text);
+// PDF natif lisible : texte local, sans coût de vision. Une page peu lisible
+// impose le PDF original au modèle, afin de ne pas omettre les pages scannées.
+async function contenuPdf(pdfBuffer, extraire) {
+  try {
+    const extract = extraire || require('unpdf').extractText;
+    const { text } = await extract(new Uint8Array(pdfBuffer), { mergePages: false });
+    const pages = Array.isArray(text) ? text : [text];
+    if (pages.length && pages.every(t => typeof t === 'string' && t.trim().length >= 100)) {
+      return { mode: 'texte', bloc: { type: 'text', text: pages.map((t, i) => `PAGE ${i + 1}\n${t}`).join('\n\n') } };
+    }
+  } catch { /* PDF scanné, chiffré ou texte indisponible : lecture visuelle */ }
+  return { mode: 'pdf', bloc: { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBuffer.toString('base64') } } };
 }
+
+function creerLecteur({ ia = completer, extraire, ttlMs = 10 * 60_000 } = {}) {
+  const termines = new Map(), enCours = new Map();
+  return async function lire(pdfBuffer) {
+    const cle = createHash('sha256').update(pdfBuffer).digest('hex');
+    if (termines.has(cle)) return { ...structuredClone(termines.get(cle)), lecture_reutilisee: true };
+    if (enCours.has(cle)) return structuredClone(await enCours.get(cle));
+    const travail = (async () => {
+      const debut = Date.now();
+      const contenu = await contenuPdf(pdfBuffer, extraire);
+      const { texte } = await ia({ niveau: 'standard', maxTokens: 14000,
+        system: SCHEMA_PROMPT,
+        messages: [{ role: 'user', content: [contenu.bloc, { type: 'text', text: 'Extrais les données de ce document selon le schéma demandé.' }] }] });
+      const result = { ...extractJson(texte), lecture_mode: contenu.mode, lecture_ms: Date.now() - debut };
+      if (termines.size >= 8) termines.delete(termines.keys().next().value);
+      termines.set(cle, result);
+      const timer = setTimeout(() => { if (termines.get(cle) === result) termines.delete(cle); }, ttlMs);
+      timer.unref?.();
+      return result;
+    })();
+    enCours.set(cle, travail);
+    try { return structuredClone(await travail); } finally { enCours.delete(cle); }
+  };
+}
+const parseDevisFournisseurPdf = creerLecteur();
 
 /**
  * Extraction robuste du premier objet JSON d'une réponse texte.
@@ -139,4 +164,4 @@ function extractJson(text) {
   }
 }
 
-module.exports = { parseDevisFournisseurPdf, extractJson, MODEL, SCHEMA_PROMPT };
+module.exports = { parseDevisFournisseurPdf, extractJson, MODEL, SCHEMA_PROMPT, contenuPdf, creerLecteur };
