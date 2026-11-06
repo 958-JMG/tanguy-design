@@ -163,10 +163,8 @@ function generateBcPdf(opts) {
 
       // Body tableau
       doc.font('Helvetica').fontSize(9).fillColor(COLORS.dark);
-      const sortedLignes = lignes.slice().sort((a, b) =>
-        String(a.pos || '').localeCompare(String(b.pos || ''), 'fr', { numeric: true })
-      );
-      for (const l of sortedLignes) {
+      // L'ordre enregistré est celui du devis, ou de l'édition manuelle du BC.
+      for (const l of lignes) {
         // Saut de page si nécessaire
         if (y > 760) {
           doc.addPage();
@@ -181,6 +179,12 @@ function generateBcPdf(opts) {
         if (l.description) {
           doc.font('Helvetica').fontSize(8.5).fillColor(COLORS.dark)
             .text(safe(l.description), colX.code, descY, { width: cols.code + cols.desc - 10 });
+          descY = doc.y;
+        }
+        const contexte = [l.section || l.categorie, l.marque ? `Marque : ${l.marque}` : '', l.fournisseur ? `Fournisseur : ${l.fournisseur}` : ''].filter(Boolean).join(' · ');
+        if (contexte) {
+          doc.font('Helvetica').fontSize(8).fillColor(COLORS.muted)
+            .text(contexte, colX.code, descY + 2, { width: cols.code + cols.desc - 10 });
           descY = doc.y;
         }
         // Dimensions sur leur propre ligne

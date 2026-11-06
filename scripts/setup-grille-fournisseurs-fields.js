@@ -2,7 +2,7 @@
 /**
  * Migration Airtable — Grille fournisseurs (JMG 2026-09-14)
  *
- * Ajoute sur la table Fournisseurs le champ multi-sélection "Catégories" (les 6
+ * Ajoute sur la table Fournisseurs le champ multi-sélection "Catégories" (les 5
  * familles de la grille), qui pilote le routage AUTOMATIQUE des commandes à la
  * signature du devis (services/fournisseur-grille.js). Un fournisseur peut en
  * cocher plusieurs (ex. Bradano/Franke = Évier + Robinetterie).
@@ -32,7 +32,7 @@ if (!BASE_ID || !AT_KEY) { console.error('AIRTABLE_BASE_ID + AIRTABLE_KEY requis
 const APPLY = process.argv.includes('--apply');
 const FOURNISSEURS_TABLE = 'tblz1AZIKkn9VCbkR';
 // Doit rester aligné sur CATEGORIES_GRILLE (services/fournisseur-grille.js).
-const CATEGORIES = ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence'];
+const CATEGORIES = ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence', 'Sanitaire'];
 
 async function fetchSchema() {
   const r = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE_ID}/tables`, { headers: { Authorization: `Bearer ${AT_KEY}` } });
@@ -62,11 +62,11 @@ async function createField(tableId, body) {
     // bloquant : le seed écrit avec `typecast: true`, ce qui CRÉE automatiquement les
     // nouvelles options (Luminaire, « Plan de travail & crédence ») et retague les
     // fiches. Les anciennes options (Meuble/Plan de travail/Évier/…) restent définies
-    // mais deviennent inutilisées (le cockpit n'affiche que les 4 familles voulues).
+    // mais deviennent inutilisées (le cockpit n'affiche que les 5 familles voulues).
     const present = new Set((champ.options?.choices || []).map(c => c.name));
     const manquantes = CATEGORIES.filter(c => !present.has(c));
     if (!manquantes.length) console.log('  ✓ "Catégories" contient déjà les familles voulues');
-    else console.log(`  ℹ️ options à créer par le seed (typecast) : ${manquantes.join(', ')}`);
+    else console.log(`  ℹ️ options créées au prochain enregistrement d’une case cochée (typecast) : ${manquantes.join(', ')}`);
   }
   console.log(APPLY ? '✅ Terminé' : '(dry-run terminé)');
 })().catch(e => { console.error('❌', e.message); process.exit(1); });

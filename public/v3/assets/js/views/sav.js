@@ -111,7 +111,7 @@ function modalShell(title, content) {
   return { modal, close };
 }
 
-export async function renderSav(app) {
+export async function renderSav(app, ticketId = null) {
   app.innerHTML = `
     <div class="page-header">
       <h1 class="page-title">SAV</h1>
@@ -131,6 +131,7 @@ export async function renderSav(app) {
 
   const body = document.getElementById('sav-body');
   let tickets = [];
+  let ticketAouvrir = ticketId;
   let currentFilter = 'all';
 
   async function reload() {
@@ -141,6 +142,12 @@ export async function renderSav(app) {
       return;
     }
     renderTable();
+    if (ticketAouvrir) {
+      const ticket = tickets.find(t => t.id === ticketAouvrir);
+      ticketAouvrir = null;
+      if (ticket) openModalSav(ticket, reload);
+      else toast('Ce ticket SAV est introuvable ou a été supprimé.', 'error', 6000);
+    }
   }
 
   function renderTable() {

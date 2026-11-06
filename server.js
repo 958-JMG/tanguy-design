@@ -10,6 +10,7 @@ const rateLimit = require('express-rate-limit');
 const { TRUST_PROXY } = require('./services/trust-proxy');
 const pinoHttp = require('pino-http');
 const { parseDevisPdf, parsePlaudTranscript } = require('./services/devis-parser');
+const { FIELDS_WINNER, preparerLignesWinner, champsWinner, ordonnerLignes, enrichirLignesWinner } = require('./services/winner-lignes');
 const { sonderConnecteurs } = require('./services/sonde-connecteurs');
 const { parseArtisanDevisPdf } = require('./services/artisan-devis-parser');
 const { generateFicheMission } = require('./services/fiche-mission-generator');
@@ -19,7 +20,7 @@ const { parseFactureFournisseurPdf } = require('./services/facture-fournisseur-p
 const { adresseFacturation } = require('./services/adresse-client');
 const { parseDevisFournisseurPdf } = require('./services/devis-fournisseur-parser');
 const { routeCommandes: routeCommandesGrille, CANON_BC } = require('./services/fournisseur-grille');
-const { buildBcTableau, dateEnvoiDepuisPose, modeleDepuisZone, champsCommande, lignesSansCommande, prochainIndexBc, numeroBc } = require('./services/commande-bc');
+const { buildBcTableau, dateEnvoiDepuisPose, modeleDepuisLignes, champsCommande, lignesSansCommande, prochainIndexBc, numeroBc } = require('./services/commande-bc');
 const { buildPlanTresorerie, echeancesFacturees, mondayOf, addDays, toCsv } = require('./services/tresorerie-helper');
 const { recapPaieMois, alertesVisitesMedicales, joursOuvres } = require('./services/rh-helper');
 const { compteursEquipe: compteursCongesEquipe } = require('./services/conges-helper');
@@ -1778,7 +1779,8 @@ app.get('/api/devis/:id/detail', requireAuth, async (req, res) => {
       atFetchByIds(TABLES['echeances-devis'].id, echIds),
     ]);
 
-    res.json({ ok: true, devis, zones, lignes, echeances });
+    const fournisseurs = await atFetchAll(TABLES.fournisseurs.id).catch(() => []);
+    res.json({ ok: true, devis, zones, lignes: enrichirLignesWinner(lignes, zones, fournisseurs), echeances });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2438,9 +2440,19 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
       logger.warn(`[devis/import] dédup indisponible (champ « ${DEVIS_IMPORT_HASH_FIELD} » manquant ?) — import sans anti-doublon : ${e.message}`);
     }
 
+    // Lire les champs avant toute création : un déploiement sans migration ne
+    // doit pas créer un devis incomplet, ni perdre silencieusement l'ordre.
+    const controleWinner = new URLSearchParams({ maxRecords: '1' });
+    for (const f of FIELDS_WINNER) controleWinner.append('fields[]', f.name);
+    try { await atFetchAll(TABLES['lignes-devis'].id, controleWinner.toString()); }
+    catch (e) {
+      logger.warn({ err: e.message }, '[devis/import] Champs Winner indisponibles ; vérifier scripts/setup-winner-fields.js');
+      throw new Error('Import Winner indisponible : les champs Winner doivent être vérifiés par l’administrateur. Aucun devis créé.');
+    }
     const t0 = Date.now();
     logger.info(`[devis/import] START parsing ${req.file.originalname} (${req.file.size} bytes, type=${typeDevis}, projetId=${projetId||'auto'})`);
     const parsed = await parseDevisPdf(req.file.buffer);
+    parsed.lignes = preparerLignesWinner(parsed.lignes || []);
     const tParse = Date.now() - t0;
     logger.info(`[devis/import] ✓ parsed in ${tParse}ms: ${parsed.lignes?.length || 0} lignes, ${parsed.zones?.length || 0} zones, ${parsed.echeances?.length || 0} échéances`);
 
@@ -2575,7 +2587,8 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
     if (Array.isArray(parsed.lignes)) {
       const lignesBatch = parsed.lignes.map(l => {
         const f = {
-          'Position': String(l.position || ''),
+          ...champsWinner(l),
+          'Position': String(l.position ?? ''),
           'Devis': [devisId],
           'Position parent': l.position_parent || '',
           'Catégorie': l.categorie || null,
@@ -2586,12 +2599,12 @@ app.post('/api/devis/import', requireAuth, upload.single('pdf'), async (req, res
           'Profondeur mm': l.profondeur_mm || null,
           'Sens': l.sens || null,
           'Côté visible': l.cote_visible || null,
-          'Quantité': l.quantite || null,
+          'Quantité': l.quantite ?? null,
           'Unité': l.unite || null,
           'TVA pourcentage': l.tva_pourcentage || null,
-          'Montant HT': l.montant_ht || null,
-          'Eco-participation': l.eco_participation || null,
-          'Coût final': l.cout_final || null,
+          'Montant HT': l.montant_ht ?? null,
+          'Eco-participation': l.eco_participation ?? null,
+          'Coût final': l.cout_final ?? null,
           'Modèle override': l.modele_override || '',
           'Exécution façade override': l.execution_facade_override || '',
           'Coloris façade override': l.coloris_facade_override || '',
@@ -2745,7 +2758,7 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     for (const l of lignes) {
       const fid = (l.fields?.Fournisseur || [])[0];
       const fiche = fid && fournisseursGrille.find(f => f.id === fid);
-      if (fiche) {
+      if (fiche && !l.fields?.['Ordre Winner']) {
         if (!parFournisseur.has(fid)) parFournisseur.set(fid, { fiche, lignes: [] });
         parFournisseur.get(fid).lignes.push(l);
       } else lignesGrille.push(l);
@@ -2777,19 +2790,10 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     const aClasserCreees = [];   // groupes non reconnus → à router à la main (jamais tus)
     const sansCommande = [];     // Dépose : reportée, sans BC fournisseur
     let idx = 1;
-    // Pour meubles : extraire infos modèle depuis la 1re zone du devis (NOVA_CUC = singulier).
-    // Fix 2026-06-07 (grand nettoyage) : ce bloc référençait `parsed.zones` (variable du
-    // endpoint /api/devis/import, inexistante ici) — le catch best-effort avalait le
-    // ReferenceError et "Modèle choisi"/"Détails modèle" n'étaient JAMAIS remplis à la
-    // signature. On lit désormais les zones du devis depuis Airtable (triées par Ordre).
-    let modeleHeader = '';
-    let detailsModele = '';
+    let zonesCommande = [];
     try {
-      const zoneIds = Array.isArray(dv['Zones devis']) ? dv['Zones devis'] : [];
-      const zones = (await atFetchByIds(TABLES['zones-devis'].id, zoneIds))
-        .sort((a, b) => (a.fields?.Ordre ?? 999) - (b.fields?.Ordre ?? 999));
-      ({ modeleHeader, detailsModele } = modeleDepuisZone(zones[0]?.fields));
-    } catch (e) { /* best effort — la signature ne doit jamais bloquer sur ces métadonnées */ }
+      zonesCommande = await atFetchByIds(TABLES['zones-devis'].id, dv['Zones devis'] || []);
+    } catch (e) { /* Les lignes restent commandables sans en-tête de modèle. */ }
 
     for (const g of groupes) {
       const type = g.type;
@@ -2810,14 +2814,14 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
       const enteteNote = [];
       if (g.aClasser) enteteNote.push(`⚠️ À CLASSER — ${g.raison || `catégorie « ${g.categorieBrute || '—'} » non reconnue`}. Rattacher au bon fournisseur / BC à la main.`);
       else if (g.parFournisseur) enteteNote.push(`Fournisseur (devis) : ${g.fournisseurNom}.${g.auPrixAchat ? ' Montant HT = prix d\'achat + éco-participation, à rapprocher de sa facture.' : ''}`);
-      else if (g.fournisseurNom) enteteNote.push(`Fournisseur (grille) : ${g.fournisseurNom}.`);
-      else if (g.grille && g.raison) enteteNote.push(`⚠️ Fournisseur à choisir — ${g.raison}.`);
+      else if (g.fournisseurId) enteteNote.push(`Fournisseur (grille) : ${g.fournisseurNom}.`);
+      else if (g.raison) enteteNote.push(`⚠️ Fournisseur à choisir — ${g.raison}.`);
       const notesPrefill = (enteteNote.length ? enteteNote.join('\n') + '\n\n' : '') + (isPlanTravailVide
         ? `[Auto-généré depuis devis ${numero} signé le ${dateFr(new Date())}]\n\nBC à compléter APRÈS prise de mesures sur chantier :\n• Matériau / Coloris / Finition / Épaisseur\n• Dimensions exactes (longueur, largeur, profondeur, découpes évier/plaque)\n• Fournisseur final (Inalco, Compac, Silestone, Caesarstone, etc.)\n• Délai de livraison\n\nUne fois mesures prises, mettre à jour ce BC puis l'envoyer au fournisseur.`
         : `[Auto-généré depuis devis ${numero} signé le ${dateFr(new Date())}]\n\nContenu prévisionnel (à valider/ajuster avant envoi au fournisseur, SANS MONTANTS) :\n\n${tableauTexte}`);
       const cf = champsCommande({
         numCmd, groupe: g, notes: notesPrefill, clientNom, projetId,
-        dateEnvoi: dateEnvoiCommande, modele: { modeleHeader, detailsModele },
+        dateEnvoi: dateEnvoiCommande, modele: modeleDepuisLignes(g.lignes, zonesCommande),
         today: new Date().toISOString().slice(0, 10),
       });
       const c = await atCreate(TABLES.commandes.id, cf);
@@ -3439,21 +3443,16 @@ app.post('/api/devis/:id/commande-lignes', requireAuth, requireAdmin, async (req
     if (refusees.length) {
       return res.status(409).json({ error: `${refusees.length} ligne(s) déjà dans un bon de commande, ou hors de ce devis — recharge la fiche`, refusees });
     }
-    const choisies = lignesDevis
-      .filter(l => ligneIds.includes(l.id))
-      .sort((a, b) => (parseFloat(a.fields?.Position) || 0) - (parseFloat(b.fields?.Position) || 0));
+    const choisies = ordonnerLignes(lignesDevis.filter(l => ligneIds.includes(l.id)));
 
     // Famille choisie par Virginie → fournisseur depuis la grille, posé seulement
     // s'il est certain (un seul candidat), comme à la signature.
-    let groupe;
-    if (categorie === 'À classer') {
-      groupe = { canon: null, type: 'À classer', ref: 'A_CLASSER', aClasser: true, lignes: choisies,
-        montant: choisies.reduce((t, l) => t + (Number(l.fields?.['Montant HT']) || 0), 0) };
-    } else {
-      const fournisseurs = await atFetchAll(TABLES.fournisseurs.id).catch(() => []);
-      [groupe] = routeCommandesGrille(
-        choisies.map(l => ({ ...l, fields: { ...l.fields, 'Catégorie': categorie } })), fournisseurs);
-    }
+    const fournisseurs = await atFetchAll(TABLES.fournisseurs.id).catch(() => []);
+    const groupes = routeCommandesGrille(
+      choisies.map(l => ({ ...l, fields: { ...l.fields, 'Catégorie': categorie, 'Section Winner': categorie } })), fournisseurs);
+    if (groupes.length !== 1) return res.status(409).json({ error: 'Ces lignes concernent plusieurs fournisseurs ou marques. Sélectionne les lignes d’un seul fournisseur pour créer son bon de commande.' });
+    const [groupe] = groupes;
+    groupe.lignes = choisies;
 
     // Contexte du BC : nom client (contremarque), date de pose (rétro-planning), modèle.
     let clientNom = '';
@@ -3469,14 +3468,14 @@ app.post('/api/devis/:id/commande-lignes', requireAuth, requireAdmin, async (req
       const zoneIds = Array.isArray(dv['Zones devis']) ? dv['Zones devis'] : [];
       const zones = (await atFetchByIds(TABLES['zones-devis'].id, zoneIds).catch(() => []))
         .sort((a, b) => (a.fields?.Ordre ?? 999) - (b.fields?.Ordre ?? 999));
-      modele = modeleDepuisZone(zones[0]?.fields);
+      modele = modeleDepuisLignes(choisies, zones);
     }
 
     const idx = prochainIndexBc(commandes.map(c => c.fields?.['Numéro']), numero);
     const numCmd = numeroBc({ clientNom, type: groupe.type, numeroDevis: numero, idx });
     const enTete = groupe.aClasser
       ? '⚠️ À CLASSER — rattacher au bon fournisseur / BC à la main.'
-      : groupe.fournisseurNom ? `Fournisseur (grille) : ${groupe.fournisseurNom}.`
+      : groupe.fournisseurId ? `Fournisseur (${groupe.parFournisseur ? 'devis' : 'grille'}) : ${groupe.fournisseurNom}.`
       : groupe.raison ? `⚠️ Fournisseur à choisir — ${groupe.raison}.` : '';
     const { texte: tableauTexte } = buildBcTableau(choisies);
     const notes = (enTete ? enTete + '\n\n' : '') +
@@ -4016,6 +4015,8 @@ function renderBcHtml({ commande, fournisseur, lignes }) {
         if (l.hauteurMm)    dims.push(`H: ${l.hauteurMm}`);
         if (l.profondeurMm) dims.push(`P: ${l.profondeurMm}`);
         const dimsHtml = dims.length ? '<br>' + esc(dims.join(', ')) : '';
+        const contexte = [l.section || l.categorie, l.marque ? `Marque : ${l.marque}` : '', l.fournisseur ? `Fournisseur : ${l.fournisseur}` : ''].filter(Boolean).join(' · ');
+        const contexteHtml = contexte ? '<br><small>' + esc(contexte) + '</small>' : '';
         const notesHtml = l.notes ? '<br><em style="color:#c44">' + esc(l.notes).replace(/\n/g, '<br>') + '</em>' : '';
         const qteTxt = l.quantite != null
           ? l.quantite.toLocaleString('fr-FR', { minimumFractionDigits: 4 }) + (l.unite ? ' ' + l.unite : '')
@@ -4023,7 +4024,7 @@ function renderBcHtml({ commande, fournisseur, lignes }) {
         return `
       <tr>
         <td>${esc(l.pos)}</td>
-        <td><strong>${esc(l.code || '')}</strong>${descHtml ? '<br>' + descHtml : ''}${dimsHtml}${notesHtml}</td>
+        <td><strong>${esc(l.code || '')}</strong>${descHtml ? '<br>' + descHtml : ''}${dimsHtml}${contexteHtml}${notesHtml}</td>
         <td style="text-align:center">${esc(l.sens || '')}</td>
         <td style="text-align:center">${esc(l.coteVisible || '')}</td>
         <td style="text-align:right">${esc(qteTxt)}</td>
@@ -4073,6 +4074,7 @@ function renderBcHtml({ commande, fournisseur, lignes }) {
     <div class="bc-box"><div class="bc-cmd-title">Commande</div></div>
     <div>
       <div class="bc-fournisseur-ref">${esc(refCourte)}</div>
+      <div>Fournisseur : <strong>${esc(fournisseur?.Nom || 'À rattacher')}</strong></div>
       <div class="bc-contact">
         <div><strong>Téléphone</strong> : ${esc(fournisseur?.Téléphone || '')}</div>
         <div><strong>Fax</strong> : ${esc(fournisseur?.Fax || '')}</div>
@@ -4540,6 +4542,23 @@ app.get('/api/factures-clients/impayes', requireAdmin, async (req, res) => {
         devisId: (e.fields['Devis'] || [])[0] || null,
       }))
       .sort((a, b) => b.joursRetard - a.joursRetard);
+
+    const devisIds = [...new Set(echeancesAFacturer.map(e => e.devisId).filter(Boolean))];
+    const devisEch = devisIds.length ? await atFetchByIds(TABLES.devis.id, devisIds) : [];
+    const devisById = new Map(devisEch.map(d => [d.id, d.fields]));
+    const projetIds = [...new Set(devisEch.flatMap(d => d.fields.Projet || []))];
+    const projetsEch = projetIds.length ? await atFetchByIds(TABLES.projets.id, projetIds) : [];
+    const projetById = new Map(projetsEch.map(p => [p.id, p.fields]));
+    for (const e of echeancesAFacturer) {
+      const d = devisById.get(e.devisId);
+      e.projetId = d?.Projet?.[0] || null;
+      const p = projetById.get(e.projetId);
+      e.clientId = p?.Client?.[0] || d?.Client?.[0] || null;
+      e.devisNumero = d?.['Numéro'] || '';
+    }
+    const clientsManquants = [...new Set(echeancesAFacturer.map(e => e.clientId).filter(id => id && !clientById.has(id)))];
+    for (const c of clientsManquants.length ? await atFetchByIds(TABLES.clients.id, clientsManquants) : []) clientById.set(c.id, c);
+    for (const e of echeancesAFacturer) e.clientNom = clientById.get(e.clientId)?.fields.Nom || 'Client non renseigné';
 
     res.json({ ok: true, impayes, echeancesAFacturer });
   } catch (e) {

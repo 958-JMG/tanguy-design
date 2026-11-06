@@ -11,6 +11,21 @@ const { normaliserArticles, construireDevisElectro } = require('./devis-electro'
 
 const P = (ps, nom) => ps.parties.find(p => p.partie === nom);
 
+test('nouvelles références de modules : les AR restent ventilés dans les parties existantes', () => {
+  const r = margeParParties({ commandes: ['PLAN', 'CREDENCE', 'SANITAIRE', 'PANNEAUX'].map(ref => ({ fields: { 'Référence courte': ref, 'Montant AR': 100 } })) });
+  assert.equal(P(r, 'Plan de travail & crédence').coutReel, 300);
+  assert.equal(P(r, 'Mobilier').coutReel, 100);
+});
+
+test('AR : repère et code identiques dans deux sections, l’identifiant de ligne évite la mauvaise partie', () => {
+  const devis = [{ id: 'd', fields: { Statut: 'Signé', 'Numéro devis': 'TEST-01', 'Total HT final': 200 } }];
+  const lignes = ['Meubles', 'Sanitaires'].map((cat, i) => ({ id: `l${i}`, fields: { Devis: ['d'], Position: '1', 'Code produit': 'X', 'Catégorie': cat, 'Montant HT': 100 } }));
+  const commandes = [{ fields: { 'Numéro': 'TEST-01-1', 'Montant AR': 60, 'Lignes BC': JSON.stringify([{ ligneDevisId: 'l0', pos: '1', code: 'X' }]) } }];
+  const r = margeParParties({ devis, lignes, commandes });
+  assert.equal(P(r, 'Mobilier').coutReel, 60);
+  assert.equal(P(r, 'Plan de travail & crédence').coutReel, 0);
+});
+
 // Devis 381/15/17 (MACE / LAGO) : 11 lignes « Meubles », remise 10 %, livraison 380, pose 720.
 const montantsLago = [1801, 109, 121, 1166, 415, 1166, 541, 109, 903, 121, 817.6];
 const DEVIS_LAGO = { id: 'recLAGO', fields: { 'Numéro devis': '381/15/17', Statut: 'Signé', 'Total HT articles': 7269.6, 'Total HT après remise': 6542.64, 'Livraison HT': 380, 'Pose HT': 720, 'Total HT final': 7642.64 } };

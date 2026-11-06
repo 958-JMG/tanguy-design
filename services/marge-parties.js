@@ -47,6 +47,8 @@ const PARTIE_PAR_REF = {
   MOBILIER: 'Mobilier', NOVA_CUC: 'Mobilier', MEUBLES: 'Mobilier',
   ELECTRO: 'Électroménager',
   PLAN_CRED: 'Plan de travail & crédence', PLAN_TRAV: 'Plan de travail & crédence',
+  PLAN: 'Plan de travail & crédence', CREDENCE: 'Plan de travail & crédence', SANITAIRE: 'Plan de travail & crédence',
+  PANNEAUX: 'Mobilier',
   LUMIN: 'Luminaire', ACCESS: 'Accessoires', A_CLASSER: 'Divers & à classer',
 };
 
@@ -117,10 +119,11 @@ function margeParParties({ devis = [], lignes = [], commandes = [] }) {
     const repartition = new Map();
     if (d) {
       const parCle = new Map((lignesParDevis.get(d.id) || []).map(l => [cleLigne(l.fields?.Position, l.fields?.['Code produit']), l]));
+      const parId = new Map((lignesParDevis.get(d.id) || []).map(l => [l.id, l]));
       let entrees = [];
       try { entrees = JSON.parse(cf['Lignes BC'] || '[]'); } catch { entrees = []; }
       for (const e of Array.isArray(entrees) ? entrees : []) {
-        const l = parCle.get(cleLigne(e && e.pos, e && e.code));
+        const l = e?.ligneDevisId ? parId.get(e.ligneDevisId) : parCle.get(cleLigne(e && e.pos, e && e.code));
         if (!l) continue;
         const lf = l.fields || {};
         const w = num(lf['Prix achat HT']) || num(lf['Montant HT']) || 1;

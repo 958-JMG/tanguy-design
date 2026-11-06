@@ -1,13 +1,13 @@
 // Tâches — vue globale « Toutes les tâches » (admin / Virginie).
 // Deux vues : Liste (tableau) et Kanban (colonnes par statut, groupable par personne).
-// Gestion : multi-assignation (champ additif « Assignées à », sans toucher « Assignée à »),
+// Gestion : création, édition et multi-assignation (« Assignées à »),
 // changer le statut, supprimer (y compris les tâches auto-générées). ACL taches = '*'.
 
 import { state } from '../core/state.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
 import { toast, confirmModal } from '../core/ui.js';
 import { navigateTo } from '../core/router.js';
-import { fetchProjets, fetchClients, patchTache, deleteTache } from '../core/api.js';
+import { fetchProjets, fetchClients, patchTache, deleteTache, createTache } from '../core/api.js';
 
 const ASSIGNES = ['Virginie', 'Solène', 'Sébastien', 'Marine'];
 const STATUTS = ['À faire', 'En cours', 'Terminée'];
@@ -43,10 +43,11 @@ export async function renderTaches(app) {
   }
 
   // État local de la vue
-  const ui = { mode: 'liste', groupBy: 'statut' };           // mode: liste|kanban ; groupBy (kanban): statut|personne
+  const ui = { mode: 'kanban', groupBy: 'statut' };
+  try { if (localStorage.getItem('tanguy.taches.vue') === 'liste') ui.mode = 'liste'; } catch { /* stockage indisponible */ }
   const filt = { assignee: 'Tous', statut: 'En cours', priorite: 'Toutes' };
 
-  app.innerHTML = `<h1 class="page-title">Toutes les tâches</h1><div id="taches-body"><div class="loading">Chargement…</div></div>`;
+  app.innerHTML = `<div class="page-header"><h1 class="page-title">Toutes les tâches</h1><button class="btn btn-primary" id="taches-new">${icon('plus', 16)} Nouvelle tâche</button></div><div id="taches-body"><div class="loading">Chargement…</div></div>`;
   const body = document.getElementById('taches-body');
 
   try {
@@ -161,7 +162,7 @@ export async function renderTaches(app) {
     const today = todayISO();
     const retard = t.Échéance && t.Échéance < today && t.Statut !== 'Terminée';
     return `
-      <div class="kb-card" draggable="true" data-id="${esc(t.id)}">
+      <div class="kb-card" role="button" tabindex="0" aria-label="Modifier ${esc(t.Titre || 'la tâche')}" draggable="${ui.groupBy === 'statut'}" data-id="${esc(t.id)}">
         <div class="kb-card-title">${esc(t.Titre || '?')}</div>
         ${tete ? `<div class="kb-card-sub">${esc(tete)}</div>` : ''}
         <div class="kb-card-meta">
@@ -213,6 +214,9 @@ export async function renderTaches(app) {
   function bindKanban() {
     // Édition au clic
     body.querySelectorAll('.kb-card').forEach(card => {
+      card.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); }
+      });
       card.addEventListener('click', e => {
         if (card.classList.contains('dragging')) return;
         const t = taches.find(x => x.id === card.dataset.id);
@@ -254,14 +258,20 @@ export async function renderTaches(app) {
     catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
   }
 
-  // Éditeur : multi-assignation (Assignées à) + statut + priorité + échéance. Ne touche PAS « Assignée à ».
-  function openTacheEditor(t) {
+  // Éditeur commun : création et modification, avec repli compatible pour les anciennes vues.
+  function openTacheEditor(t = {}) {
+    const isNew = !t.id;
+    const projets = pmap();
+    if (t.Projet?.[0] && !projets.has(t.Projet[0])) projets.set(t.Projet[0], { ref: 'Dossier lié (nom indisponible)', clientNom: '' });
     const current = new Set(assigneesOf(t));
     const modal = document.createElement('div');
     modal.className = 'modal-bg';
     modal.innerHTML = `
       <div class="modal" role="dialog" aria-modal="true">
-        <h2>${esc(t.Titre || 'Tâche')}</h2>
+        <h2>${isNew ? 'Nouvelle tâche' : 'Modifier la tâche'}</h2>
+        <label>Titre <input name="Titre" required value="${esc(t.Titre || '')}" autofocus></label>
+        <label>Client · Dossier <select name="Projet"><option value="">Sans dossier</option>${[...projets].map(([id, p]) => `<option value="${esc(id)}" ${t.Projet?.[0] === id ? 'selected' : ''}>${esc([p.clientNom, p.ref].filter(Boolean).join(' · ') || 'Dossier sans nom')}</option>`).join('')}</select></label>
+        <label>Description <textarea name="Description" rows="3">${esc(t.Description || '')}</textarea></label>
         <fieldset style="border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:0 0 12px">
           <legend style="font-size:12px;padding:0 4px">Assigné·e·s</legend>
           <div style="display:flex;flex-wrap:wrap;gap:12px">
@@ -272,29 +282,54 @@ export async function renderTaches(app) {
         <label>Priorité <select name="Priorité"><option value="">—</option>${PRIORITES.map(p => `<option ${t.Priorité === p ? 'selected' : ''}>${p}</option>`).join('')}</select></label>
         <label>Échéance <input type="date" name="Échéance" value="${esc(t.Échéance || '')}"></label>
         <div class="modal-actions">
-          <button type="button" class="btn btn-ghost" data-act="del" style="margin-right:auto;color:var(--accent)">${icon('trash', 14)} Supprimer</button>
+          ${isNew ? '' : `<button type="button" class="btn btn-ghost" data-act="del" style="margin-right:auto;color:var(--accent)">${icon('trash', 14)} Supprimer</button>`}
           <button type="button" class="btn btn-ghost" data-act="cancel">Annuler</button>
           <button type="button" class="btn btn-primary" data-act="save">Enregistrer</button>
         </div>
       </div>`;
     document.body.appendChild(modal);
     hydrateIcons(modal);
-    const close = () => modal.remove();
+    const onKey = e => { if (e.key === 'Escape') close(); };
+    const close = () => { document.removeEventListener('keydown', onKey); modal.remove(); };
+    document.addEventListener('keydown', onKey);
+    modal.querySelector('[name="Titre"]').focus();
     modal.addEventListener('click', e => { if (e.target === modal) close(); });
     modal.querySelector('[data-act="cancel"]').onclick = close;
-    modal.querySelector('[data-act="del"]').onclick = () => { close(); removeTache(t); };
+    const del = modal.querySelector('[data-act="del"]');
+    if (del) del.onclick = () => { close(); removeTache(t); };
     modal.querySelector('[data-act="save"]').onclick = async () => {
+      const titre = modal.querySelector('[name="Titre"]').value.trim();
+      if (!titre) { toast('Le titre est obligatoire', 'error'); return; }
+      const projet = modal.querySelector('[name="Projet"]').value;
       const assignees = [...modal.querySelectorAll('input[name="assignee"]:checked')].map(c => c.value);
       const fields = {
-        'Assignées à': assignees,                 // multi-assign (champ additif) — « Assignée à » NON touché
+        Titre: titre,
+        Description: modal.querySelector('[name="Description"]').value.trim(),
+        Projet: projet ? [projet] : [],
+        'Assignées à': assignees,
+        'Assignée à': assignees[0] || null, // garde les anciennes vues cohérentes, y compris la désassignation
         Statut: modal.querySelector('[name="Statut"]').value,
       };
       const prio = modal.querySelector('[name="Priorité"]').value;
-      if (prio) fields.Priorité = prio;
+      fields.Priorité = prio || null;
       const ech = modal.querySelector('[name="Échéance"]').value;
-      if (ech) fields.Échéance = ech;
-      try { await patchTache(t.id, fields); Object.assign(t, fields); close(); draw(); toast('Tâche mise à jour', 'success'); }
-      catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
+      fields.Échéance = ech || null;
+      const save = modal.querySelector('[data-act="save"]');
+      save.disabled = true;
+      try {
+        if (isNew) {
+          const d = await createTache(fields);
+          const rec = d.record || d;
+          taches.push({ id: rec.id, ...rec.fields });
+        } else {
+          await patchTache(t.id, fields);
+          Object.assign(t, fields);
+        }
+        // La tâche créée doit rester visible même si les filtres précédents l'excluaient.
+        if (isNew) Object.assign(filt, { assignee: 'Tous', statut: 'Tous', priorite: 'Toutes' });
+        close(); draw(); toast(isNew ? 'Tâche créée' : 'Tâche mise à jour', 'success');
+      } catch (err) { toast('Erreur : ' + err.message, 'error', 5000); }
+      finally { save.disabled = false; }
     };
   }
 
@@ -303,9 +338,10 @@ export async function renderTaches(app) {
       if (s.dataset.filter === 'groupBy') ui.groupBy = s.value; else filt[s.dataset.filter] = s.value;
       draw();
     }));
-    body.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => { ui.mode = b.dataset.mode; draw(); }));
+    body.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => { ui.mode = b.dataset.mode; try { localStorage.setItem('tanguy.taches.vue', ui.mode); } catch { /* stockage indisponible */ } draw(); }));
   }
 
+  app.querySelector('#taches-new').onclick = () => openTacheEditor();
   try { await load(); draw(); }
   catch (err) { body.innerHTML = `<div class="card"><p class="muted">Erreur : ${esc(err.message)}</p></div>`; }
 }

@@ -2,6 +2,7 @@
 // Affiche : breadcrumb · header (numéro/type/statut/date/total) · actions (éditer/re-importer/signer)
 // · tableau lignes groupé par zone · tableau échéances.
 
+import { renderLignesWinner } from './devis-winner.mjs';
 import { state } from '../core/state.js';
 import { router } from '../core/router.js';
 import { icon, hydrateIcons } from '../core/lucide.js';
@@ -57,20 +58,6 @@ function renderFiche(app, data) {
   const projetClientId = projet ? ((projet.fields?.Client || projet.Client || [])[0]) : null;
   const clientId = projetClientId || (f.Client || [])[0];
   const client = clientId ? (state.clients || []).find(c => c.id === clientId) : null;
-
-  // Groupe les lignes par zone
-  const lignesByZoneId = new Map();
-  const lignesHorsZone = [];
-  for (const l of lignes) {
-    const zoneIds = l.fields?.Zone || [];
-    if (zoneIds[0]) {
-      const arr = lignesByZoneId.get(zoneIds[0]) || [];
-      arr.push(l);
-      lignesByZoneId.set(zoneIds[0], arr);
-    } else {
-      lignesHorsZone.push(l);
-    }
-  }
 
   app.innerHTML = `
     <nav class="breadcrumb" aria-label="Fil d'Ariane">
@@ -144,12 +131,7 @@ function renderFiche(app, data) {
       <div class="projet-section-header">
         <h2>Lignes <span class="count">(${lignes.length})</span></h2>
       </div>
-      ${zones.length === 0 && lignes.length === 0
-        ? `<div class="compact-empty"><span>Aucune ligne dans ce devis</span></div>`
-        : zones
-            .sort((a, b) => (a.fields?.Ordre || 0) - (b.fields?.Ordre || 0))
-            .map(z => renderZone(z, lignesByZoneId.get(z.id) || []))
-            .join('') + (lignesHorsZone.length ? renderZone({ fields: { 'Nom zone': '(hors zone)' } }, lignesHorsZone) : '')}
+      ${renderLignesWinner(lignes, zones)}
     </section>
 
     <!-- Échéances -->
@@ -341,44 +323,6 @@ function chooseCustomerModal(nom, candidates) {
   });
 }
 
-function renderZone(zone, lignes) {
-  const zf = zone.fields || {};
-  const nom = zf['Nom zone'] || 'Zone';
-  const modele = [zf.Marque, zf.Modèle].filter(Boolean).join(' — ');
-  return `
-    <h3 class="devis-zone-title">${esc(nom)}${modele ? ` <span class="muted" style="font-weight:400;font-size:12px">— ${esc(modele)}</span>` : ''}</h3>
-    ${lignes.length === 0
-      ? `<p class="muted" style="font-size:12px;margin:0 0 8px 12px">Aucune ligne</p>`
-      : `<table class="devis-detail-table" style="background:white;border:1px solid var(--line);border-radius:var(--r-sm)">
-          <thead>
-            <tr>
-              <th style="width:50px">Pos</th>
-              <th style="width:120px">Code</th>
-              <th>Désignation</th>
-              <th class="num" style="width:80px">Qté</th>
-              <th class="num" style="width:110px">Montant HT</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${lignes
-              .sort((a, b) => String(a.fields?.Position || '').localeCompare(String(b.fields?.Position || ''), 'fr', { numeric: true }))
-              .map(l => {
-                const lf = l.fields || {};
-                return `
-                <tr>
-                  <td>${esc(lf.Position || '')}</td>
-                  <td><strong>${esc(lf['Code produit'] || '')}</strong></td>
-                  <td>${esc((lf.Désignation || '').slice(0, 120))}${(lf.Désignation || '').length > 120 ? '…' : ''}</td>
-                  <td class="num">${lf.Quantité != null ? Number(lf.Quantité).toLocaleString('fr-FR', { maximumFractionDigits: 4 }) : ''}${lf.Unité ? ' ' + esc(lf.Unité) : ''}</td>
-                  <td class="num">${lf['Montant HT'] != null ? eurosPrecis(lf['Montant HT']) : '—'}</td>
-                </tr>`;
-              }).join('')}
-          </tbody>
-        </table>`}
-  `;
-}
-
-
 // ---------------------------------------------------------------------------
 // Nettoyage des artefacts d'une signature annulée (retour Virginie, MORALES)
 // ---------------------------------------------------------------------------
@@ -487,7 +431,7 @@ function openModalCommandeLignes(devis, r) {
               <input type="checkbox" name="ligne" value="${esc(l.id)}" ${l.famille === 'Dépose' ? '' : 'checked'} style="margin-top:3px">
               <span style="flex:1;min-width:0">
                 <strong style="display:block;word-break:break-word">${esc(l.position)}${l.code ? ` · ${esc(l.code)}` : ''} · ${esc(l.designation.split('\n')[0].slice(0, 90))}</strong>
-                <span class="muted" style="font-size:12px">${esc(l.categorie || 'sans catégorie')} · ${euros(l.montantHT)} HT</span>
+                <span class="muted" style="font-size:12px">${esc(l.section || l.categorie || 'sans catégorie')}${l.fournisseur ? ' · Fournisseur : ' + esc(l.fournisseur) : ''}${l.marque ? ' · Marque : ' + esc(l.marque) : ''} · ${euros(l.montantHT)} HT</span>
               </span>
             </label>`).join('')}
         </div>

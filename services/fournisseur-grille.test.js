@@ -94,13 +94,14 @@ describe('routeCommandes — aucune ligne jetée, aucun rattachement au hasard',
     assert.equal(mob.type, 'Mobilier');
   });
 
-  test('« Plan de travail & crédence » regroupe plan de travail, évier, robinetterie, crédence', () => {
+  test('plan de travail, sanitaire et crédence restent des modules distincts', () => {
     const lignes = [ligne('Plan de travail', 800), ligne('Eviers et robinetterie', 900), ligne('Crédence', 700)];
     const groupes = routeCommandes(lignes, GRILLE);
     const ptc = groupes.filter(g => g.canon === PTC);
-    assert.equal(ptc.length, 1, 'les 4 sous-familles tombent dans une seule commande');
-    assert.equal(ptc[0].lignes.length, 3);
-    assert.equal(ptc[0].montant, 2400);
+    assert.equal(ptc.length, 3);
+    assert.deepEqual(ptc.map(g => g.type), ['Plan de travail', 'Sanitaire', 'Crédence']);
+    assert.equal(ptc.reduce((s, g) => s + g.lignes.length, 0), 3);
+    assert.equal(ptc.reduce((s, g) => s + g.montant, 0), 2400);
     // Fidelem, Bradano, Franke, Goode Glass couvrent PTC → 4 candidats, pas de choix auto.
     assert.equal(ptc[0].fournisseurId, undefined);
     assert.match(ptc[0].raison, /à choisir/);
@@ -167,7 +168,18 @@ describe('routeCommandes — aucune ligne jetée, aucun rattachement au hasard',
     assert.equal(idx.get('luminaire').length, 1);
   });
 
-  test('les 4 familles de la grille sont bien exposées', () => {
-    assert.deepEqual(CATEGORIES_GRILLE, ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence']);
+  test('les 5 familles de la grille sont bien exposées', () => {
+    assert.deepEqual(CATEGORIES_GRILLE, ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence', 'Sanitaire']);
   });
+});
+
+test('Sanitaire utilise sa propre colonne, sans reprendre le fournisseur du plan', () => {
+  const plan = { id: 'fPlanTest', fields: { Nom: 'Plans fictifs', Catégories: [PTC] } };
+  const sanitaire = { id: 'fSanTest', fields: { Nom: 'Sanitaires fictifs', Catégories: ['Sanitaire'] } };
+  const [s, p] = routeCommandes([ligne('Sanitaires'), ligne('Plan de travail')], [plan, sanitaire]);
+  assert.equal(s.fournisseurId, 'fSanTest');
+  assert.equal(p.fournisseurId, 'fPlanTest');
+  const [sans] = routeCommandes([ligne('Sanitaires')], [plan]);
+  assert.equal(sans.fournisseurId, undefined);
+  assert.match(sans.raison, /Aucun fournisseur.*Sanitaire/);
 });

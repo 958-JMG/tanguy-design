@@ -132,10 +132,11 @@ async function renderFacturation(body) {
       ${imp.echeancesAFacturer.length ? `
       <div class="section-header"><h2 class="section-title">Échéances en retard à facturer</h2></div>
       <table class="pipeline-table" style="margin-bottom:24px">
-        <thead><tr><th>Échéance</th><th>Date prévue</th><th class="num">Montant</th><th class="num">Retard</th><th></th></tr></thead>
+        <thead><tr><th>Client</th><th>Échéance</th><th>Date prévue</th><th class="num">Montant</th><th class="num">Retard</th><th></th></tr></thead>
         <tbody>
           ${imp.echeancesAFacturer.map(e => `
           <tr>
+            <td><strong>${esc(e.clientNom || 'Client non renseigné')}</strong>${e.devisNumero ? `<br><span class="muted">Devis ${esc(e.devisNumero)}</span>` : ''}</td>
             <td>${esc(e.libelle)}</td>
             <td>${fmtDate(e.datePrevue)}</td>
             <td class="num">${eurosCents(e.montant)}</td>

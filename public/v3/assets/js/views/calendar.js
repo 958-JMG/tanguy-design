@@ -523,7 +523,7 @@ export function renderCalendar(app) {
         }
         // Réceptions (commande / SAV) : le CTA mène à la rubrique correspondante.
         if (el.dataset.type === 'reception-cmd') return navigateTo('commande', { id });
-        if (el.dataset.type === 'reception-sav') return navigateTo('sav');
+        if (el.dataset.type === 'reception-sav') return navigateTo('sav', { id });
       });
     });
 
