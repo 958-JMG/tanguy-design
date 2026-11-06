@@ -2360,9 +2360,9 @@ app.post('/api/devis-fournisseur/parse', requireAdmin, upload.single('pdf'), asy
     // Éco-contribution des tablettes / panneaux : on renvoie les pièces lues telles
     // quelles (dimensions + matériau). Le CALCUL se fait côté client via l'endpoint
     // /api/eco-contribution/calcul (barème Ecomaison 2026, source UNIQUE) — plus de
-    // grille répliquée ni de moteur séparé ici. Distinct de `ecopart` (forfait par
-    // catégorie, grille Airtable) : on ne remplace rien en silence, l'écran affiche
-    // les deux et l'équipe reporte le montant retenu.
+    // grille répliquée ni de moteur séparé ici. Sans montant explicite du document,
+    // l'écran reporte automatiquement le calcul complet dans l'éco du devis.
+    // Le choix « déjà incluse / à ajouter » garde l'éco comptée une seule fois.
     let ecoPieces = [];
     try {
       const pieces = Array.isArray(parsed?.pieces_eco_contribution) ? parsed.pieces_eco_contribution : [];

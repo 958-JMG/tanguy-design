@@ -49,6 +49,21 @@ test('cache borné : un seul appel IA pour deux lectures simultanées, puis réu
   assert.strictEqual(c.totaux.total_ht, 1010);
   assert.strictEqual(c.lecture_reutilisee, true);
 });
+test('nomenclatures : le texte lisible ne remplace pas les colonnes du PDF pour les pièces éco', async () => {
+  const { creerLecteur } = require('./devis-fournisseur-parser');
+  for (const titre of ['Novamobili Night collection', 'Metron', 'Tablette armoire']) {
+    const lire = creerLecteur({ extraire: async () => ({ text: [`${titre}\nQté Code Description Lun Alt Prf\n` + 'Pièce de fabrication '.repeat(20)] }),
+      ia: async ({ messages, system }) => {
+        assert.strictEqual(messages[0].content[0].type, 'document');
+        assert.match(system, /prix masqués ne justifient JAMAIS un tableau éco vide/);
+        return { texte: JSON.stringify({ lignes_detail: [], pieces_eco_contribution: [{ designation: 'Tablette', quantite: 2, longueur_mm: 800, hauteur_mm: 500, epaisseur_mm: 19 }] }) };
+      } });
+    const res = await lire(Buffer.from('%PDF-nomenclature fictive'));
+    assert.strictEqual(res.lecture_mode, 'pdf');
+    assert.strictEqual(res.pieces_eco_contribution.length, 1);
+    assert.deepStrictEqual(res.lignes_detail, []);
+  }
+});
 test('échec de lecture non mis en cache : une relance peut réussir', async () => {
   const { creerLecteur } = require('./devis-fournisseur-parser');
   let appels = 0;
