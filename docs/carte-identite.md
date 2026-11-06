@@ -9,4 +9,6 @@
 - **Compléments demandés** : accès direct aux tâches, Kanban par défaut, création/édition et désassignation ; ticket SAV ouvert depuis le planning ; client sur les échéances en retard ; colonne Sanitaire utilisée pour le routage fournisseurs. Droits d’accès existants conservés.
 - **Prochaine action** : CI distante, fusion, déploiement et vérification de la version servie.
 
-- **Derniers retours JMG** : prix de vente HT conservé sans coefficient, éco incluse/exclue explicite, achat jamais déduit de la vente ; recherche projet/client ; attente animée et optimisation lecture PDF/cache ; annexe descriptive complète générée et joignable au devis Pennylane. 687 tests complets réussis, recette navigateur et trois pages PDF fictives vérifiées. Aucun test de mutation en production.
+- **Derniers retours JMG** : prix de vente HT conservé sans coefficient, éco incluse/exclue explicite, achat jamais déduit de la vente ; recherche projet/client ; attente animée et optimisation lecture PDF/cache ; annexe descriptive complète générée et joignable au devis Pennylane. 690 tests complets réussis, recette navigateur et trois pages PDF fictives vérifiées. Aucun test de mutation en production.
+
+- **Devis non signés / relances** : contrôle en lecture du cas signalé par JMG ; les échéances étaient considérées dues sur leur seule date. Filtre strict sur le statut Signé pour les échéances à facturer et la trésorerie, refus serveur de facturer une échéance non signée. Aucun statut ni date client modifiés.

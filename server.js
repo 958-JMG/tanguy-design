@@ -4494,11 +4494,12 @@ app.post('/api/factures-clients/from-echeance', requireAdmin, async (req, res) =
     // Remonte devis → projet + client pour lier la facture.
     const devisId = (ech.fields['Devis'] || [])[0];
     let projetIds = [], clientIds = [];
-    if (devisId) {
-      const devis = (await atFetchByIds(TABLES.devis.id, [devisId]))[0];
-      projetIds = devis?.fields['Projet'] || [];
-      clientIds = devis?.fields['Client'] || [];
+    const devis = devisId ? (await atFetchByIds(TABLES.devis.id, [devisId]))[0] : null;
+    if (devis?.fields.Statut !== 'Signé') {
+      return res.status(409).json({ error: 'Le devis doit être signé avant de facturer ses échéances.' });
     }
+    projetIds = devis.fields['Projet'] || [];
+    clientIds = devis.fields['Client'] || [];
 
     const year = todayISO().slice(0, 4);
     const seq = factures.filter(f => String(f.fields['Numéro'] || '').startsWith(`FC-${year}-`)).length + 1;
@@ -4561,9 +4562,10 @@ app.get('/api/factures-clients/impayes', requireAdmin, async (req, res) => {
       f.relance = { niveau, sujet: email.sujet, mailto: buildMailto(f.clientEmail, email.sujet, email.corps) };
     }
 
-    // Échéances en retard jamais facturées → Virginie doit créer la facture.
+    // L'échéancier importé reste prévisionnel jusqu'à la signature du devis.
+    // Une date passée sur un devis présenté ne constitue pas un paiement dû.
     const facturees = echeancesFacturees(factures);
-    const echeancesAFacturer = echeancesRaw
+    let echeancesAFacturer = echeancesRaw
       .filter(e => (e.fields['Statut'] || '') !== 'Encaissé')
       .filter(e => !facturees.has(e.id))
       .filter(e => e.fields['Date prévue'] && e.fields['Date prévue'] < today)
@@ -4581,6 +4583,7 @@ app.get('/api/factures-clients/impayes', requireAdmin, async (req, res) => {
     const devisIds = [...new Set(echeancesAFacturer.map(e => e.devisId).filter(Boolean))];
     const devisEch = devisIds.length ? await atFetchByIds(TABLES.devis.id, devisIds) : [];
     const devisById = new Map(devisEch.map(d => [d.id, d.fields]));
+    echeancesAFacturer = echeancesAFacturer.filter(e => devisById.get(e.devisId)?.Statut === 'Signé');
     const projetIds = [...new Set(devisEch.flatMap(d => d.fields.Projet || []))];
     const projetsEch = projetIds.length ? await atFetchByIds(TABLES.projets.id, projetIds) : [];
     const projetById = new Map(projetsEch.map(p => [p.id, p.fields]));
@@ -4837,7 +4840,11 @@ app.get('/api/tresorerie/plan', requireAdmin, async (req, res) => {
       entrees.push({ date: f.dateEcheance || f.dateEmission, montant: f.montantRestant, label: `Facture ${f.numero}`, kind: 'facture-client', id: f.id });
     }
     const facturees = echeancesFacturees(facturesCli);
+    const devisIds = [...new Set(echeancesRaw.flatMap(e => e.fields.Devis || []))];
+    const devisEch = devisIds.length ? await atFetchByIds(TABLES.devis.id, devisIds) : [];
+    const signes = new Set(devisEch.filter(d => d.fields.Statut === 'Signé').map(d => d.id));
     for (const e of echeancesRaw) {
+      if (!signes.has(e.fields.Devis?.[0])) continue;
       if ((e.fields['Statut'] || '') === 'Encaissé' || facturees.has(e.id)) continue;
       const restant = (Number(e.fields['Montant prévu']) || 0) - (Number(e.fields['Montant réglé']) || 0);
       if (restant <= 0) continue;

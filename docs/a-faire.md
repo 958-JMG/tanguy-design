@@ -32,7 +32,7 @@
 3. Faire la recette d’un nouvel import : ordre, sections, marques/fournisseurs, contenu et destination des bons. La fidélité de la lecture IA reste à vérifier sur un import réel autorisé.
 4. Décider séparément de la reprise des anciens imports et BC : le même PDF est dédupliqué, un réimport identique ne répare pas les anciens enregistrements. Ne pas supprimer ni recréer de commandes signées sans plan validé.
 
-**Déploiement prouvé : non. Livraison client confirmée : non. Aucune date de mise en ligne confirmée.**
+**Premier lot déployé le 6 novembre 2026 et vérifié (`c4e01d1`). Compléments ci-dessous : publication en cours. Livraison client confirmée : non.**
 
 
 ## 6 novembre 2026 · Compléments import et Pennylane · Codex / retours JMG
@@ -46,3 +46,11 @@
 - Sources API officielles vérifiées : https://pennylane.readme.io/reference/postquoteappendices et https://pennylane.readme.io/reference/getquoteappendices (schémas OpenAPI inclus dans leurs versions `.md`).
 - Validation : **687 tests complets réussis**, dont prix/éco aux coefficients 1/2/3, recalcul serveur, descriptif > 1000 caractères, annexe et reprise sans doublon, refus API explicite et recherche projet. Recette navigateur avec API fictive : attente visible, prix inclus/exclus, recherche sans résultat puis sélection. Trois pages d’annexe PDF fictive rendues et vérifiées.
 - Limites : lecture IA réelle et autorisation effective de l’annexe avec le jeton Pennylane de production à confirmer lors de la recette métier. Aucun ancien montant recalculé, aucun ancien devis Pennylane modifié par ces tests. Le descriptif anciennement perdu à l’import ne peut pas être recréé sans sa source.
+
+
+## 6 novembre 2026 · Échéances avant signature · Codex / retour JMG
+
+- Cause confirmée par lecture des données du dossier signalé : deux devis non signés et six échéances importées à la date du devis, sans facture liée. L’ancien calcul retenait uniquement la date passée. Aucun enregistrement client modifié.
+- Les échéances à facturer et les encaissements prévisionnels du plan de trésorerie exigent maintenant un devis au statut **Signé**. Les brouillons, devis présentés, en attente, refusés et liens manquants sont exclus. La route de création de facture depuis une échéance refuse également un devis non signé.
+- Les factures déjà émises restent suivies indépendamment du statut commercial ; aucune suppression de pièce ou modification comptable.
+- Validation complète après ces changements : **690 tests réussis, 0 échec, 0 ignoré**. Cas signés, non signés, lien absent, protection de la création et absence de doublon vérifiés avec données fictives. Recette navigateur : l’import en cours et son temps écoulé sont retrouvés après navigation.
