@@ -1,3 +1,4 @@
+import { chargerEquipe, nomsEquipe, optionsEquipe } from './equipe.js';
 // RDV (rendez-vous) — module partagé : modale create/edit + rendu de liste.
 // Utilisé par les vues projet, client et calendrier. CRUD via /api/data/rendez-vous.
 
@@ -13,7 +14,6 @@ import { createRendezVous, patchRendezVous, deleteRendezVous, fetchClients } fro
 // voir scripts/setup-agenda-v2-types.js (additif, à exécuter avant merge).
 export const RDV_TYPES = ['Découverte', 'Métré', 'Présentation devis', 'Suivi chantier', 'Réception', 'Pose', 'SAV', 'Autre'];
 const STATUTS = ['Planifié', 'Confirmé', 'Réalisé', 'Annulé'];
-const ASSIGNES = ['Virginie', 'Solène', 'Sébastien', 'Marine'];
 
 function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 
@@ -128,7 +128,8 @@ function resoudreProjetSaisi(saisie) {
 
 // Modale création / édition d'un RDV.
 // opts : { rdv?, projetId?, clientId?, contextLabel?, onSaved? }
-export function openModalRdv({ rdv = null, projetId = null, clientId = null, contextLabel = '', onSaved = null } = {}) {
+export async function openModalRdv({ rdv = null, projetId = null, clientId = null, contextLabel = '', onSaved = null } = {}) {
+  await chargerEquipe();
   const f = rdv?.fields || {};
   const isNew = !rdv;
 
@@ -186,7 +187,7 @@ export function openModalRdv({ rdv = null, projetId = null, clientId = null, con
       <label>Assigné à
         <select name="Assigné à">
           <option value="">—</option>
-          ${ASSIGNES.map(v => `<option ${f['Assigné à'] === v ? 'selected' : ''}>${v}</option>`).join('')}
+          ${optionsEquipe(f['Assigné à'])}
         </select>
       </label>
       <label>Notes <textarea name="Notes" rows="2">${esc(f.Notes || '')}</textarea></label>

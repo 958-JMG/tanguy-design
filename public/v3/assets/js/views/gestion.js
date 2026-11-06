@@ -513,7 +513,7 @@ async function renderTresorerie(body) {
         ${plan.plusTard.encaissements || plan.plusTard.decaissements ? `Au-delà de 12 sem. : +${euros(plan.plusTard.encaissements)} / −${euros(plan.plusTard.decaissements)}.` : ''}
       </p>
 
-      <div class="section-header"><h2 class="section-title">Rétrocession apporteur — Solène (${tauxPct} %)</h2></div>
+      <div class="section-header"><h2 class="section-title">Rétrocession apporteur — historique Solène (${tauxPct} %)</h2></div>
       <p class="muted" style="margin-top:-8px;margin-bottom:12px">Assiette = CA HT des projets signés des clients dont l'apporteur est Solène.</p>
       ${retro.rows.length ? `
       <div class="kpi-row" style="margin-bottom:16px">

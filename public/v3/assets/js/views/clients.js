@@ -1,3 +1,4 @@
+import { chargerEquipe, nomsEquipe, optionsEquipe } from '../core/equipe.js';
 // Vue Clients v3 — liste + fiche détaillée (cœur du pivot client-centric, Sprint 1)
 
 import { state } from '../core/state.js';
@@ -316,7 +317,8 @@ function openModalNouveauProjet(clientId) {
 }
 
 // === Modale "Nouveau client" ===
-function openModalNouveauClient() {
+async function openModalNouveauClient() {
+  await chargerEquipe();
   const modal = document.createElement('div');
   modal.className = 'modal-bg';
   modal.innerHTML = `
@@ -347,11 +349,7 @@ function openModalNouveauClient() {
         <label>Apporteur d'affaires (rétro 3 %)
           <select name="Apporteur">
             <option value="" selected>— Aucun —</option>
-            <option>Virginie</option>
-            <option>Solène</option>
-            <option>Sébastien</option>
-            <option>Marine</option>
-            <option>Externe</option>
+            ${optionsEquipe('', ['Externe'])}
           </select>
         </label>
         <label>Notes <textarea name="Notes" rows="3" placeholder="Préférences, contexte, infos utiles"></textarea></label>
@@ -389,7 +387,8 @@ function openModalNouveauClient() {
 }
 
 // === Modale "Éditer client" (Sprint 1 suite) ===
-function openModalEditClient(clientRecord) {
+async function openModalEditClient(clientRecord) {
+  await chargerEquipe();
   const c = clientRecord.fields;
   const modal = document.createElement('div');
   modal.className = 'modal-bg';
@@ -429,11 +428,7 @@ function openModalEditClient(clientRecord) {
         <label>Apporteur d'affaires (rétro 3 %)
           <select name="Apporteur">
             <option value="" ${!c.Apporteur ? 'selected' : ''}>— Aucun —</option>
-            <option ${c.Apporteur === 'Virginie' ? 'selected' : ''}>Virginie</option>
-            <option ${c.Apporteur === 'Solène' ? 'selected' : ''}>Solène</option>
-            <option ${c.Apporteur === 'Sébastien' ? 'selected' : ''}>Sébastien</option>
-            <option ${c.Apporteur === 'Marine' ? 'selected' : ''}>Marine</option>
-            <option ${c.Apporteur === 'Externe' ? 'selected' : ''}>Externe</option>
+            ${optionsEquipe(c.Apporteur, ['Externe'])}
           </select>
         </label>
         <label>Notes

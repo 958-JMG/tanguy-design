@@ -57,7 +57,7 @@ function generateBcPdf(opts) {
       const fournAdr  = safe(fournisseur?.fields?.Adresse);
       const fournTel  = safe(fournisseur?.fields?.Téléphone);
       const fournEmail = safe(fournisseur?.fields?.Email);
-      const contact   = safe(commande['Contact Tanguy'] || 'Solène');
+      const contact   = safe(commande['Contact Tanguy'] || 'Tanguy Design');
 
       // === ENTÊTE ===
       doc.fontSize(20).fillColor(COLORS.dark).font('Helvetica-Bold').text('TANGUY DESIGN', 40, 40);

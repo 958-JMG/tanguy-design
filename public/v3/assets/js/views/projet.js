@@ -1,3 +1,4 @@
+import { chargerEquipe, nomsEquipe, optionsEquipe } from '../core/equipe.js';
 // Vue Projet v3 (Sprint 2) — fiche complète avec stepper + bilan + zones éditables.
 // Pattern porté de v2 (computeParcours + zones) mais modulaire ES + Lucide icons.
 
@@ -1267,7 +1268,8 @@ function openModalEditProjet(projet) {
   });
 }
 
-function openModalTache(tache, projet, client) {
+async function openModalTache(tache, projet, client) {
+  await chargerEquipe();
   const t = tache?.fields || {};
   const clientNom = client?.fields?.Nom || '';
   // P-G (2026-06-24) — préfixe auto « [Client · Projet] / » pour savoir d'office de quel
@@ -1283,7 +1285,7 @@ function openModalTache(tache, projet, client) {
       <label>Assignée à
         <select name="Assignée à">
           <option value="">—</option>
-          ${['Virginie','Solène','Sébastien','Marine'].map(v => `<option ${t['Assignée à'] === v ? 'selected' : ''}>${v}</option>`).join('')}
+          ${optionsEquipe(t['Assignée à'])}
         </select>
       </label>
       <label>Priorité

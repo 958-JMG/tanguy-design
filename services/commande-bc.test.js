@@ -109,7 +109,7 @@ describe('modeleDepuisZone()', () => {
 });
 
 describe('champsCommande()', () => {
-  const base = { numCmd: 'DUPONT · MOBILIER · 650/1/1-2', notes: 'n', clientNom: 'DUPONT', projetId: 'recP', today: '2026-10-14' };
+  const base = { numCmd: 'DUPONT · MOBILIER · 650/1/1-2', notes: 'n', clientNom: 'DUPONT', projetId: 'recP', contact: 'Contact fictif', today: '2026-10-14' };
 
   test('BC Mobilier : même forme que la signature (fournisseur, modèle, lignes, montant arrondi)', () => {
     const groupe = { type: 'Mobilier', ref: 'MOBILIER', canon: 'Mobilier', montant: 801.004, lignes: LIGNES_650, fournisseurId: 'recF' };

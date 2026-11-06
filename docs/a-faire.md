@@ -32,7 +32,7 @@
 3. Faire la recette d’un nouvel import : ordre, sections, marques/fournisseurs, contenu et destination des bons. La fidélité de la lecture IA reste à vérifier sur un import réel autorisé.
 4. Décider séparément de la reprise des anciens imports et BC : le même PDF est dédupliqué, un réimport identique ne répare pas les anciens enregistrements. Ne pas supprimer ni recréer de commandes signées sans plan validé.
 
-**Premier lot déployé le 6 novembre 2026 et vérifié (`c4e01d1`). Compléments ci-dessous : publication en cours. Livraison client confirmée : non.**
+**Premier lot déployé le 6 novembre 2026 et vérifié (`c4e01d1`). Compléments import/Pennylane/échéances : version `8533be0` déployée, santé HTTP 200 et version servie vérifiées. Livraison client confirmée : non.**
 
 
 ## 6 novembre 2026 · Compléments import et Pennylane · Codex / retours JMG
@@ -54,3 +54,14 @@
 - Les échéances à facturer et les encaissements prévisionnels du plan de trésorerie exigent maintenant un devis au statut **Signé**. Les brouillons, devis présentés, en attente, refusés et liens manquants sont exclus. La route de création de facture depuis une échéance refuse également un devis non signé.
 - Les factures déjà émises restent suivies indépendamment du statut commercial ; aucune suppression de pièce ou modification comptable.
 - Validation complète après ces changements : **690 tests réussis, 0 échec, 0 ignoré**. Cas signés, non signés, lien absent, protection de la création et absence de doublon vérifiés avec données fictives. Recette navigateur : l’import en cours et son temps écoulé sont retrouvés après navigation.
+
+
+## 6 novembre 2026 · Équipe, plaques de cuisson, commandes vides · Codex / retours JMG
+
+- Solène n’existe plus dans les comptes actifs ; les listes figées de tâches, RDV, SAV, contacts BC et nouveaux apporteurs sont remplacées par une liste issue des comptes actifs. Les anciennes valeurs restent conservables sur leur fiche avec la mention « ancien ». Les tâches historiques restent visibles dans le groupe Anciens membres. Aucun calcul de rétrocession historique modifié.
+- Une case Actif décochée est omise par Airtable : le chargeur la reconnaît désormais comme inactive. La liste d’équipe ne reprend pas les comptes du secours d’environnement. Les nouveaux BC utilisent le contact actif qui les crée, sans ancien prénom par défaut ; les suggestions Plaud ne réaffectent pas un membre absent.
+- Nouvelle catégorie **Plaque de cuisson**, conservant l’ordre et la section Winner, avec un badge dans le détail et une colonne fournisseur distincte. Fournisseur explicite prioritaire ; sinon grille Plaque de cuisson uniquement, fournisseur à choisir si absent/ambigu. Aucun fournisseur coché arbitrairement. Les découpes de plan et meubles sous plaque ne changent pas de famille. L’option Airtable est créée au premier enregistrement avec typecast, comme Sanitaire.
+- Suppression du forçage d’un bon de plan de travail vide à chaque signature. Les articles réels à prix nul restent conservés dans leurs BC.
+- JMG a explicitement demandé la suppression des trois bons Le Maire vides, puis des bons vides des autres dossiers. Audit des **158 commandes** : **50 sans lignes**, dont **38 réellement vides supprimées** après relecture inchangée et sauvegarde locale ; **12 protégées** car AR ou état métier, donc non vides au sens opérationnel. La commande Cuisine Le Maire contenant les articles a été conservée et relue après suppression. Aucun autre dossier supprimé, aucune facture modifiée. Sauvegarde hors dépôt synchronisé : `~/Developer/9-58/Administration/Sauvegardes/tanguy-2026-11-06/commandes-vides-avant-suppression.json` (accès local privé).
+- Validation : suite complète **693 tests réussis**, syntaxe et diff contrôlés ; cas membre actif/inactif, case absente, fournisseur plaques distinct, aucun repli électro, préservation des lignes et absence de BC forcé. Recette navigateur fictive : nouvelle tâche propose uniquement l’équipe active. Aucun nouveau devis signé en production pour les tests.
+- Déploiement du lot précédent : https://github.com/958-JMG/tanguy-design/actions/runs/42193903681 réussi, version servie `8533be0f7173`. Dernier complément équipe/plaques : déploiement à confirmer. Livraison client confirmée : non.

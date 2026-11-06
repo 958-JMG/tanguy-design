@@ -68,7 +68,7 @@ Analyse ce PDF de devis et retourne UNIQUEMENT un objet JSON valide, sans aucun 
       "fournisseur": "nom du fournisseur explicitement identifié dans le PDF, sinon chaîne vide",
       "marque": "marque ou catalogue explicitement identifié, sinon chaîne vide",
       "zone_nom": "COTE EVIER ET ARMOIRES",
-      "categorie": "Meubles | Panneaux de recouvrement | Plan de travail | Électroménager | Luminaire | Évier | Robinetterie | Eviers et robinetterie | Crédence | Produits de vente | Sanitaires | Dépose | Divers",
+      "categorie": "Meubles | Panneaux de recouvrement | Plan de travail | Électroménager | Plaque de cuisson | Luminaire | Évier | Robinetterie | Eviers et robinetterie | Crédence | Produits de vente | Sanitaires | Dépose | Divers",
       "code_produit": "ZPL22A",
       "designation": "description complète multi-lignes",
       "largeur_mm": 600,
@@ -130,6 +130,7 @@ RÈGLES STRICTES :
 - Une sous-ligne conserve son position_parent même si elle est dans une autre section (ex. 2.1 en Accessoires). Elle reste à sa place dans le PDF. Reprends la zone du parent seulement si elle est explicite et applicable.
 - Distingue le fournisseur commercial de la marque : NOVA CUCINA, BORA, LIEBHERR, ASKO, NOVY, BRADANO ou LMC peuvent être des marques/catalogues, cela ne prouve pas le fournisseur de commande. "fournisseur" reste vide si le document ne permet pas de l'identifier. N'invente aucun nom ni correspondance. Le fabricant du modèle général ne s'applique pas à l'électroménager ou au sanitaire.
 - Les positions numériques peuvent aller jusqu'à 507 ou plus (lignes de finition, gorges, socles en fin de devis).
+- Une plaque de cuisson (induction, gaz, vitrocéramique ou aspirante) reçoit la catégorie « Plaque de cuisson », même dans la section Électroménager. Conserve le titre de section source. Ne confonds pas avec une découpe de plan, un meuble sous plaque ou un accessoire. Son fournisseur est uniquement celui explicitement indiqué, jamais FINDIS par défaut.
 - La catégorie décrit la FAMILLE FOURNISSEUR de l'article, alignée sur les familles de Tanguy : Meubles (caissons, façades, panneaux de recouvrement), Plan de travail, Électroménager, Luminaire (spots, appliques, suspensions), Évier, Robinetterie, Crédence, Produits de vente, Dépose, Divers. Déduis-la du titre de section ET du contenu de la ligne : dans une section « Eviers et robinetterie », une ligne de robinet/mitigeur → « Robinetterie », une ligne d'évier/cuve → « Évier ». Si la section ne se laisse pas trancher, garde son titre exact (ex. « Eviers et robinetterie »). Ne DEVINE JAMAIS une famille : si tu ne sais pas, reprends le titre de section tel quel plutôt que d'inventer.
 - Les montants sont en euros, toujours en nombre (pas de chaîne), avec point décimal. Ne mets jamais de séparateur de milliers.
 - Les dates au format ISO YYYY-MM-DD. Si absente, mets null.
@@ -207,7 +208,7 @@ Retourne UNIQUEMENT un JSON strict avec cette structure :
       "type": "rdv_presentation_devis | envoi_dossier | dessin_projet | relance_client | visite_chantier | autre",
       "titre": "intitulé court (ex: Présenter le devis aux Junker)",
       "date_souhaitee": "YYYY-MM-DD ou null si non mentionnée",
-      "assignee_suggere": "Virginie | Solène | Sébastien | Marine ou null",
+      "assignee_suggere": "nom de la personne explicitement engagée ou null",
       "notes": "contexte ou précisions"
     }
   ]
@@ -219,7 +220,7 @@ Pour "prochaines_actions" :
 - "Envoyer le dossier de présentation dans la semaine" → type=envoi_dossier, date_souhaitee=date+7j
 - "Dessiner le projet sur Winner" → type=dessin_projet, date_souhaitee=null
 - Si AUCUNE action explicite : retourne tableau vide []
-- assignee_suggere : déduis du contexte (qui s'est engagé). Solène pour dessin, Virginie pour commercial/admin, Sébastien pour chantier.
+- assignee_suggere : déduis du contexte (qui s'est engagé). N'attribue pas une action à une personne absente de la transcription sur la seule base de son métier.
 
 Transcription à analyser :
 ---

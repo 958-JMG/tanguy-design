@@ -1,3 +1,4 @@
+import { chargerEquipe, nomsEquipe, optionsEquipe } from '../core/equipe.js';
 // Vue SAV local — tableau des tickets SAV + CRUD (2026-06-09)
 //
 // Colonnes : Date / Client / Ville / Type / Statut (+ actions).
@@ -16,7 +17,6 @@ import { toast, confirmModal } from '../core/ui.js';
 
 const STATUTS = ['Nouveau', 'En cours', 'En attente pièce', 'Résolu', 'Annulé'];
 const TYPES_SAV = ['Réglage', 'Pièce à remplacer', 'Reprise', 'Autre'];
-const REALISE_PAR = ['Virginie', 'Solène', 'Sébastien', 'Marine'];
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -222,7 +222,8 @@ export async function renderSav(app, ticketId = null) {
 }
 
 // Modale create / edit d'un ticket SAV.
-function openModalSav(ticket, onSaved, prefill = {}) {
+async function openModalSav(ticket, onSaved, prefill = {}) {
+  await chargerEquipe();
   const isNew = !ticket;
   const t = ticket || {};
   const selectedClient = (Array.isArray(t['Client']) ? t['Client'][0] : '') || prefill.clientId || '';
@@ -254,7 +255,7 @@ function openModalSav(ticket, onSaved, prefill = {}) {
       <label>Réalisé par
         <select name="Réalisé par">
           <option value="">—</option>
-          ${REALISE_PAR.map(v => `<option ${t['Réalisé par'] === v ? 'selected' : ''}>${esc(v)}</option>`).join('')}
+          ${optionsEquipe(t['Réalisé par'])}
         </select>
       </label>
       <label style="display:flex;align-items:center;gap:8px;flex-direction:row"><input name="Commandé" type="checkbox" ${t['Commandé'] ? 'checked' : ''} style="width:auto"> Pièce commandée</label>

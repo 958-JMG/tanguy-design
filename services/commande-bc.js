@@ -208,18 +208,16 @@ function modeleDepuisLignes(lignes, zones) {
  * @param {{modeleHeader:string, detailsModele:string}} [p.modele] - BC Mobilier uniquement
  * @param {string} p.today    - AAAA-MM-JJ
  */
-function champsCommande({ numCmd, groupe, notes, clientNom, projetId, dateEnvoi, modele, today }) {
+function champsCommande({ numCmd, groupe, notes, clientNom, projetId, dateEnvoi, modele, today, contact }) {
   const montant = Number(groupe.montant) || 0;
   const cf = {
     'Numéro': numCmd,
-    // "À compléter" pas dans le singleSelect Statut (PATCH choices 422), on garde
-    // "Créée" + mention explicite dans Notes pour le BC Plan de travail vide.
     'Statut': 'Créée',
     'Date création': today,
     ...(montant > 0 ? { 'Montant HT': Math.round(montant * 100) / 100 } : {}),
     'Notes': notes,
     'Contremarque': clientNom || '',
-    'Contact Tanguy': 'Solène',
+    'Contact Tanguy': contact || '',
     'Référence courte': groupe.ref || String(groupe.type || '').toUpperCase(),
     // Rattachement fournisseur AUTOMATIQUE depuis la grille, quand il est certain.
     ...(groupe.fournisseurId ? { 'Fournisseur': [groupe.fournisseurId] } : {}),

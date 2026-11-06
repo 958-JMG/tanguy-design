@@ -13,6 +13,7 @@ const normaliser = v => texte(v).normalize('NFD').replace(/[\u0300-\u036f]/g, ''
 
 function moduleWinner(categorie) {
   const n = normaliser(categorie);
+  if (/^(plaques? (de )?(cuisson|induction|aspirante|gaz)|tables? (de )?cuisson)( |$)/.test(n)) return 'Plaque de cuisson';
   if (n.includes('plan') && n.includes('travail') && n.includes('credence')) return 'Plan de travail & crédence';
   if (n.includes('plan') && n.includes('travail')) return 'Plan de travail';
   if (/credence|pied vert/.test(n)) return 'Crédence';
@@ -24,6 +25,17 @@ function moduleWinner(categorie) {
   if (/accessoire|produits de vente/.test(n)) return 'Accessoires';
   if (/depose/.test(n)) return 'Dépose';
   return texte(categorie) || 'À classer';
+}
+
+// Une découpe de plan ou un meuble sous plaque reste dans sa famille d'origine.
+function categorieLigneWinner(f = {}) {
+  const raw = f['Catégorie'] || '';
+  if (moduleWinner(raw) === 'Plaque de cuisson') return 'Plaque de cuisson';
+  const section = f['Section Winner'] || raw;
+  if (moduleWinner(section) === 'Plaque de cuisson') return 'Plaque de cuisson';
+  const designation = normaliser(f['Désignation']);
+  if (moduleWinner(section) === 'Électroménager' && /^(plaque(s)? (de )?(cuisson|induction|gaz|vitroceramique|aspirante)|table(s)? (de )?cuisson)\b/.test(designation)) return 'Plaque de cuisson';
+  return raw;
 }
 
 function ordonnerLignes(lignes) {
@@ -53,6 +65,7 @@ function preparerLignesWinner(lignes = []) {
     if (parent) {
       for (const k of ['zone_nom', 'section', 'categorie', 'fournisseur', 'marque']) if (!l[k]) l[k] = parent[k];
     }
+    l.categorie = categorieLigneWinner({ 'Catégorie': l.categorie, 'Section Winner': l.section, 'Désignation': l.designation });
     vues.push(l);
     return { ...l, ordre_winner: index + 1 };
   });
@@ -109,4 +122,4 @@ function enrichirLignesWinner(lignes, zones = [], fournisseurs = []) {
   });
 }
 
-module.exports = { FIELDS_WINNER, moduleWinner, ordonnerLignes, preparerLignesWinner, champsWinner, fournisseurWinner, enrichirLignesWinner };
+module.exports = { FIELDS_WINNER, categorieLigneWinner, moduleWinner, ordonnerLignes, preparerLignesWinner, champsWinner, fournisseurWinner, enrichirLignesWinner };

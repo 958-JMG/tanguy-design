@@ -68,7 +68,7 @@ async function fetchFromAirtable() {
       email: f.Email || '',
       displayName: f['Display name'] || login,
       admin: !!f.Admin,
-      actif: f.Actif !== false, // default true si pas set
+      actif: f.Actif === true, // Airtable omet une case décochée : elle est inactive.
       dateCreation: f['Date création'] || null,
       notes: f.Notes || '',
       // 2FA TOTP (Sprint sécu) — secret chiffré au repos, voir services/totp.js

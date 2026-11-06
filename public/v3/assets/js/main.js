@@ -1,3 +1,4 @@
+import { chargerEquipe } from './core/equipe.js';
 // Tanguy Design v3 — entry point (Sprint 1, démo isolée sous /v3/)
 //
 // Pattern : ES modules natifs (cf. ADR-003), routing hash-based pour rester
@@ -82,7 +83,7 @@ window.addEventListener('unhandledrejection', e => showStatus('Promise rejetée 
       document.querySelectorAll('.nav-admin-only').forEach(el => el.style.display = 'none');
     }
     showStatus(`Connecté en tant que ${state.user}. Chargement clients + projets…`, false);
-    const [clients, projets] = await Promise.all([fetchClients(), fetchProjets()]);
+    const [clients, projets] = await Promise.all([fetchClients(), fetchProjets(), chargerEquipe()]);
     showStatus(`Données chargées : ${clients.length} clients, ${projets.length} projets. Rendu…`, false);
     router(); // démarre sur le hash courant ou par défaut
   } catch (e) {

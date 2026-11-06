@@ -21,9 +21,9 @@
 // travail + évier + robinetterie + crédence ; « Meuble » devient « Mobilier » ;
 // ajout de « Luminaire ». Le 06/11/2026, Sanitaire devient une colonne de routage
 // distincte ; la ventilation financière historique reste inchangée.
-const { moduleWinner, fournisseurWinner, ordonnerLignes } = require('./winner-lignes');
+const { moduleWinner, categorieLigneWinner, fournisseurWinner, ordonnerLignes } = require('./winner-lignes');
 
-const CATEGORIES_GRILLE = ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence', 'Sanitaire'];
+const CATEGORIES_GRILLE = ['Mobilier', 'Électroménager', 'Luminaire', 'Plan de travail & crédence', 'Sanitaire', 'Plaque de cuisson'];
 
 // Type de bon de commande + référence courte (code fournisseur sur le BC) par
 // catégorie canonique.
@@ -32,6 +32,7 @@ const CANON_BC = {
   'Électroménager':             { type: 'Électroménager',             ref: 'ELECTRO' },
   'Luminaire':                  { type: 'Luminaire',                  ref: 'LUMIN' },
   'Plan de travail & crédence': { type: 'Plan de travail & crédence', ref: 'PLAN_CRED' },
+  'Plaque de cuisson':          { type: 'Plaque de cuisson',          ref: 'PLAQUE' },
   'Accessoires':                { type: 'Accessoires',                ref: 'ACCESS' },
   'Plan de travail':            { type: 'Plan de travail',            ref: 'PLAN' },
   'Crédence':                   { type: 'Crédence',                   ref: 'CREDENCE' },
@@ -72,6 +73,7 @@ function classifierCategorie(raw) {
   if (has('evier', 'robinet', 'sanitaire', 'mitigeur')) return grille(PTC);
 
   if (has('luminaire', 'eclairage', 'lumiere', 'applique', 'suspension', 'lampe', 'spot')) return grille('Luminaire');
+  if (moduleWinner(raw) === 'Plaque de cuisson') return grille('Électroménager');
   if (has('electromenager', 'electro')) return grille('Électroménager');
 
   if (has('meuble', 'mobilier', 'panneaux de recouvrement', 'caisson')) return grille('Mobilier');
@@ -111,8 +113,6 @@ function indexFournisseurs(fournisseurs) {
  * @param {Array} fournisseurs - records Airtable (fields.Nom, fields['Catégories'])
  * @param {object} [opts]
  * @param {(l:any)=>number} [opts.montantDe] - extracteur de montant HT (défaut : fields['Montant HT'])
- * @param {string[]} [opts.forcer] - catégories canoniques à TOUJOURS produire, même
- *        sans ligne (ex. ['Plan de travail'] : le BC PT est complété sur chantier).
  * @returns {Array<object>} groupes { canon, type, ref, commande, grille, aClasser,
  *   lignes, montant, fournisseurId?, fournisseurNom?, candidats[], raison? }
  */
@@ -123,10 +123,10 @@ function routeCommandes(lignes, fournisseurs, opts = {}) {
   const groupes = new Map();
 
   for (const l of ordonnerLignes(lignes)) {
-    const raw = l.fields?.['Catégorie'] ?? l['Catégorie'];
+    const raw = categorieLigneWinner(l.fields || l);
     const sectionCl = classifierCategorie(l.fields?.['Section Winner']);
     const cl = sectionCl.canon ? sectionCl : classifierCategorie(raw);
-    const module = moduleWinner(l.fields?.['Section Winner'] || raw);
+    const module = raw === 'Plaque de cuisson' ? raw : moduleWinner(l.fields?.['Section Winner'] || raw);
     const source = fournisseurWinner(l, fournisseurs);
     // Les marques distinctes sans fournisseur connu restent séparées : une
     // grille générale ne prouve pas le distributeur d'une marque donnée.
@@ -149,19 +149,6 @@ function routeCommandes(lignes, fournisseurs, opts = {}) {
     g.montant += montantDe(l);
   }
 
-  // Le BC de métrage reste disponible, après les groupes réels, sans déplacer
-  // les sections du PDF. Un plan réel remplace ce BC vide.
-  for (const canon of (opts.forcer || [])) {
-    if (!CANON_BC[canon]) continue;
-    const module = canon === 'Plan de travail & crédence' ? 'Plan de travail' : canon;
-    if ([...groupes.values()].some(g => g.module === module || g.module === canon)) continue;
-    groupes.set(`force:${canon}`, {
-      canon, module, aClasser: false, commande: true, grille: CATEGORIES_GRILLE.includes(canon),
-      type: module, ref: CANON_BC[canon].ref, raison: null, categorieBrute: null,
-      candidats: [], lignes: [], montant: 0,
-    });
-  }
-
   for (const g of groupes.values()) {
     g.montant = round2(g.montant);
     if (g.source?.explicite) {
@@ -172,7 +159,7 @@ function routeCommandes(lignes, fournisseurs, opts = {}) {
       }
     } else if (g.grille && g.canon) {
       // Sanitaire a sa propre colonne de routage ; canon garde la ventilation de marge historique.
-      const famille = g.module === 'Sanitaire' ? 'Sanitaire' : g.canon;
+      const famille = ['Sanitaire', 'Plaque de cuisson'].includes(g.module) ? g.module : g.canon;
       const cands = idx.get(normalize(famille)) || [];
       g.candidats = cands;
       if (cands.length === 1 && !g.marque) {

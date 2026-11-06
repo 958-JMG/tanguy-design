@@ -12,6 +12,29 @@ const records = () => preparerLignesWinner(exemple.lignes).map((l, i) => ({ id: 
 } }));
 const fournisseurs = [...new Set(exemple.lignes.map(l => l.fournisseur))].map((Nom, i) => ({ id: `recFO${i}`, fields: { Nom } }));
 
+test('plaque de cuisson distincte : aucun repli sur la grille électroménager', () => {
+  const sources = preparerLignesWinner([
+    { position: '8', section: 'Électroménager', categorie: 'Électroménager', designation: 'Plaque induction aspirante fictive' },
+    { position: '9', section: 'Électroménager', categorie: 'Électroménager', designation: 'Four fictif' },
+    { position: '10', section: 'Plans de travail', categorie: 'Plan de travail', designation: 'Découpe pour plaque de cuisson' },
+  ]);
+  assert.equal(sources[0].categorie, 'Plaque de cuisson');
+  assert.equal(sources[2].categorie, 'Plan de travail');
+  const ls = sources.map(l => ({ fields: { ...champsWinner(l), 'Catégorie': l.categorie, 'Désignation': l.designation } }));
+  const grille = [{ id: 'recElectro', fields: { Nom: 'Distributeur électro fictif', Catégories: ['Électroménager'] } }];
+  let groupes = routeCommandes(ls, grille);
+  assert.equal(groupes[0].type, 'Plaque de cuisson');
+  assert.equal(groupes[0].fournisseurId, undefined);
+  assert.equal(groupes[1].fournisseurId, 'recElectro');
+  assert.equal(groupes[2].type, 'Plan de travail');
+  groupes = routeCommandes(ls, [...grille, { id: 'recPlaque', fields: { Nom: 'Distributeur plaques fictif', Catégories: ['Plaque de cuisson'] } }]);
+  assert.equal(groupes[0].fournisseurId, 'recPlaque');
+  ls[0].fields['Fournisseur Winner'] = 'Distributeur explicite';
+  groupes = routeCommandes(ls, [...grille, { id: 'recExplicite', fields: { Nom: 'Distributeur explicite' } }]);
+  assert.equal(groupes[0].fournisseurId, 'recExplicite');
+  assert.deepEqual(groupes.flatMap(g => g.lignes).map(l => l.fields['Ordre Winner']), [1, 2, 3]);
+});
+
 test('déroulé Winner exact malgré retour Airtable inversé, 503 avant 20 avant 15, accessoires à la fin', () => {
   const lignes = records().reverse();
   const sorted = ordonnerLignes(lignes);
