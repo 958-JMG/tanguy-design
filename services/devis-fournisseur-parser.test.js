@@ -73,3 +73,13 @@ test('échec de lecture non mis en cache : une relance peut réussir', async () 
   await lire(b);
   assert.strictEqual(appels, 2);
 });
+test('lecture longue : sortie tronquée refusée et non mémorisée', async () => {
+  const { creerLecteur } = require('./devis-fournisseur-parser');
+  let appels = 0;
+  const lire = creerLecteur({ extraire: async () => ({ text: [] }), ia: async opts => {
+    assert.equal(opts.lectureLongue, true); appels++;
+    return { texte: '{"incomplet":', arret: 'max_tokens' };
+  } });
+  for (let n = 0; n < 2; n++) await assert.rejects(lire(Buffer.from('%PDF-fictif tronqué')), /trop de détails/);
+  assert.equal(appels, 2);
+});

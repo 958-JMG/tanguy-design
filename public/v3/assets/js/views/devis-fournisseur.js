@@ -18,6 +18,7 @@ const eur = (n) => (n == null || Number.isNaN(Number(n)))
 let current = null;
 let importEnCours = false;
 let fichierEnCours = '', erreurImport = '', debutImport = 0;
+let dernierFichier = null;
 let stopAnimation = null;
 
 // Deux modes (demande JMG 14/10/2026) : le devis FOURNISSEUR d'avant (meubles,
@@ -109,13 +110,15 @@ function afficherEtatImport() {
     resultEl.innerHTML = '';
     stopAnimation = importProgress(statusEl, `Analyse de « ${fichierEnCours} » en cours`, debutImport);
   } else {
-    statusEl.innerHTML = erreurImport ? `<div class="card" role="alert" style="color:var(--accent)">${esc(erreurImport)}</div>` : '';
+    statusEl.innerHTML = erreurImport ? `<div class="card" role="alert" style="color:var(--accent)"><p>${esc(erreurImport)}</p>${dernierFichier ? '<button type="button" class="btn btn-primary" id="df-reessayer">Réessayer l’analyse</button>' : ''}</div>` : '';
+    statusEl.querySelector('#df-reessayer')?.addEventListener('click', () => handleFile(dernierFichier));
     if (current) renderResult(resultEl, current);
   }
 }
 async function handleFile(file) {
   if (importEnCours) { toast('Un import est déjà en cours. Patiente sans le relancer.', 'info'); return; }
   if (file.type !== 'application/pdf') { toast('Seuls les fichiers PDF sont acceptés.', 'error'); return; }
+  dernierFichier = file;
   importEnCours = true; debutImport = Date.now(); fichierEnCours = file.name; current = null; erreurImport = '';
   afficherEtatImport();
   try { current = await parseDevisFournisseur({ file }); }
