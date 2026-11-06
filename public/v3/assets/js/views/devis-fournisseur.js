@@ -331,7 +331,14 @@ function wireEco(out, { source, recompute }) {
 
 function openModalCreerDevis(out) {
   let prix;
-  try { prix = prixDepuisEcran(out); } catch (e) { toast(e.message, 'error'); return; }
+  try { prix = prixDepuisEcran(out); }
+  catch (e) {
+    afficherErreurCreation(out, e);
+    const cible = out.querySelector({ montantDocumentHt: '#df-totalht', ecoHt: '#df-eco', ecoIncluse: '#df-eco-incluse', piecesEco: '#df-eco-etat' }[e.champ] || '#df-validation');
+    cible?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    cible?.focus({ preventScroll: true });
+    return;
+  }
   const { prixClientHt, ecoHt: eco } = prix;
   const totalHt = Number(out.querySelector('#df-totalht').value);
   const tva = Number(out.querySelector('#df-tva').value) || 0;
@@ -402,6 +409,7 @@ function openModalCreerDevis(out) {
         </label>
       </div>
       <p class="muted" style="font-size:12px;margin:6px 0 0">Le prix de vente est conservé. Le prix d’achat n’est enregistré que si vous l’avez renseigné séparément.</p>
+      <p id="cd-erreur" role="alert" style="color:var(--accent)"></p>
       <div class="modal-actions" style="margin-top:18px">
         <button type="button" class="btn btn-ghost" id="cd-cancel">Annuler</button>
         <button type="button" class="btn btn-primary" id="cd-ok">Créer le devis</button>
@@ -409,7 +417,8 @@ function openModalCreerDevis(out) {
     </div>`;
   document.body.appendChild(modal);
   hydrateIcons(modal);
-  const close = () => modal.remove();
+  let creationEnCours = false;
+  const close = () => { if (!creationEnCours) modal.remove(); };
   modal.querySelector('#cd-cancel').onclick = close;
   modal.querySelector('#cd-recherche').addEventListener('input', e => {
     const select = modal.querySelector('#cd-projet');
@@ -428,13 +437,20 @@ function openModalCreerDevis(out) {
   }));
 
   modal.querySelector('#cd-ok').addEventListener('click', async () => {
+    if (creationEnCours) return;
     const parProjet = modal.querySelector('input[name=cd-mode]:checked').value === 'projet';
     const projetId = parProjet ? modal.querySelector('#cd-projet').value : '';
     const clientId = parProjet ? '' : modal.querySelector('#cd-client').value;
-    if (parProjet && !projetId) { toast('Choisis un projet', 'error'); return; }
-    if (!parProjet && !clientId) { toast('Choisis un client', 'error'); return; }
+    if ((parProjet && !projetId) || (!parProjet && !clientId)) {
+      modal.querySelector('#cd-erreur').textContent = parProjet ? 'Choisis un projet pour créer le devis.' : 'Choisis un client pour créer le devis.';
+      modal.querySelector(parProjet ? '#cd-projet' : '#cd-client').focus();
+      return;
+    }
 
     const btn = modal.querySelector('#cd-ok');
+    creationEnCours = true;
+    modal.querySelector('#cd-erreur').textContent = '';
+    modal.querySelector('#cd-cancel').disabled = true;
     btn.disabled = true; btn.textContent = 'Création…';
     try {
       const r = await creerDevisClientExpress({
@@ -452,13 +468,16 @@ function openModalCreerDevis(out) {
         prixAchatHt: Number(out.querySelector('#df-achat').value) || undefined,
         descriptif: out.querySelector('#df-descriptif').value.trim(),
       });
-      close();
+      creationEnCours = false; close();
       // Jamais de silence : ce qui n'a pas pu être fait est annoncé, pas avalé
       // sous un message de succès.
       if (r.avertissements?.length) toast(r.avertissements.join(' · '), 'error', 7000);
       toast(`Devis ${r.numero} créé${r.typeDevis ? ` (${r.typeDevis})` : ''}${r.projetCree ? ' · projet créé' : ''}`, 'success');
       location.hash = `#devis/${r.devisId}`;
     } catch (err) {
+      creationEnCours = false;
+      modal.querySelector('#cd-cancel').disabled = false;
+      modal.querySelector('#cd-erreur').textContent = 'Création impossible : ' + (err.message || err);
       btn.disabled = false; btn.textContent = 'Créer le devis';
       toast('Erreur : ' + (err.message || err), 'error', 6000);
     }
@@ -531,7 +550,8 @@ function renderResult(out, res) {
         </tfoot>
       </table>
 
-      <p id="df-eco-etat" role="status" aria-live="polite"></p>
+      <p id="df-eco-etat" role="status" aria-live="polite" tabindex="-1"></p>
+      <p id="df-validation" role="status" aria-live="polite" tabindex="-1" style="color:var(--accent)"></p>
     </div>
 
     ${renderEcoSection(ecoPieces)}
@@ -542,26 +562,27 @@ function renderResult(out, res) {
       </label>
       <p class="muted" id="df-prix-erreur" role="status"></p>
       <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-primary" id="df-create">${icon('filePlus', 14)} Créer le devis client</button>
-        <span class="muted" style="font-size:12px;align-self:center">Le devis part en brouillon et reste modifiable.</span>
+        <button class="btn btn-primary" id="df-create" aria-describedby="df-prix-erreur">${icon('filePlus', 14)} Créer le devis client</button>
+        <span class="muted" style="font-size:12px;align-self:center">Choisir le client et le projet, puis créer le devis dans Pennylane depuis sa fiche.</span>
       </div>
     </div>
   `;
   hydrateIcons(out);
 
   const recompute = () => {
+    out.querySelectorAll('[aria-invalid="true"]').forEach(el => el.removeAttribute('aria-invalid'));
     const tva = Number(out.querySelector('#df-tva').value) || 0;
     let prix;
     try { prix = prixDepuisEcran(out); }
     catch (e) {
       out.querySelector('#df-prixht').textContent = '—';
       out.querySelector('#df-prixttc').textContent = '—';
-      out.querySelector('#df-prix-erreur').textContent = e.message;
-      out.querySelector('#df-create').disabled = true;
+      afficherErreurCreation(out, e);
       return;
     }
+    out.querySelector('#df-validation').textContent = '';
     out.querySelector('#df-prix-erreur').textContent = 'Aucun coefficient ajouté. L’éco-participation est comptée une seule fois.';
-    out.querySelector('#df-create').disabled = false;
+    out.querySelector('#df-prix-erreur').style.color = '';
     const ht = prix.prixClientHt;
     const ttc = Math.round(ht * (1 + tva / 100) * 100) / 100;
     out.querySelector('#df-prixht').textContent = eur(ht);
@@ -584,7 +605,20 @@ function renderResult(out, res) {
 }
 
 function prixDepuisEcran(out) {
-  if (out._ecoEtat?.bloque) throw new Error(out.querySelector('#df-eco-etat').textContent);
+  if (out._ecoEtat?.bloque) {
+    const e = new Error(out.querySelector('#df-eco-etat').textContent);
+    e.champ = 'piecesEco'; throw e;
+  }
   const inclusion = out.querySelector('#df-eco-incluse').value;
   return calculPrixImport({ montantDocumentHt: out.querySelector('#df-totalht').value, ecoHt: out.querySelector('#df-eco').value, ecoIncluse: inclusion === 'oui' ? true : inclusion === 'non' ? false : undefined });
+}
+
+function afficherErreurCreation(out, erreur) {
+  const message = `À compléter avant création : ${erreur.message}`;
+  out.querySelector('#df-validation').textContent = message;
+  out.querySelector('#df-prix-erreur').textContent = message;
+  out.querySelector('#df-prix-erreur').style.color = 'var(--accent)';
+  const champ = out.querySelector({ montantDocumentHt: '#df-totalht', ecoHt: '#df-eco', ecoIncluse: '#df-eco-incluse' }[erreur.champ] || '#df-eco');
+  champ.setAttribute('aria-invalid', 'true');
+  champ.setAttribute('aria-describedby', 'df-validation');
 }
