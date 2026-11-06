@@ -64,4 +64,12 @@
 - Suppression du forçage d’un bon de plan de travail vide à chaque signature. Les articles réels à prix nul restent conservés dans leurs BC.
 - JMG a explicitement demandé la suppression des trois bons Le Maire vides, puis des bons vides des autres dossiers. Audit des **158 commandes** : **50 sans lignes**, dont **38 réellement vides supprimées** après relecture inchangée et sauvegarde locale ; **12 protégées** car AR ou état métier, donc non vides au sens opérationnel. La commande Cuisine Le Maire contenant les articles a été conservée et relue après suppression. Aucun autre dossier supprimé, aucune facture modifiée. Sauvegarde hors dépôt synchronisé : `~/Developer/9-58/Administration/Sauvegardes/tanguy-2026-11-06/commandes-vides-avant-suppression.json` (accès local privé).
 - Validation : suite complète **693 tests réussis**, syntaxe et diff contrôlés ; cas membre actif/inactif, case absente, fournisseur plaques distinct, aucun repli électro, préservation des lignes et absence de BC forcé. Recette navigateur fictive : nouvelle tâche propose uniquement l’équipe active. Aucun nouveau devis signé en production pour les tests.
-- Déploiement du lot précédent : https://github.com/958-JMG/tanguy-design/actions/runs/42193903681 réussi, version servie `8533be0f7173`. Dernier complément équipe/plaques : déploiement à confirmer. Livraison client confirmée : non.
+- Déploiement du lot précédent : https://github.com/958-JMG/tanguy-design/actions/runs/42193903681 réussi, version servie `8533be0f7173`. Dernier complément équipe/plaques : PR #144 fusionnée, déploiement [42195941962](https://github.com/958-JMG/tanguy-design/actions/runs/42195941962) réussi ; version applicative `91f0d1ae67fa` et santé HTTP 200 vérifiées le 06/11/2026. Livraison client confirmée : non.
+
+
+### ✅ État final vérifié — 6 novembre 2026
+
+- Les trois lots sont en production : Winner/Kanban/SAV/Sanitaire (#142), prix/éco/recherche/attente/annexe Pennylane/échéances signées (#143), équipe active/plaques/fin des BC vides (#144). Version servie : `91f0d1ae67fa`.
+- 38 commandes vides supprimées sur autorisation explicite, 120 restantes. Sauvegarde avant suppression et manifeste de vérification conservés localement hors Git. Aucune commande renseignée, facture ou AR supprimé.
+- 693 tests passent dans la chaîne de livraison, contrôles locaux navigateur/PDF sur données fictives effectués. Recette métier réelle IA et annexe Pennylane restant à faire ; aucun gain de vitesse mesuré sur un PDF client réel annoncé.
+- Les historiques de personnes, les anciens montants et les anciens imports ne sont pas réécrits. Fournisseurs des colonnes Sanitaire/Plaque de cuisson à renseigner selon le choix métier. Aucun envoi client.
