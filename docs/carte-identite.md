@@ -33,3 +33,7 @@
 Préparation autorisée par Jean Marc : rattachement au SAV Pilotage, corrections d’affichage mineures limitées à la CSS et vérifiées avant/après, revue humaine pour le métier, les droits, les données et toute modification importante. Chaque mise en ligne exige la suite du cockpit et le contrôle de l’image ainsi que du CSS réellement servis.
 
 Les quotas restent fermés par choix de Jean Marc : aucun appel payant du SAV avant son accord sur l’enveloppe. Les essais utilisent des comptes et bases fictifs, sans fournisseur IA réel. Mise en ligne et recette du parc en cours ; cette note ne constitue pas une preuve de déploiement ou de livraison client. Aucun nouveau message client envoyé.
+
+### Contrôle du SAV — complément du 9 novembre 2026
+
+Seule la feuille CSS V3 devient lisible sans connexion pour prouver la mise en ligne d’une correction. Les pages, scripts métier et API restent authentifiés, vérifiés par requêtes HTTP dans la suite complète isolée : 717 tests verts. Déploiement de ce complément en cours.

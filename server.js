@@ -5425,6 +5425,11 @@ app.get(/^\/v3\/assets\/js\/.+\.js$/, requireAuth, (req, res, next) => {
 // (Cmd+R = ETag → 304 si pas changé, sinon 200 avec nouveau code). Cela évite que les
 // users gardent un module ES obsolète après un fix déployé (cas vu 2026-05-21 : champ
 // Artisans filtré côté front pas pris en compte parce que projet.js était en cache 4h).
+// Le contrôle SAV lit uniquement cette feuille publique, sans exposer les pages ni les données.
+app.get('/v3/assets/css/styles.css', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  res.sendFile(path.join(__dirname, 'public', 'v3', 'assets', 'css', 'styles.css'));
+});
 app.use('/v3',  requireAuth, express.static(path.join(__dirname, 'public', 'v3'), {
   maxAge: 0,
   setHeaders: (res, filePath) => {
