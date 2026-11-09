@@ -112,3 +112,9 @@
 - L’écart signalé sur le nouvel import Le Guennec est confirmé par JMG comme une confusion HT/TTC : 189,64 € HT correspondent à 227,57 € TTC à 20 %. Aucun montant client corrigé.
 - La fenêtre Devis express affiche désormais le TTC juste à côté du champ éco HT, avec le taux sélectionné. Mise à jour sur saisie du montant, changement de TVA et report automatique depuis les pièces ; champ vide ou montant négatif affiche « — TTC ». Affichage uniquement, aucun double ajout ni modification du montant transmis.
 - Syntaxe et diff vérifiés. Recette navigateur sur données fictives : 189,64 HT → 227,57 TTC à 20 %, 208,60 à 10 %, 200,07 à 5,5 % ; saisies vide/zéro/négative et report 2,88 HT → 3,46 TTC vérifiés. PR #152 fusionnée ; déploiement [42208145998](https://github.com/958-JMG/tanguy-design/actions/runs/42208145998) réussi après CI verte. Santé HTTP 200 et version servie `7cfce4728cfa` vérifiées le 06/11/2026 à 12:11 Europe/Paris. Recette client du nouvel affichage non encore confirmée.
+
+## 9 novembre 2026 — Extension du SAV autonome (Codex)
+
+Préparation autorisée par Jean Marc : rattachement au SAV Pilotage, corrections d’affichage mineures limitées à la CSS et vérifiées avant/après, revue humaine pour le métier, les droits, les données et toute modification importante. Chaque mise en ligne exige la suite du cockpit et le contrôle de l’image ainsi que du CSS réellement servis.
+
+Les quotas restent fermés par choix de Jean Marc : aucun appel payant du SAV avant son accord sur l’enveloppe. Les essais utilisent des comptes et bases fictifs, sans fournisseur IA réel. Mise en ligne et recette du parc en cours ; cette note ne constitue pas une preuve de déploiement ou de livraison client. Aucun nouveau message client envoyé.
