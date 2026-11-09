@@ -37,3 +37,15 @@ Les quotas restent fermés par choix de Jean Marc : aucun appel payant du SAV av
 ### Contrôle du SAV — complément du 9 novembre 2026
 
 Seule la feuille CSS V3 devient lisible sans connexion pour prouver la mise en ligne d’une correction. Les pages, scripts métier et API restent authentifiés, vérifiés par requêtes HTTP dans la suite complète isolée : 717 tests verts. Déploiement de ce complément en cours.
+
+## 9 novembre 2026 — SAV du parc vérifié (Codex)
+
+Extension mise en service à la demande de Jean Marc. Image de production contrôlée : `1098a9a4f6cfb76d22aa565af4511a4142a010e1` ; service disponible, connexion SAV authentifiée vérifiée avec des requêtes invalides sans création de ticket.
+
+Suite complète isolée verte ; pages /v3/ vérifiées sur 320, 390 et 1280 px. Défaut fictif reproduit puis corrigé par le moteur de correction, sans toucher à la production.
+
+Le worker commun fonctionne sur le hub toutes les cinq minutes, indépendamment du Mac. Les petites corrections d’affichage CSS peuvent être publiées après reproduction, correction, suite verte et contrôle du fichier réellement servi ; une modification importante ou hors recette revient à Jean Marc. Les demandes, décisions et reprises sont conservées.
+
+**Quotas fermés : aucune activation client, aucun appel IA payant.** Jean Marc doit fixer et valider le quota avant l’exécution autonome payante. Aucun mail client de test ; aucune livraison ou acceptation client déduite de cette recette technique. LCDP reste archivé et exclu.
+
+Preuves privées : `Travaux/sav-parc-20261109/preuves` sur le Mac et `Donnees-privees/sav-parc-20261109/preuves` sur le hub. Ne pas recréer une tâche d’installation de ce raccordement ; prochaine décision éventuelle : validation d’un quota par client.
