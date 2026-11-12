@@ -49,3 +49,13 @@ Le worker commun fonctionne sur le hub toutes les cinq minutes, indépendamment 
 **Quotas fermés : aucune activation client, aucun appel IA payant.** Jean Marc doit fixer et valider le quota avant l’exécution autonome payante. Aucun mail client de test ; aucune livraison ou acceptation client déduite de cette recette technique. LCDP reste archivé et exclu.
 
 Preuves privées : `Travaux/sav-parc-20261109/preuves` sur le Mac et `Donnees-privees/sav-parc-20261109/preuves` sur le hub. Ne pas recréer une tâche d’installation de ce raccordement ; prochaine décision éventuelle : validation d’un quota par client.
+
+
+
+## Préparation sécurité du 12 novembre 2026 - Codex
+
+OPTION DISTINCTE DE CONFINEMENT : connexions des comptes activés préservées ; aucun QR ni confirmation, création de compte ou reset 2FA.
+
+Validation : tests locaux et fixtures ; voir le dossier de preuves livré. Aucun déploiement, envoi client, migration distante, rotation réelle ni changement d’accès de production. Les dépôts partagés sont préservés.
+
+Suite : Validation explicite séparée requise. Les nouveaux accès et les téléphones perdus ne peuvent pas être récupérés durant le confinement. Aucun nouveau stockage ni service ; Airtable doit répondre pour une nouvelle connexion. Une vraie session pending créée par le serveur de la révision publiée est refusée sur les deux nouveaux serveurs, même avec le bon code. Ne pas combiner ce patch avec le candidat complet bloqué. Reprendre l’enrôlement uniquement avec une solution durable validée, jamais en revenant à la version vulnérable.
