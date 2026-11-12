@@ -51,11 +51,15 @@ function initEnvFallback() {
 
 async function fetchFromAirtable() {
   if (!BASE_ID || !AT_KEY) throw new Error('AIRTABLE_BASE_ID + AIRTABLE_KEY requis');
-  const r = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${USERS_TABLE_ID}?maxRecords=100`, {
-    headers: { Authorization: `Bearer ${AT_KEY}` },
-  });
-  if (!r.ok) throw new Error(`users fetch ${r.status}`);
-  const d = await r.json();
+  const records = []; let offset;
+  do {
+    const url = new URL(`https://api.airtable.com/v0/${BASE_ID}/${USERS_TABLE_ID}`);
+    url.searchParams.set('pageSize', '100'); if (offset) url.searchParams.set('offset', offset);
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${AT_KEY}` } });
+    if (!r.ok) throw new Error(`users fetch ${r.status}`);
+    const page = await r.json(); records.push(...(page.records || [])); offset = page.offset;
+  } while (offset);
+  const d = { records };
   const map = new Map();
   for (const rec of (d.records || [])) {
     const f = rec.fields || {};
@@ -262,6 +266,8 @@ async function getEmail(login) {
 
 module.exports = {
   findUser,
+  findUserFresh: async login => (await fetchFromAirtable()).get(String(login || '').toLowerCase().trim()) || null,
+  findUserByIdFresh: async id => [...(await fetchFromAirtable()).values()].find(u => u.id === id) || null,
   listUsers,
   createUser,
   updateUser,

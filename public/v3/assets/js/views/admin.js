@@ -45,7 +45,7 @@ export function renderAdmin(app) {
     <!-- Sprint v4 — Gestion des accès utilisateurs -->
     <div class="section-header" style="margin-top:32px">
       <h2 class="section-title">Utilisateurs (${icon('user', 14)} accès cockpit)</h2>
-      <button class="btn btn-primary btn-sm" id="btn-new-user">${icon('plus', 14)} Nouveau compte</button>
+      <button class="btn btn-primary btn-sm" id="btn-new-user" disabled title="Création temporairement suspendue">${icon('plus', 14)} Nouveau compte</button>
     </div>
     <div id="users-output">
       <div class="card"><p class="muted">${icon('clock', 14)} Chargement…</p></div>
@@ -278,7 +278,7 @@ async function loadUsers() {
 
 function renderUsers(container, users) {
   if (!users.length) {
-    container.innerHTML = `<div class="card"><p class="muted">Aucun utilisateur. Crée le premier via « Nouveau compte ».</p></div>`;
+    container.innerHTML = `<div class="card"><p class="muted">Création et récupération des accès temporairement suspendues.</p></div>`;
     return;
   }
   // Tri : admin d'abord, puis actifs alphabétiques, puis désactivés
@@ -313,7 +313,7 @@ function renderUsers(container, users) {
             ${u.source === 'airtable' ? `
               <button class="btn btn-ghost btn-sm" data-action="edit-user" data-id="${esc(u.id)}">${icon('edit', 12)}</button>
               <button class="btn btn-ghost btn-sm" data-action="reset-user" data-id="${esc(u.id)}" title="Reset mot de passe">${icon('mail', 12)}</button>
-              ${u.twoFAActif ? `<button class="btn btn-ghost btn-sm" data-action="reset-2fa" data-id="${esc(u.id)}" data-login="${esc(u.login)}" title="Réinitialiser le 2FA (téléphone perdu ou changé)">${icon('phone', 12)}</button>` : ''}
+              ${u.twoFAActif ? `<button class="btn btn-ghost btn-sm" disabled data-action="reset-2fa" data-id="${esc(u.id)}" data-login="${esc(u.login)}" title="Remplacement temporairement suspendu">${icon('phone', 12)}</button>` : ''}
               ${u.actif ? `<button class="btn btn-ghost btn-sm" data-action="disable-user" data-id="${esc(u.id)}" data-login="${esc(u.login)}" style="color:var(--accent)" title="Désactiver">${icon('trash', 12)}</button>` : ''}
             ` : '<span class="muted" style="font-size:11px">via env</span>'}
           </td>
@@ -337,7 +337,7 @@ function renderUsers(container, users) {
       if (u) openModalResetPassword(u);
     });
   });
-  container.querySelectorAll('[data-action="reset-2fa"]').forEach(b => {
+  container.querySelectorAll('[disabled data-action="reset-2fa"]').forEach(b => {
     b.addEventListener('click', async e => {
       e.stopPropagation();
       const login = b.dataset.login;

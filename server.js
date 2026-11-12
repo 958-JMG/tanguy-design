@@ -958,7 +958,7 @@ app.post('/api/login', loginLimiter, async (req, res) => {
   const { login } = req.body || {};
   const ip = clientIp(req);
   if (!login) return res.status(400).json({ error: 'identifiant requis' });
-  const loginLc = String(login).toLowerCase();
+  const loginLc = String(login).toLowerCase().trim();
   // Account lockout (Sprint 4 P1-5)
   if (accountIsLocked(loginLc)) {
     logger.warn({ login: loginLc, ip }, '[auth] login REJECTED (account locked)');
@@ -968,7 +968,7 @@ app.post('/api/login', loginLimiter, async (req, res) => {
   // L'identité est prouvée UNIQUEMENT par l'authentificateur TOTP (Google
   // Authenticator). L'identifiant ne fait qu'ouvrir l'étape 2FA : enrôlement (QR) à
   // la 1re connexion, puis code à 6 chiffres à chaque fois. Aucun mot de passe.
-  const user = await usersStore.findUser(loginLc);
+  const user = await usersStore.findUserFresh(loginLc);
   if (!user || !user.actif) {
     accountRegisterFail(loginLc);
     logger.warn({ login: loginLc, ip, reason: user ? 'user désactivé' : 'inconnu' }, '[auth] login FAIL');
@@ -989,11 +989,9 @@ app.post('/api/login', loginLimiter, async (req, res) => {
     return res.json({ ok: true, step: 'totp' });
   }
 
-  // Pas (encore) de 2FA valide → enrôlement OBLIGATOIRE avant tout accès.
   req.session.user = null;
-  req.session.pending2fa = { login: loginLc, uid: user.id, ts: Date.now(), needEnroll: true };
-  logger.info({ login: loginLc, ip }, '[auth] identifiant OK → enrôlement 2FA requis');
-  return res.json({ ok: true, step: 'enroll' });
+  req.session.pending2fa = null;
+  return res.status(403).json({ error: 'Nouveaux accès et changements d’authentificateur temporairement suspendus. Contactez votre administrateur.' });
 });
 
 app.post('/api/logout', (req, res) => { req.session = null; res.json({ ok: true }); });
@@ -1018,9 +1016,9 @@ app.post('/api/login/totp', loginLimiter, async (req, res) => {
     return res.status(429).json({ error: 'Trop de tentatives. Compte verrouillé 15 min.' });
   }
   const { code } = req.body || {};
-  const user = await usersStore.findUser(loginLc);
+  const user = await usersStore.findUserFresh(loginLc);
   const secretClear = (user && user.totpSecret) ? totp.decryptSecret(user.totpSecret) : null;
-  if (!user || !user.actif || !secretClear || !totp.verify(code, secretClear)) {
+  if (!user || user.id !== pending.uid || !user.actif || !user.twoFAActif || pending.needEnroll || !secretClear || !totp.verify(code, secretClear)) {
     accountRegisterFail(loginLc);
     logger.warn({ login: loginLc, ip }, '[auth] TOTP FAIL');
     return res.status(401).json({ error: 'Code invalide.' });
@@ -1033,48 +1031,13 @@ app.post('/api/login/totp', loginLimiter, async (req, res) => {
 });
 
 // Enrôlement — étape 1 : génère un secret + QR code (mot de passe déjà validé).
-app.post('/api/login/enroll/start', loginLimiter, async (req, res) => {
-  const pending = getPending2fa(req);
-  if (!pending) return res.status(401).json({ error: 'Session expirée, reconnectez-vous.', restart: true });
-  const user = await usersStore.findUser(pending.login);
-  if (!user || !user.actif || !user.id) return res.status(401).json({ error: 'Compte invalide.' });
-  if (user.twoFAActif && user.totpSecret && totp.decryptSecret(user.totpSecret)) {
-    return res.status(409).json({ error: '2FA déjà configuré. Saisissez le code de votre application.', step: 'totp' });
-  }
-  const secret = totp.generateSecret();
-  const label = user.displayName || user.login;
-  const qr = await totp.qrDataUri(totp.keyuri(label, secret));
-  // Secret CHIFFRÉ stocké en session (cookie signé) le temps de l'enrôlement seulement.
-  req.session.pending2fa = { ...pending, enrollSecretEnc: totp.encryptSecret(secret) };
-  res.json({ ok: true, qr, secret, account: label, issuer: totp.ISSUER });
+app.post('/api/login/enroll/start', loginLimiter, (req, res) => {
+  res.status(403).json({ error: 'Configuration de nouveaux authentificateurs temporairement suspendue.' });
 });
 
 // Enrôlement — étape 2 : vérifie le 1er code et persiste le secret chiffré.
-app.post('/api/login/enroll/verify', loginLimiter, async (req, res) => {
-  const ip = clientIp(req);
-  const pending = getPending2fa(req);
-  if (!pending || !pending.enrollSecretEnc) {
-    return res.status(401).json({ error: 'Session expirée, reprenez la configuration.', restart: true });
-  }
-  const { code } = req.body || {};
-  const secretClear = totp.decryptSecret(pending.enrollSecretEnc);
-  if (!secretClear || !totp.verify(code, secretClear)) {
-    logger.warn({ login: pending.login, ip }, '[auth] enrôlement TOTP code FAIL');
-    return res.status(401).json({ error: 'Code invalide, réessayez.' });
-  }
-  const user = await usersStore.findUser(pending.login);
-  if (!user || !user.id) return res.status(401).json({ error: 'Compte invalide.' });
-  try {
-    await usersStore.setTotp(user.id, totp.encryptSecret(secretClear));
-  } catch (e) {
-    logger.error({ err: e.message, login: pending.login }, '[auth] setTotp FAIL');
-    return res.status(500).json({ error: 'Échec d\'enregistrement du 2FA, réessayez.' });
-  }
-  accountRegisterSuccess(pending.login);
-  req.session.user = pending.login;
-  req.session.pending2fa = null;
-  logger.info({ login: pending.login, ip }, '[auth] login OK (enrôlement 2FA finalisé)');
-  res.json({ ok: true, user: pending.login });
+app.post('/api/login/enroll/verify', loginLimiter, (req, res) => {
+  res.status(403).json({ error: 'Configuration de nouveaux authentificateurs temporairement suspendue.' });
 });
 
 // === Sprint v4 — Admin Users (CRUD comptes utilisateurs) ===========================
@@ -1100,16 +1063,8 @@ app.get('/api/admin/users', requireAdminUsers, async (req, res) => {
   }
 });
 
-app.post('/api/admin/users', requireAdminUsers, async (req, res) => {
-  const { login, password, email, displayName, admin, poseur, notes } = req.body || {};
-  try {
-    const created = await usersStore.createUser({ login, password, email, displayName, admin, poseur, notes });
-    logger.info({ by: req.session.user, login: created.login }, '[admin/users] user créé');
-    res.json({ ok: true, user: created });
-  } catch (e) {
-    logger.warn({ err: e.message, by: req.session.user }, '[admin/users] create FAIL');
-    res.status(400).json({ error: e.message });
-  }
+app.post('/api/admin/users', requireAdminUsers, (req, res) => {
+  res.status(503).json({ error: 'Création et récupération des accès temporairement suspendues. Les authentificateurs déjà activés restent utilisables.' });
 });
 
 app.patch('/api/admin/users/:id', requireAdminUsers, async (req, res) => {
@@ -1147,14 +1102,8 @@ app.post('/api/admin/users/:id/disable', requireAdminUsers, async (req, res) => 
 
 // Break-glass 2FA : un admin réinitialise le 2FA d'un compte (perte du téléphone).
 // L'utilisateur devra ré-enrôler son Google Authenticator au prochain login.
-app.post('/api/admin/users/:id/reset-2fa', requireAdminUsers, async (req, res) => {
-  try {
-    await usersStore.clearTotp(req.params.id);
-    logger.warn({ by: req.session.user, id: req.params.id }, '[admin/users] 2FA réinitialisé (break-glass)');
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
+app.post('/api/admin/users/:id/reset-2fa', requireAdminUsers, (req, res) => {
+  res.status(503).json({ error: 'Création et récupération des accès temporairement suspendues. Les authentificateurs déjà activés restent utilisables.' });
 });
 
 app.get('/api/equipe', requireAuth, async (req, res) => {
