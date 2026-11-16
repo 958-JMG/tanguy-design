@@ -1,5 +1,8 @@
 # Tanguy Design — réalisé et suite
 
+
+**16/11/2026 — publication autorisée (Codex)** : accord explicite de JMG reçu. Migration additive exécutée dans la base Tanguy : seul champ `Détail import` créé, type et liens inverses vérifiés ; aucun enregistrement client modifié. Revue/CI et déploiement en cours ; les mentions « local / accord attendu » du bilan préparatoire ci-dessous décrivent l’état antérieur.
+
 ## 16 novembre 2026 — Devis détaillés PDF / Excel · Codex
 
 - **Préparé à la demande de JMG** : références multiples et zéros initiaux, descriptifs, quantités, remises article/globale, éco comptée une fois, contrôle HT/TVA/TTC avant création. Lignes réellement liées au devis, projet et client ; reprise des imports interrompus sans rejouer les lignes ni créer un second projet.

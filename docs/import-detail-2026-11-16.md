@@ -21,12 +21,12 @@ Le récapitulatif du document doit porter le total HT, TTC, l’éco (0 si aucun
 
 Preuves locales : `Travaux/tanguy-import-detail-20261116-preuves/` (journal de tests, recette navigateur, captures et PDF fictif).
 
-## Mise en service à valider
+## Mise en service autorisée
 
-Branche `codex/tanguy-import-detail-20261116`, base `a33a11b`, worktree `Travaux/tanguy-import-detail-20261116`. Travail local non poussé, non fusionné, non déployé. Aucun changement de base ni envoi client.
+Branche `codex/tanguy-import-detail-20261116`, base `a33a11b`, worktree `Travaux/tanguy-import-detail-20261116`. Mise en ligne et ajout du champ autorisés explicitement par JMG le 16/11/2026. Le champ `Détail import` a été créé dans la base Tanguy et son type relu ; `Empreinte import`, les champs de lignes et les liens inverses client/projet/devis sont conformes. Aucun enregistrement client modifié ni envoi réalisé. Publication et vérification de la version déployée en cours.
 
-1. Après accord de publication et vérification de la cible, lancer la simulation de `scripts/setup-devis-detail-field.js`. Il ajoute seulement `Détail import` (texte long) et vérifie/crée `Empreinte import` s’il manque. Vérifier aussi les champs Winner déjà utilisés et le lien inverse `Projets.Devis` / `Devis.Projet`.
-2. Appliquer avec `--apply --base <base attendue>` dans l’environnement autorisé, puis publier la branche, faire la revue/CI et déployer selon le parcours habituel.
+1. Effectué : simulation puis migration additive `scripts/setup-devis-detail-field.js`, cible Tanguy vérifiée. Un seul champ ajouté : `Détail import` (texte long). Schéma relu après écriture, aucun contenu client modifié.
+2. En cours : publication de la branche, revue/CI puis déploiement par le workflow habituel ; contrôles de disponibilité et d’import sans créer de devis client réel.
 3. Recette métier d’un PDF réel, puis du fichier Excel réellement utilisé par Tanguy (non fourni à ce stade). L’extraction IA des deux PDF n’a pas été rejouée. Valider leur liste de références et leurs remises avant de créer un document commercial. Ne pas réimporter les anciens devis signés automatiquement.
 
 Limites explicites : 300 lignes par import, deux taux de TVA, Excel/CSV limité à 5 Mo et un lecteur isolé (délai de huit secondes, tas limité à 128 Mo). Un écart d’arrondi créé par le découpage TVA de Pennylane bloque l’export au lieu de modifier les prix. Les nomenclatures sans prix par ligne gardent le parcours forfaitaire historique et son annexe ; cette évolution ne reconstitue pas des prix absents.
