@@ -1,4 +1,4 @@
-# Devis détaillés — préparation du 16 novembre 2026
+# Devis détaillés — livraison du 16 novembre 2026
 
 Les devis PDF avec des prix par article ouvrent maintenant une relecture détaillée. Les références (zéros initiaux et références multiples compris), descriptifs complets, quantités, remises article et globale sont conservés. Les montants sont comparés au document avant toute création. L’éco comprise dans le prix n’est pas ajoutée une seconde fois.
 
@@ -21,7 +21,7 @@ Le récapitulatif du document doit porter le total HT, TTC, l’éco (0 si aucun
 
 Preuves locales : `Travaux/tanguy-import-detail-20261116-preuves/` (journal de tests, recette navigateur, captures et PDF fictif).
 
-## Mise en service autorisée
+## Mise en service vérifiée
 
 Branche `codex/tanguy-import-detail-20261116`, base `a33a11b`, worktree `Travaux/tanguy-import-detail-20261116`. Mise en ligne et ajout du champ autorisés explicitement par JMG le 16/11/2026. Le champ `Détail import` a été créé dans la base Tanguy et son type relu ; `Empreinte import`, les champs de lignes et les liens inverses client/projet/devis sont conformes. Aucun enregistrement client modifié ni envoi réalisé. PR [157](https://github.com/958-JMG/tanguy-design/pull/157) fusionnée, version `cef605365b37` déployée et vérifiée (workflow [43827175743](https://github.com/958-JMG/tanguy-design/actions/runs/43827175743), santé HTTP 200). Accès administrateur, modules, modèle CSV et lecteurs CSV/XLSX vérifiés en production sans création de devis.
 
@@ -43,4 +43,10 @@ Complément validé localement par 755 tests, zéro échec, syntaxe et diff vali
 
 La PR [158](https://github.com/958-JMG/tanguy-design/pull/158) est déployée : image `215728179fce`, [workflow 43828334966](https://github.com/958-JMG/tanguy-design/actions/runs/43828334966) réussi. Une nouvelle extraction IA du PDF électroménager, appelée depuis le site publié, est entièrement conforme : 10 lignes, zéro erreur de contrôle, références et deux remises présentes, éco 57,76 HT et TTC 17 365,64. Les contrôles CSV/XLSX, version et accès administrateur ont été rejoués avec succès ; aucun devis réel créé.
 
-Dernier complément de livraison : le modèle CSV vide avait été mis en cache par le CDN à cause de l’extension de son URL. Le lien utilisé par l’écran n’a plus d’extension, conserve le nom de téléchargement `.csv`, et la réponse interdit le stockage partagé. Ce modèle ne contient aucune donnée client. Les routes de lecture et création sont restées protégées. Contrôle de la nouvelle URL à effectuer après publication ; aucune règle globale du CDN modifiée.
+Dernier complément de livraison : le modèle CSV vide avait été mis en cache par le CDN à cause de l’extension de son URL. Le lien utilisé par l’écran n’a plus d’extension, conserve le nom de téléchargement `.csv`, et la réponse interdit le stockage partagé. Ce modèle ne contient aucune donnée client. Les routes de lecture et création sont restées protégées. Nouvelle URL vérifiée après publication : administrateur HTTP200 puis appel anonyme HTTP401, cache privé non conservable, CDN DYNAMIC. Aucune règle globale du CDN modifiée.
+
+## État final — 09:12 Europe/Paris
+
+PR [159](https://github.com/958-JMG/tanguy-design/pull/159) déployée : version `466444490b64998c51ef347f12378212ec8deacf`, [workflow 43829061810](https://github.com/958-JMG/tanguy-design/actions/runs/43829061810) réussi après 756 tests. Version publique, santé HTTP200, schéma de la base, lien du modèle et contrôles d’accès vérifiés. Aucun devis réel créé et aucun message envoyé pendant la recette. Le parcours complet jusqu’à l’annexe Pennylane reste une recette avec services simulés ; les lectures IA des PDF et Excel/CSV ont été contrôlées sur le site publié. Recette client du document commercial à faire avant envoi ; véritable fichier Excel non reçu.
+
+Passation Codex : code et notes partagés sur main distant. Les worktrees et branches locales de ce travail sont fermés après fusion, les preuves restent dans `Travaux/tanguy-import-detail-20261116-preuves`. Aucun autre worktree modifié. Les résultats de préparation locale ci-dessus restent l’historique de cette livraison, et ne remplacent pas cette vérification finale.
