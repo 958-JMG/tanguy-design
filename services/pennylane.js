@@ -477,6 +477,31 @@ function carveEcoParticipation(lines, ecoTtc, opts = {}) {
   return { lines: out, ecoLine, ecoHt, ecoTtc: eco, vat_rate: support.vat_rate, warnings };
 }
 
+// Les imports détaillés connaissent l'éco HT et son taux exact. Aucun report
+// vers le plus haut taux et aucun ajustement silencieux du prix des articles.
+function carveEcoDetail(lines, controle) {
+  const ecoParTaux = new Map();
+  for (const l of controle.lignes) ecoParTaux.set(vatEnum(l.tva_taux), round2((ecoParTaux.get(vatEnum(l.tva_taux)) || 0) + l.eco_ht));
+  const out = [], ecoLines = [];
+  for (const l of lines) {
+    const ht = ecoParTaux.get(l.vat_rate) || 0;
+    const base = round2(Number(l.raw_currency_unit_price) * l.quantity);
+    if (ht < 0 || ht > base) throw Object.assign(new Error('Éco-participation supérieure à la base de TVA correspondante.'), { status: 422 });
+    if (base > ht) out.push({ ...l, quantity: 1, raw_currency_unit_price: round2(base - ht).toFixed(2) });
+    if (ht > 0) {
+      const ecoLine = { label: 'Éco-participation', quantity: 1, unit: 'piece', raw_currency_unit_price: ht.toFixed(2), vat_rate: l.vat_rate,
+        description: 'Éco-participation comprise dans le total du devis, reversée à l’éco-organisme.', ...ecoLineImputation() };
+      out.push(ecoLine); ecoLines.push(ecoLine);
+    }
+    ecoParTaux.delete(l.vat_rate);
+  }
+  if ([...ecoParTaux.values()].some(n => n > 0)) throw Object.assign(new Error('Taux de TVA de l’éco absent des bases du devis.'), { status: 422 });
+  const ht = round2(out.reduce((s, l) => s + Number(l.raw_currency_unit_price), 0));
+  const ttc = round2(out.reduce((s, l) => s + round2(Number(l.raw_currency_unit_price) * (1 + (enumPct[l.vat_rate] || 0) / 100)), 0));
+  if (ht !== controle.totaux.total_ht || ttc !== controle.totaux.total_ttc) throw Object.assign(new Error(`Arrondi de TVA à vérifier avant Pennylane : ${ttc.toFixed(2)} EUR TTC calculés, ${controle.totaux.total_ttc.toFixed(2)} EUR dans le document. Le prix n’a pas été modifié.`), { status: 422 });
+  return { lines: out, ecoLine: ecoLines[0] || null, ecoLines, ecoHt: controle.totaux.eco_ht, ecoTtc: controle.totaux.eco_ttc, warnings: [] };
+}
+
 // ── Réseau : clients ────────────────────────────────────────────────────────
 async function listAllCustomers() {
   const out = []; let cursor = null, guard = 0;
@@ -656,6 +681,7 @@ async function fetchInvoicePdf(invoiceId) {
 }
 
 module.exports = {
+  carveEcoDetail,
   detailErreur,
   // purs (testables sans réseau)
   buildInvoiceLines, buildEcheanceInvoiceLines, calcAcompte, normalizeName, vatEnum, libellesParTaux, natureDeCategorie,

@@ -1,5 +1,16 @@
 # Tanguy Design — réalisé et suite
 
+
+**16/11/2026 — publication autorisée (Codex)** : accord explicite de JMG reçu. Migration additive exécutée dans la base Tanguy : seul champ `Détail import` créé, type et liens inverses vérifiés ; aucun enregistrement client modifié. Revue/CI et déploiement en cours ; les mentions « local / accord attendu » du bilan préparatoire ci-dessous décrivent l’état antérieur.
+
+## 16 novembre 2026 — Devis détaillés PDF / Excel · Codex
+
+- **Préparé à la demande de JMG** : références multiples et zéros initiaux, descriptifs, quantités, remises article/globale, éco comptée une fois, contrôle HT/TVA/TTC avant création. Lignes réellement liées au devis, projet et client ; reprise des imports interrompus sans rejouer les lignes ni créer un second projet.
+- **Documents** : annexe complète versionnée avec les références et remises ; le devis Pennylane cite son nom exact. Vérification de sa présence/version avant téléchargement du devis commercial et confirmation de signature. Présentation commerciale par taux conservée ; détail intégral dans l’annexe. Aucune modification des anciens devis signés.
+- **Validation** : 745 tests locaux réussis ; Airtable/Pennylane et IA simulés, sans appel payant. Parcours Chrome isolé, écran bureau 1280 px et mobile 390 px, fichier CSV jusqu’au devis lié, PDF fictif généré et relu ; Excel, formules enregistrées, interruptions et refus de perte de données couverts.
+- **État de livraison** : branche `codex/tanguy-import-detail-20261116`, worktree `/Users/jmg/Developer/9-58/Travaux/tanguy-import-detail-20261116`. Travail uniquement local, non poussé/non déployé. Base et documents clients inchangés ; aucun message envoyé. Recette client non confirmée.
+- **À valider ensuite** : publication et ajout du champ de conservation `Détail import` (migration additive prête), puis essai contrôlé d’un vrai PDF et du véritable Excel utilisé par Tanguy (non reçu). L’extraction IA réelle n’a pas été rejouée. Détails et limites : [note de livraison](import-detail-2026-11-16.md). Preuves privées dans le dossier voisin suffixé `-preuves`.
+
 ## 6 novembre 2026 · Import Winner · Codex / demande JMG
 
 ### ✅ Préparé localement

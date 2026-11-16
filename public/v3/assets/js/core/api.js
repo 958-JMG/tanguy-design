@@ -423,6 +423,17 @@ export async function creerDevisElectro(payload) {
   return api('/api/devis-express/findis/creer-devis', { method: 'POST', body: JSON.stringify(payload) });
 }
 
+export async function creerDevisDetail(payload) {
+  return api('/api/devis-express/detail/creer', { method: 'POST', body: JSON.stringify(payload) });
+}
+export async function lireExcelDevis(file) {
+  const fd = new FormData(); fd.append('fichier', file);
+  const r = await fetch('/api/devis-express/detail/excel', { method: 'POST', body: fd, credentials: 'same-origin' });
+  const d = await r.json();
+  if (!r.ok || d.error) throw new Error(d.error || 'Lecture Excel impossible');
+  return d;
+}
+
 export async function creerDevisClientExpress(payload) {
   return api('/api/devis-express/creer-devis', { method: 'POST', body: JSON.stringify(payload) });
 }
