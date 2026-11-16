@@ -83,3 +83,54 @@ test('lecture longue : sortie tronquée refusée et non mémorisée', async () =
   for (let n = 0; n < 2; n++) await assert.rejects(lire(Buffer.from('%PDF-fictif tronqué')), /trop de détails/);
   assert.equal(appels, 2);
 });
+
+function ventilationFictive() {
+  return { totaux: { total_ht: 280, total_ttc: 336, tva_taux: 20, tva_montant: 56, eco_ht: 10, eco_incluse: true, remise_globale_ht: 10 },
+    lignes_detail: [
+      { designation: 'Appareil fictif A', code_produit: '0000123', type: 'article', quantite: 1, pu_ht: 100, total_ht: 100, eco_ht: 4, tva_taux: 20 },
+      { designation: 'Appareil fictif B', code_produit: 'TEST-B', type: 'article', quantite: 1, pu_ht: 200, remise_ht: 20, remise_pct: 10, total_ht: 180, eco_ht: 6, tva_taux: 20 },
+      { designation: 'Éco-participation : appareil A 4 €, appareil B 6 €', type: 'eco', quantite: 1, pu_ht: 10, total_ht: 10, tva_taux: 20 },
+    ] };
+}
+
+test('PDF : ventilation éco répétée rattachée à sa ligne facturée sans changer prix, références ou remises', async () => {
+  const { creerLecteur } = require('./devis-fournisseur-parser');
+  const source = ventilationFictive();
+  const lire = creerLecteur({ extraire: async () => ({ text: [] }), ia: async () => ({ texte: JSON.stringify(source) }) });
+  const obtenu = await lire(Buffer.from('%PDF-ventilation-fictive'));
+  const { controlerDetail } = await import('../public/v3/assets/js/core/devis-detail.mjs');
+  const c = controlerDetail(obtenu);
+  assert.equal(c.ok, true, c.erreurs.join());
+  assert.deepStrictEqual(obtenu.totaux, source.totaux);
+  assert.deepStrictEqual(obtenu.lignes_detail, source.lignes_detail.map(l => l.type === 'eco' ? l : { ...l, eco_ht: 0 }));
+  assert.equal(c.totaux.remise_lignes_ht, 20); assert.equal(c.totaux.remise_globale_ht, 10); assert.equal(c.totaux.eco_ht, 10);
+});
+
+test('éco : toute ambiguïté conserve la lecture initiale pour le contrôle bloquant', async t => {
+  const { normaliserEcoRepartie } = require('./devis-fournisseur-parser');
+  const cas = {
+    'éco déjà comprise dans le net article': d => { d.lignes_detail[0].total_ht = 104; },
+    'prix unitaire absent': d => { d.lignes_detail[0].pu_ht = null; },
+    'ventilation partielle': d => { d.lignes_detail[0].eco_ht = 3; },
+    'autre taux de TVA': d => { d.lignes_detail[0].tva_taux = 10; },
+    'total du document incohérent': d => { d.totaux.total_ttc = 337; },
+    'remise incohérente': d => { d.lignes_detail[1].remise_pct = 20; },
+    'pas de ligne éco facturée': d => { d.lignes_detail.pop(); },
+  };
+  for (const [nom, modifier] of Object.entries(cas)) await t.test(nom, async () => {
+    const d = ventilationFictive(); modifier(d); const copie = structuredClone(d);
+    assert.strictEqual(await normaliserEcoRepartie(d), d);
+    assert.deepStrictEqual(d, copie);
+  });
+});
+
+test('la normalisation éco ne confirme pas une référence absente et ne modifie pas sa source', async () => {
+  const { normaliserEcoRepartie } = require('./devis-fournisseur-parser');
+  const d = ventilationFictive(); d.lignes_detail[0].code_produit = '';
+  const copie = structuredClone(d), obtenu = await normaliserEcoRepartie(d);
+  const { controlerDetail } = await import('../public/v3/assets/js/core/devis-detail.mjs');
+  assert.deepStrictEqual(d, copie); assert.equal(obtenu.lignes_detail[0].eco_ht, 0);
+  assert.equal(obtenu.lignes_detail[0].sans_reference_confirme, undefined);
+  assert.equal(controlerDetail(obtenu).ok, false);
+  assert.match(controlerDetail(obtenu).erreurs.join(), /absence de référence à confirmer/);
+});

@@ -23,12 +23,20 @@ Preuves locales : `Travaux/tanguy-import-detail-20261116-preuves/` (journal de t
 
 ## Mise en service autorisée
 
-Branche `codex/tanguy-import-detail-20261116`, base `a33a11b`, worktree `Travaux/tanguy-import-detail-20261116`. Mise en ligne et ajout du champ autorisés explicitement par JMG le 16/11/2026. Le champ `Détail import` a été créé dans la base Tanguy et son type relu ; `Empreinte import`, les champs de lignes et les liens inverses client/projet/devis sont conformes. Aucun enregistrement client modifié ni envoi réalisé. Publication et vérification de la version déployée en cours.
+Branche `codex/tanguy-import-detail-20261116`, base `a33a11b`, worktree `Travaux/tanguy-import-detail-20261116`. Mise en ligne et ajout du champ autorisés explicitement par JMG le 16/11/2026. Le champ `Détail import` a été créé dans la base Tanguy et son type relu ; `Empreinte import`, les champs de lignes et les liens inverses client/projet/devis sont conformes. Aucun enregistrement client modifié ni envoi réalisé. PR [157](https://github.com/958-JMG/tanguy-design/pull/157) fusionnée, version `cef605365b37` déployée et vérifiée (workflow [43827175743](https://github.com/958-JMG/tanguy-design/actions/runs/43827175743), santé HTTP 200). Accès administrateur, modules, modèle CSV et lecteurs CSV/XLSX vérifiés en production sans création de devis.
 
 1. Effectué : simulation puis migration additive `scripts/setup-devis-detail-field.js`, cible Tanguy vérifiée. Un seul champ ajouté : `Détail import` (texte long). Schéma relu après écriture, aucun contenu client modifié.
-2. En cours : publication de la branche, revue/CI puis déploiement par le workflow habituel ; contrôles de disponibilité et d’import sans créer de devis client réel.
-3. Recette métier d’un PDF réel, puis du fichier Excel réellement utilisé par Tanguy (non fourni à ce stade). L’extraction IA des deux PDF n’a pas été rejouée. Valider leur liste de références et leurs remises avant de créer un document commercial. Ne pas réimporter les anciens devis signés automatiquement.
+2. Effectué pour la première version : revue/CI, déploiement par le workflow habituel, contrôles de disponibilité et lecteurs Excel/CSV. Complément ci-dessous en cours de publication.
+3. Lectures IA réelles des deux PDF effectuées ; reste l’Excel réellement utilisé (non fourni), puis la recette client du nouveau devis commercial et de son annexe avant envoi. Ne pas réimporter les anciens devis signés automatiquement.
 
 Limites explicites : 300 lignes par import, deux taux de TVA, Excel/CSV limité à 5 Mo et un lecteur isolé (délai de huit secondes, tas limité à 128 Mo). Un écart d’arrondi créé par le découpage TVA de Pennylane bloque l’export au lieu de modifier les prix. Les nomenclatures sans prix par ligne gardent le parcours forfaitaire historique et son annexe ; cette évolution ne reconstitue pas des prix absents.
 
 Dépendance de lecture : ExcelJS 4.4.0, API documentée dans son [README officiel](https://github.com/exceljs/exceljs). `uuid` limité à 11.1.1 dans cette dépendance ; les deux mises à jour transitives nécessaires sont `es-object-atoms` 1.1.2 et `which-typed-array` 1.1.24. Les dépendances métier existantes ne changent pas. L’audit npm reste à une alerte modérée préexistante sur `qs` ; aucun correctif transverse incorporé. Le rattachement PDF utilise l’API Pennylane des annexes déjà présente, sans changement d’envoi/finalisation.
+
+## Complément après lecture réelle
+
+Le PDF électroménager détaille par appareil les composantes d’une ligne éco distincte. L’IA avait recopié ces montants aussi dans les articles : le contrôle a bloqué l’import avant toute écriture. La lecture précise désormais cette présentation et normalise seulement les duplications prouvées par les montants au centime, les prix nets et les taux de TVA. Le descriptif de ventilation, tous les prix, références et remises restent inchangés ; si la preuve manque, le contrôle continue de bloquer.
+
+Vérification des résultats réels après correction locale : électroménager, 10 lignes, remise article 384 HT, remise globale 1 111,22 HT, éco 57,76 HT et TTC 17 365,64 ; mobilier, 33 lignes, remise globale 1 212,25 HT, éco 124,82 HT et TTC 32 634,36. Les six lignes mobilier sans code dans la source (fond céramique, crédence, plan céramique, pied en verre, livraison, pose) requièrent la confirmation explicite « Sans référence », conservée par le correctif. Aucune référence catalogue inventée ni validation de tarif fournisseur.
+
+Complément validé localement par 755 tests, zéro échec, syntaxe et diff valides ; cas ambigus (prix absent, TVA différente, ventilation partielle, remise incohérente) conservés pour blocage.
