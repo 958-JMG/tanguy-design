@@ -10,7 +10,11 @@ const { numeroDevisExpress } = require('./devis-express-helper');
 
 module.exports = function installer(app, { requireAdmin, TABLES, atFetchAll, atFetchByIds, atFetchFiltered, atCreate, atCreateBatch, atPatch, projetPourDevisExpress, typeDevisParDefaut, todayISO }) {
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
-  app.get('/api/devis-express/detail/modele.csv', requireAdmin, (req, res) => {
+  // Sans extension dans le lien de l'écran : le CDN ne doit pas traiter cette
+  // route authentifiée comme un fichier statique. L'ancien lien reste valide.
+  app.get(['/api/devis-express/detail/modele', '/api/devis-express/detail/modele.csv'], (req, res, next) => {
+    res.set('Cache-Control', 'private, no-store'); next();
+  }, requireAdmin, (req, res) => {
     const rows = [
       'Total HT document;', 'Total TTC document;', 'Montant TVA;', 'Taux TVA;20', 'Total eco HT;0', 'Eco incluse;oui', 'Remise globale HT;0',
       'Section;Référence;Désignation;Quantité;PU HT;Remise HT;Remise %;Éco HT;Net HT;TVA;Catégorie;Type;Sans référence',

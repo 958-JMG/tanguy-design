@@ -2,18 +2,31 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fictif = require('./fixtures/devis-detail-fictif');
+const fetchReel = global.fetch;
 const banc = require('./fixtures/banc-serveur')();
 const { T, put, get, table } = banc;
 const route = '/api/devis-express/detail/creer';
 const payload = () => ({ projetId: 'recPROJET', document: fictif(), source: { nom: 'devis-fictif.pdf' }, verifie: true, famille: 'Mobilier' });
+let base;
 before(async () => {
   put(T.clients, 'recCLIENT', { Nom: 'CLIENT FICTIF', 'Pennylane customer ID': '555' });
   put(T.projets, 'recPROJET', { Client: ['recCLIENT'], Référence: 'Projet fictif' });
   put(T.projets, 'recAUTRE', { Client: ['recCLIENT'], Référence: 'Autre projet fictif' });
-  await banc.demarrer();
+  base = await banc.demarrer();
 });
 after(() => banc.arreter());
 let devisId;
+test('modèle Excel : téléchargement authentifié non conservé par les caches partagés', async () => {
+  for (const path of ['/api/devis-express/detail/modele', '/api/devis-express/detail/modele.csv']) {
+    const r = await fetchReel(base + path, { headers: { cookie: banc.cookiePour('virginie') } });
+    assert.equal(r.status, 200); assert.equal(r.headers.get('cache-control'), 'private, no-store');
+    assert.match(r.headers.get('content-disposition'), /filename="modele-devis-detail.csv"/);
+    assert.match(await r.text(), /Référence/);
+    const anonyme = await fetchReel(base + path);
+    assert.equal(anonyme.status, 401); assert.equal(anonyme.headers.get('cache-control'), 'private, no-store');
+    assert.equal((await anonyme.json()).error, 'not authenticated');
+  }
+});
 test('lecture CSV authentifiée sans IA : nom accentué et détail conservés sans créer de devis', async () => {
   const csv = 'Total HT document;10\nTotal TTC document;12\nTotal eco HT;0\nTaux TVA;20\nRéférence;Désignation;Quantité;PU HT;Net HT\n0000123;Article fictif;1;10;10\n';
   const f = new FormData(); f.append('fichier', new Blob([csv], { type: 'text/csv' }), 'devis-démo.csv');
