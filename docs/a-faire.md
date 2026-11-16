@@ -1,15 +1,13 @@
 # Tanguy Design — réalisé et suite
 
 
-**16/11/2026 — publication autorisée (Codex)** : accord explicite de JMG reçu. Migration additive exécutée dans la base Tanguy : seul champ `Détail import` créé, type et liens inverses vérifiés ; aucun enregistrement client modifié. Revue/CI et déploiement en cours ; les mentions « local / accord attendu » du bilan préparatoire ci-dessous décrivent l’état antérieur.
-
 ## 16 novembre 2026 — Devis détaillés PDF / Excel · Codex
 
-- **Préparé à la demande de JMG** : références multiples et zéros initiaux, descriptifs, quantités, remises article/globale, éco comptée une fois, contrôle HT/TVA/TTC avant création. Lignes réellement liées au devis, projet et client ; reprise des imports interrompus sans rejouer les lignes ni créer un second projet.
-- **Documents** : annexe complète versionnée avec les références et remises ; le devis Pennylane cite son nom exact. Vérification de sa présence/version avant téléchargement du devis commercial et confirmation de signature. Présentation commerciale par taux conservée ; détail intégral dans l’annexe. Aucune modification des anciens devis signés.
-- **Validation** : 745 tests locaux réussis ; Airtable/Pennylane et IA simulés, sans appel payant. Parcours Chrome isolé, écran bureau 1280 px et mobile 390 px, fichier CSV jusqu’au devis lié, PDF fictif généré et relu ; Excel, formules enregistrées, interruptions et refus de perte de données couverts.
-- **État de livraison** : branche `codex/tanguy-import-detail-20261116`, worktree `/Users/jmg/Developer/9-58/Travaux/tanguy-import-detail-20261116`. Travail uniquement local, non poussé/non déployé. Base et documents clients inchangés ; aucun message envoyé. Recette client non confirmée.
-- **À valider ensuite** : publication et ajout du champ de conservation `Détail import` (migration additive prête), puis essai contrôlé d’un vrai PDF et du véritable Excel utilisé par Tanguy (non reçu). L’extraction IA réelle n’a pas été rejouée. Détails et limites : [note de livraison](import-detail-2026-11-16.md). Preuves privées dans le dossier voisin suffixé `-preuves`.
+- **Livré avec accord JMG** : PR [157](https://github.com/958-JMG/tanguy-design/pull/157), version `cef605365b37` déployée par le [workflow 43827175743](https://github.com/958-JMG/tanguy-design/actions/runs/43827175743). Santé HTTP 200, version et accès administrateur vérifiés. Champ `Détail import` ajouté dans la base Tanguy ; types et liens clients/projets/devis vérifiés, aucun enregistrement client modifié.
+- **Fonctionnement** : références complètes, descriptifs, remises article/globale, éco et contrôles HT/TVA/TTC ; reprise des imports interrompus ; annexe versionnée citée dans le devis Pennylane et contrôlée avant signature/téléchargement.
+- **Vérifications** : 745 tests au premier déploiement ; CSV et XLSX fictifs relus sur le site publié avec références, remises et totaux conformes ; accès anonyme refusé. Parcours complet et annexe Pennylane vérifiés localement avec services simulés, bureau/mobile et PDF rendus.
+- **Essais des PDF fournis** : lecture IA réelle effectuée en production, sans créer de devis. Mobilier : 33 lignes, références présentes et montants conformes ; six prestations/sur-mesure sans référence dans la source restent à confirmer. Électroménager : 10 lignes, remise article et globale correctement lues ; doublage de la ventilation éco détecté et bloqué. Complément ciblé : dédoublage de cette seule ventilation si les équations au centime et la répartition TVA le prouvent, sans changer les prix ni les descriptifs. Complément vérifié par 755 tests réussis ; publication en cours sur `codex/tanguy-import-eco-20261116`.
+- **Reste client** : essai du véritable fichier Excel (non reçu) et validation d'un nouveau devis commercial/annexe avant envoi ; aucune reprise automatique des anciens devis. Aucun message client envoyé ; recette client non confirmée. Preuves privées : `Travaux/tanguy-import-detail-20261116-preuves`. [Note détaillée](import-detail-2026-11-16.md).
 
 ## 6 novembre 2026 · Import Winner · Codex / demande JMG
 
