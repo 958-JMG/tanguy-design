@@ -80,7 +80,7 @@ function renderPanelFournisseur(app) {
       <input type="file" id="df-file" accept=".pdf,.xlsx,.csv" style="display:none">
     </div>
 
-    <p class="muted"><a class="btn btn-ghost btn-sm" href="/api/devis-express/detail/modele.csv">Télécharger le modèle pour Excel</a> Références en texte · Une ligne par article · Totaux du document en tête</p>
+    <p class="muted"><a class="btn btn-ghost btn-sm" href="/api/devis-express/detail/modele">Télécharger le modèle pour Excel</a> Références en texte · Une ligne par article · Totaux du document en tête</p>
     <div id="df-status" style="margin-top:16px"></div>
     <div id="df-result" style="margin-top:16px"></div>
   `;
