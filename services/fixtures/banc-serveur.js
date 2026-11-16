@@ -50,10 +50,12 @@ module.exports = function creerBanc({ secret = 'secret-de-test-banc-serveur-tang
   const get = (tableId, id) => table(tableId).get(id);
   // Champs « pas encore migrés » : Airtable refuse alors toute écriture qui les porte.
   const champsInconnus = new Map(); // tableId → Set(noms)
+  const erreursAirtable = []; // { table, method, apres, perteReponse? } : incidents contrôlés
   // Liens inverses tenus par Airtable lui-même.
   const INVERSES = [
     { de: T.commandes, champ: 'Projet', vers: T.projets, inverse: 'Commandes' },
     { de: T.devis, champ: 'Projet', vers: T.projets, inverse: 'Devis' },
+    { de: T.projets, champ: 'Devis', vers: T.devis, inverse: 'Projet' },
     { de: T.lignes, champ: 'Devis', vers: T.devis, inverse: 'Lignes devis' },
   ];
   function lier(tableId, rec) {
@@ -80,6 +82,12 @@ module.exports = function creerBanc({ secret = 'secret-de-test-banc-serveur-tang
     const [, , tableId, id] = m;
     const t = table(tableId);
     const method = (opts.method || 'GET').toUpperCase();
+    let incident = erreursAirtable.find(e => e.table === tableId && e.method === method);
+    if (incident && incident.apres-- > 0) incident = null;
+    if (incident) {
+      erreursAirtable.splice(erreursAirtable.indexOf(incident), 1);
+      if (!incident.perteReponse) return json(503, { error: { message: 'Coupure simulée' } });
+    }
     if (method === 'GET' && id) { const r = t.get(id); return r ? json(200, r) : json(404, { error: { type: 'NOT_FOUND' } }); }
     if (method === 'GET') {
       const champAbsent = u.searchParams.getAll('fields[]').find(c => champsInconnus.get(tableId)?.has(c));
@@ -88,7 +96,8 @@ module.exports = function creerBanc({ secret = 'secret-de-test-banc-serveur-tang
       let recs = [...t.values()];
       if (f) {
         const ids = [...f.matchAll(/RECORD_ID\(\)='(rec\w+)'/g)].map(x => x[1]);
-        recs = ids.length ? recs.filter(r => ids.includes(r.id)) : [];
+        const hash = f.match(/\{Empreinte import\}='([a-f0-9]{64})'/)?.[1];
+        recs = ids.length ? recs.filter(r => ids.includes(r.id)) : hash ? recs.filter(r => r.fields['Empreinte import'] === hash) : [];
       }
       return json(200, { records: recs });
     }
@@ -107,8 +116,9 @@ module.exports = function creerBanc({ secret = 'secret-de-test-banc-serveur-tang
     }
     if (method === 'POST') {
       const creer = fields => { const rid = `recNEW${++seq}`; put(tableId, rid, fields || {}); const r = t.get(rid); lier(tableId, r); return r; };
-      if (Array.isArray(body.records)) return json(200, { records: body.records.map(x => creer(x.fields)) });
-      return json(200, creer(body.fields));
+      const result = Array.isArray(body.records) ? { records: body.records.map(x => creer(x.fields)) } : creer(body.fields);
+      if (incident?.perteReponse) throw new Error('Réponse perdue après écriture simulée');
+      return json(200, result);
     }
     if (method === 'DELETE' && id) {
       const existait = t.delete(id);
@@ -164,13 +174,14 @@ module.exports = function creerBanc({ secret = 'secret-de-test-banc-serveur-tang
 
   let base, srv;
   return {
-    T, table, put, get, lier, champsInconnus, pennylaneRecu, pennylaneAnnexes, annexeErreur, referencesPrises, cookiePour,
+    T, table, put, get, lier, champsInconnus, erreursAirtable, pennylaneRecu, pennylaneAnnexes, annexeErreur, referencesPrises, cookiePour,
     metaTables, declarerTableMeta,
     async demarrer() {
       const app = require('../../server');
       srv = http.createServer(app);
       await new Promise(r => srv.listen(0, '127.0.0.1', r));
       base = `http://127.0.0.1:${srv.address().port}`;
+      return base;
     },
     arreter() { return new Promise(r => srv.close(r)); },
     /** Requête JSON authentifiée. */

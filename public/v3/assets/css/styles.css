@@ -2453,3 +2453,22 @@ h2.section-title { font-family: 'DM Serif Display', serif; font-size: 18px; marg
 .import-spinner { width:26px; height:26px; flex-shrink:0; border:3px solid var(--line2); border-top-color:var(--accent); border-radius:50%; animation:import-spin .8s linear infinite; }
 @keyframes import-spin { to { transform:rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .import-spinner { animation:none; } }
+.devis-import-detail input:not([type="checkbox"]),
+.devis-import-detail select, .devis-import-detail textarea {
+  display: block; width: 100%; min-width: 0; margin-top: 5px;
+  padding: 10px 12px; border: 1px solid var(--line2, #d6d0c6);
+  border-radius: 8px; background: #fff; color: var(--ink, #26251f);
+  font: inherit; font-size: 14px; line-height: 1.4; box-sizing: border-box;
+}
+.devis-import-detail input:focus, .devis-import-detail select:focus, .devis-import-detail textarea:focus {
+  outline: 2px solid var(--accent, #c84b26); outline-offset: 2px;
+}
+.devis-import-detail label { min-width: 0; font-size: 12px; }
+.devis-import-detail textarea { resize: vertical; }
+.devis-import-detail summary { padding: 6px 0; }
+.devis-import-detail #dd-controle { padding: 18px; border-radius: 10px; background: var(--bg, #f7f5f1); }
+.devis-import-detail #dd-controle li { margin: 8px 0; }
+.devis-detail-card p { margin-top: 8px; }
+@media (max-width: 600px) {
+  .devis-import-detail input:not([type="checkbox"]), .devis-import-detail select, .devis-import-detail textarea { font-size: 16px; }
+}

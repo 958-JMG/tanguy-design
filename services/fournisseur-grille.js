@@ -78,6 +78,7 @@ function classifierCategorie(raw) {
 
   if (has('meuble', 'mobilier', 'panneaux de recouvrement', 'caisson')) return grille('Mobilier');
   if (has('produits de vente', 'accessoire')) return { canon: 'Accessoires', commande: true, grille: false };
+  if (has('eco participation', 'eco-participation')) return { canon: 'Éco-participation', commande: false, grille: false, raison: 'Contribution déjà comprise dans le devis : aucune commande fournisseur séparée' };
   if (has('depose')) return { canon: 'Dépose', commande: false, grille: false, raison: 'Dépose : pas de commande fournisseur' };
   // Décision JMG du 14/10/2026 : le Divers part dans une commande « À classer »
   // VISIBLE au lieu de nulle part. Ce sont des articles hors catalogue Winner

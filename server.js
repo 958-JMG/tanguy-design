@@ -19,6 +19,7 @@ const { enrichEcheancesAvecDates } = require('./services/echeances-helper');
 const { parseFactureFournisseurPdf } = require('./services/facture-fournisseur-parser');
 const { adresseFacturation } = require('./services/adresse-client');
 const { contenuAnnexe, genererAnnexe } = require('./services/devis-annexe');
+const { CHAMP_DETAIL, verifierDetail, verifierVersionCommerciale } = require('./services/devis-detail');
 const { parseDevisFournisseurPdf } = require('./services/devis-fournisseur-parser');
 const { routeCommandes: routeCommandesGrille, CANON_BC } = require('./services/fournisseur-grille');
 const { buildBcTableau, dateEnvoiDepuisPose, modeleDepuisLignes, champsCommande, lignesSansCommande, prochainIndexBc, numeroBc } = require('./services/commande-bc');
@@ -1160,6 +1161,13 @@ app.patch('/api/data/:table/:id', requireAuth, async (req, res) => {
   try {
     const ec = champsEcrivables(req, res); if (!ec) return;
     const fields = ec.fields;
+    if (req.params.table === 'devis') {
+      const [existant] = await atFetchByIds(t.id, [req.params.id]);
+      if (existant?.fields?.[CHAMP_DETAIL]) {
+        if (fields.Statut === 'Signé' && existant.fields.Statut !== 'Signé') return res.status(409).json({ error: 'Utilise « Signer ce devis » pour vérifier la présence de son annexe.' });
+        if (Object.hasOwn(fields, 'Éco-participation') && Number(fields['Éco-participation']) !== Number(existant.fields['Éco-participation'])) return res.status(409).json({ error: 'L’éco-participation est liée aux lignes vérifiées. Importe le document corrigé depuis Devis express.' });
+      }
+    }
     // Projets : tolérant aux champs pas encore migrés (Équipe pose / Note pose
     // avant la migration) — on écrit les champs connus plutôt que de tout rater.
     let rec;
@@ -1820,13 +1828,19 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
     // 3) Lignes Pennylane (mapping par nature + réconciliation TTC)
     //    Le descriptif du devis alimente la description des lignes.
     const contexte = await contextePennylane(f);
+    let detailVerifie = null;
+    if (f[CHAMP_DETAIL]) {
+      detailVerifie = await verifierDetail(f, contexte.lignes);
+      // Prépare le PDF avant de créer le document commercial.
+      await genererAnnexe(contenuAnnexe(f, contexte.lignes, contexte.zones));
+    }
     const { description: descDevis, libelles } = contexte;
     const built = pennylane.buildInvoiceLines(f, { description: descDevis, libelles });
     const { reconciliation } = built;
     if (!built.lines.length) return res.status(422).json({ error: 'Devis sans montant exploitable — rien à pousser', warnings: built.warnings });
     // Éco-participation « dont » : sortie du prix produit vers une ligne hors CA.
     // Total client inchangé → la réconciliation ci-dessus reste valable.
-    const eco = pennylane.carveEcoParticipation(built.lines, f[PL_ECO_FIELD]);
+    const eco = detailVerifie ? pennylane.carveEcoDetail(built.lines, detailVerifie.controle) : pennylane.carveEcoParticipation(built.lines, f[PL_ECO_FIELD]);
     const lines = eco.lines;
     const warnings = [...built.warnings, ...eco.warnings];
 
@@ -1854,7 +1868,9 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
     warnings.push(...avertirReference(quote));
 
     // 6) Persiste les identifiants sur le devis
-    await atPatch(TABLES.devis.id, devisId, { [PL_QUOTE_FIELD]: String(quote.id), [PL_NUM_FIELD]: quote.number || '' });
+    await atPatch(TABLES.devis.id, devisId, { [PL_QUOTE_FIELD]: String(quote.id), [PL_NUM_FIELD]: quote.number || '',
+      ...(detailVerifie ? { [CHAMP_DETAIL]: JSON.stringify({ ...JSON.parse(f[CHAMP_DETAIL]), pennylane: { quoteId: String(quote.id), annexe: contenuAnnexe(f, contexte.lignes, contexte.zones).filename } }) } : {}),
+    });
 
     let annexe = null;
     try {
@@ -1888,6 +1904,7 @@ async function chargerAnnexe(devisId, { genererPdf = true } = {}) {
     atFetchByIds(TABLES['lignes-devis'].id, f['Lignes devis'] || []),
     atFetchByIds(TABLES['zones-devis'].id, f['Zones devis'] || []),
   ]);
+  await verifierDetail(f, lignes);
   const contenu = contenuAnnexe(f, lignes, zones);
   return { devis, contenu, pdf: genererPdf ? await genererAnnexe(contenu) : null };
 }
@@ -1904,6 +1921,7 @@ app.get('/api/devis/:id/pennylane/annexe', requireAuth, async (req, res) => {
     const a = await chargerAnnexe(req.params.id, { genererPdf: false });
     const quoteId = a.devis.fields[PL_QUOTE_FIELD];
     if (!quoteId) return res.status(422).json({ error: 'Crée d’abord le devis dans Pennylane.' });
+    verifierVersionCommerciale(a.devis.fields, a.contenu);
     const annexe = await pennylane.trouverAnnexeDevis(quoteId, a.contenu.filename);
     res.json({ ok: true, jointe: Boolean(annexe), filename: a.contenu.filename, annexe });
   } catch (e) { res.status(e.status || 502).json({ error: e.message }); }
@@ -1913,6 +1931,7 @@ app.post('/api/devis/:id/pennylane/annexe', requireAuth, async (req, res) => {
     const a = await chargerAnnexe(req.params.id);
     const quoteId = a.devis.fields[PL_QUOTE_FIELD];
     if (!quoteId) return res.status(422).json({ error: 'Crée d’abord le devis dans Pennylane.' });
+    verifierVersionCommerciale(a.devis.fields, a.contenu);
     const annexe = await pennylane.joindreAnnexeDevis(quoteId, a.pdf, a.contenu.filename);
     res.json({ ok: true, annexe });
   } catch (e) { res.status(e.status || 502).json({ error: e.message + ' — Le descriptif reste téléchargeable dans le cockpit.' }); }
@@ -1929,6 +1948,11 @@ app.get('/api/devis/:id/pennylane/pdf', requireAuth, async (req, res) => {
     const f = (await dr.json()).fields || {};
     const quoteId = f[PL_QUOTE_FIELD];
     if (!quoteId) return res.status(409).json({ error: 'Ce devis n\'a pas encore été créé dans Pennylane' });
+    if (f[CHAMP_DETAIL]) {
+      const a = await chargerAnnexe(devisId, { genererPdf: false });
+      verifierVersionCommerciale(f, a.contenu);
+      if (!await pennylane.trouverAnnexeDevis(quoteId, a.contenu.filename)) return res.status(409).json({ error: 'Joins la version actuelle du descriptif avant de télécharger le devis commercial.' });
+    }
     const pdf = await pennylane.fetchQuotePdf(quoteId);
     const fname = `devis-${(f['Numéro devis'] || quoteId).toString().replace(/[^\w.-]+/g, '_')}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
@@ -1963,12 +1987,21 @@ async function contextePennylane(devisFields) {
     // liste les articles du devis, un par ligne, sans le bruit des finitions. Header
     // court + liste ; cap Pennylane 1000 → on vise 930, jamais de coupe muette.
     const { texte: lignesTxt } = lignesDevisTexte(lignes, zones, { max: 930 });
+    let description = lignesTxt ? `Détail du devis\n\n${lignesTxt}` : '';
+    if (devisFields[CHAMP_DETAIL]) {
+      const detail = await verifierDetail(devisFields, lignes);
+      const annexe = contenuAnnexe(devisFields, lignes, zones);
+      const t = detail.controle.totaux;
+      const mention = `Descriptif détaillé joint au devis : ${annexe.filename}\nRemises articles : ${t.remise_lignes_ht.toFixed(2)} EUR HT ; remise globale : ${t.remise_globale_ht.toFixed(2)} EUR HT. Déjà déduites du total.\n\n`;
+      description = mention + description.slice(0, Math.max(0, 1000 - mention.length));
+    }
     return {
-      description: lignesTxt ? `Détail du devis\n\n${lignesTxt}` : '',
+      description,
       libelles: pennylane.libellesParTaux(lignes, devisFields),
       lignes, zones,
     };
   } catch (e) {
+    if (devisFields[CHAMP_DETAIL]) throw e;
     logger.warn({ err: e.message }, '[pennylane] descriptif du devis non lu');
     return { description: '', libelles: {} };
   }
@@ -2346,6 +2379,7 @@ app.post('/api/devis-fournisseur/parse', requireAdmin, upload.single('pdf'), asy
     return {
       ok: true,
       parsed,
+      source: { nom: nomFichier(req.file), empreinte: computeImportHash(req.file.buffer) },
       enrichissement: {
         ecopart,
         eco_pieces: ecoPieces,
@@ -2692,6 +2726,11 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
     const numero = dv['Numéro devis'] || devisId;
 
     if (dv.Statut === 'Signé') return res.status(400).json({ error: 'Déjà signé' });
+    if (dv[CHAMP_DETAIL]) {
+      const a = await chargerAnnexe(devisId, { genererPdf: false });
+      if (dv[PL_QUOTE_FIELD]) verifierVersionCommerciale(dv, a.contenu);
+      if (!dv[PL_QUOTE_FIELD] || !await pennylane.trouverAnnexeDevis(dv[PL_QUOTE_FIELD], a.contenu.filename)) return res.status(409).json({ error: 'Crée le devis dans Pennylane et joins sa version actuelle du descriptif avant de confirmer la signature.' });
+    }
 
     // 1bis. Récup nom client + date pose + artisans contractuels via projet
     // Convention numéro commande : `<NOMCLIENT> · <TYPE> · <num devis>-<idx>` — scan visuel rapide.
@@ -2912,7 +2951,7 @@ app.post('/api/devis/:id/sign', requireAuth, async (req, res) => {
 // ── Devis express : briques partagées (fournisseur ET électroménager) ──────
 // Projet du devis : existant, ou créé à la volée pour le client choisi (choix
 // JMG 27/08). Renvoie { erreur: {status, message} } plutôt que de lever.
-async function projetPourDevisExpress({ projetId, clientId, libelle, budgetHt, description }) {
+async function projetPourDevisExpress({ projetId, clientId, libelle, budgetHt, description, devisId }) {
   if (projetId) {
     const [p] = await atFetchByIds(TABLES.projets.id, [projetId]);
     if (!p) return { erreur: { status: 404, message: 'Projet introuvable' } };
@@ -2923,6 +2962,7 @@ async function projetPourDevisExpress({ projetId, clientId, libelle, budgetHt, d
   const np = await atCreate(TABLES.projets.id, {
     'Référence': referenceProjet(c.fields?.Nom, libelle),
     'Client': [clientId],
+    ...(devisId ? { Devis: [devisId] } : {}),
     'Statut': 'Devis',
     'Description': description || 'Projet créé depuis le Devis express',
     'Budget HT': Math.round(Number(budgetHt) * 100) / 100,
@@ -2970,6 +3010,8 @@ async function atCreateBatchTolerant(tableId, records) {
 const avertirChampsIgnores = ignores => ignores.length
   ? [`Champ(s) absent(s) d'Airtable, non enregistré(s) : ${ignores.join(', ')} — lancer scripts/setup-prix-achat-fields.js`]
   : [];
+
+require('./services/devis-detail-routes')(app, { requireAdmin, TABLES, atFetchAll, atFetchByIds, atFetchFiltered, atCreate, atCreateBatch, atPatch, projetPourDevisExpress, typeDevisParDefaut, todayISO });
 
 app.post('/api/devis-express/creer-devis', requireAdmin, async (req, res) => {
   const b = req.body || {};

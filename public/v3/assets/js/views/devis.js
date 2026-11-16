@@ -2,6 +2,7 @@
 // Affiche : breadcrumb · header (numéro/type/statut/date/total) · actions (éditer/re-importer/signer)
 // · tableau lignes groupé par zone · tableau échéances.
 
+import { renderDetailEnregistre } from './devis-import-detail.mjs';
 import { renderLignesWinner } from './devis-winner.mjs';
 import { state } from '../core/state.js';
 import { router } from '../core/router.js';
@@ -82,7 +83,7 @@ function renderFiche(app, data) {
       </div>
       <div class="header-actions">
         <button class="btn btn-ghost btn-sm" id="btn-edit-devis">${icon('edit', 14)} Éditer</button>
-        <button class="btn btn-ghost btn-sm" id="btn-reimport-devis">${icon('plus', 14)} Re-importer PDF</button>
+        <button class="btn btn-ghost btn-sm" id="btn-reimport-devis">${icon('plus', 14)} ${f['Détail import'] ? 'Importer une version corrigée' : 'Re-importer PDF'}</button>
         <a class="btn btn-ghost btn-sm" href="/api/devis/${encodeURIComponent(devis.id)}/descriptif.pdf">${icon('download', 14)} Télécharger le descriptif</a>
         ${plQuote ? `<button class="btn btn-ghost btn-sm" id="btn-pennylane-annexe">${icon('file', 14)} Joindre le descriptif</button>` : ''}
         ${plQuote
@@ -113,7 +114,7 @@ function renderFiche(app, data) {
     </div>
 
     <!-- Éco-participation (dont, hors CA) -->
-    <div class="card" id="eco-card" style="margin-bottom:24px">
+    <div class="card" id="eco-card" style="margin-bottom:24px;${f['Détail import'] ? 'display:none' : ''}">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
         <div>
           <div style="font-weight:600;display:flex;align-items:center;gap:6px">${icon('leaf', 15)} Éco-participation</div>
@@ -135,7 +136,7 @@ function renderFiche(app, data) {
       <div class="projet-section-header">
         <h2>Lignes <span class="count">(${lignes.length})</span></h2>
       </div>
-      ${renderLignesWinner(lignes, zones)}
+      ${f['Détail import'] ? renderDetailEnregistre(f) : renderLignesWinner(lignes, zones)}
     </section>
 
     <!-- Échéances -->
@@ -186,7 +187,7 @@ function renderFiche(app, data) {
 
   // Bindings
   document.getElementById('btn-edit-devis')?.addEventListener('click', () => openModalEditDevis(devis));
-  document.getElementById('btn-reimport-devis')?.addEventListener('click', () => openReimportDevis(devis, projet));
+  document.getElementById('btn-reimport-devis')?.addEventListener('click', () => { if (f['Détail import']) location.hash = '#devis-fournisseur'; else openReimportDevis(devis, projet); });
   document.getElementById('btn-sign-devis')?.addEventListener('click', () => signFlow(devis, projet));
   document.getElementById('btn-pennylane-annexe')?.addEventListener('click', async e => {
     const btn = e.currentTarget; btn.disabled = true; btn.textContent = 'Annexe en cours…';

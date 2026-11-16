@@ -8,6 +8,8 @@ import { creerSuiviEco } from '../core/devis-eco.mjs';
 import { importProgress } from '../core/import-progress.js';
 import { state } from '../core/state.js';
 import { renderElectro } from './devis-electro.js';
+import { renderImportDetail } from './devis-import-detail.mjs';
+import { creerDevisDetail, lireExcelDevis } from '../core/api.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const eur = (n) => (n == null || Number.isNaN(Number(n)))
@@ -41,7 +43,7 @@ export function renderDevisFournisseur(app) {
       <p class="muted" id="dx-intro"></p>
     </div>
     <div class="filter-chips" role="tablist" aria-label="Type de devis express" style="margin-bottom:14px">
-      <button class="chip" role="tab" data-mode="fournisseur">Devis fournisseur</button>
+      <button class="chip" role="tab" data-mode="fournisseur">Devis PDF / Excel</button>
       <button class="chip" role="tab" data-mode="electro">Électroménager (FINDIS)</button>
     </div>
     <div id="dx-panel"></div>
@@ -55,7 +57,7 @@ export function renderDevisFournisseur(app) {
     });
     app.querySelector('#dx-intro').textContent = mode === 'electro'
       ? 'Déposez le projet FINDIS → un devis client article par article, avec le prix d\'achat et la marge.'
-      : 'Déposez un devis fournisseur (PDF) → le prix de vente HT du document est conservé, sans coefficient supplémentaire.';
+      : 'Importez votre devis PDF ou Excel, vérifiez le détail, puis choisissez le client et le projet.';
     const panel = app.querySelector('#dx-panel');
     panel.querySelector('#df-result')?._ecoDetruire?.();
     if (mode === 'electro') renderElectro(panel);
@@ -73,11 +75,12 @@ function renderPanelFournisseur(app) {
   app.innerHTML = `
     <div class="card" id="df-dropzone" style="text-align:center;padding:32px 20px;border:2px dashed var(--line2);cursor:pointer">
       <div style="font-size:32px;color:var(--ink3)">${icon('upload', 32)}</div>
-      <p style="margin-top:8px;font-weight:500">Déposer un devis fournisseur (PDF)</p>
-      <p class="muted" style="font-size:13px">ou cliquer pour choisir un fichier — Granit Evolution, Novamobili, Metron…</p>
-      <input type="file" id="df-file" accept="application/pdf" style="display:none">
+      <p style="margin-top:8px;font-weight:500">Déposer un devis PDF, Excel ou CSV</p>
+      <p class="muted" style="font-size:13px">ou cliquer pour choisir un fichier — devis préparé avec Claude, fournisseur ou descriptif chiffré</p>
+      <input type="file" id="df-file" accept=".pdf,.xlsx,.csv" style="display:none">
     </div>
 
+    <p class="muted"><a class="btn btn-ghost btn-sm" href="/api/devis-express/detail/modele.csv">Télécharger le modèle pour Excel</a> Références en texte · Une ligne par article · Totaux du document en tête</p>
     <div id="df-status" style="margin-top:16px"></div>
     <div id="df-result" style="margin-top:16px"></div>
   `;
@@ -117,11 +120,11 @@ function afficherEtatImport() {
 }
 async function handleFile(file) {
   if (importEnCours) { toast('Un import est déjà en cours. Patiente sans le relancer.', 'info'); return; }
-  if (file.type !== 'application/pdf') { toast('Seuls les fichiers PDF sont acceptés.', 'error'); return; }
+  if (!/\.(pdf|xlsx|csv)$/i.test(file.name)) { toast('Choisis un PDF, un Excel .xlsx ou un CSV UTF-8.', 'error'); return; }
   dernierFichier = file;
   importEnCours = true; debutImport = Date.now(); fichierEnCours = file.name; current = null; erreurImport = '';
   afficherEtatImport();
-  try { current = await parseDevisFournisseur({ file }); }
+  try { current = /\.pdf$/i.test(file.name) ? await parseDevisFournisseur({ file }) : await lireExcelDevis(file); }
   catch (e) { erreurImport = `Échec de l’analyse : ${e.message}`; }
   finally { importEnCours = false; afficherEtatImport(); }
 }
@@ -333,6 +336,7 @@ function wireEco(out, { source, recompute }) {
 // projet est créé à la volée. Le devis part en BROUILLON et reste modifiable.
 
 function openModalCreerDevis(out) {
+  const detail = out._lireDetail?.();
   let prix;
   try { prix = prixDepuisEcran(out); }
   catch (e) {
@@ -343,13 +347,13 @@ function openModalCreerDevis(out) {
     return;
   }
   const { prixClientHt, ecoHt: eco } = prix;
-  const totalHt = Number(out.querySelector('#df-totalht').value);
-  const tva = Number(out.querySelector('#df-tva').value) || 0;
-  const designation = out.querySelector('#df-designation')?.value || '';
+  const totalHt = detail ? detail.controle.totaux.total_ht : Number(out.querySelector('#df-totalht').value);
+  const tva = detail ? detail.controle.totaux.bases.map(b => b.taux).join(' / ') : Number(out.querySelector('#df-tva').value) || 0;
+  const designation = detail ? detail.document.produit_resume : out.querySelector('#df-designation')?.value || '';
   // Famille proposée d'après le fournisseur lu : les plans de travail chez Granit
   // Evolution, le reste en mobilier. Virginie corrige si besoin.
   const nomFournisseur = String(current?.parsed?.fournisseur?.nom || current?.parsed?.fournisseur?.type_detecte || '');
-  const familleParDefaut = /granit|plan de travail|quartz|c[ée]ramique/i.test(nomFournisseur + ' ' + designation) ? 'Plan de travail & crédence' : 'Mobilier';
+  const familleParDefaut = /électroménager/i.test(designation) ? 'Électroménager' : /granit|plan de travail|quartz|c[ée]ramique/i.test(nomFournisseur + ' ' + designation) ? 'Plan de travail & crédence' : 'Mobilier';
 
   const projets = (state.projets || []).slice().sort((a, b) =>
     String(a['Référence'] || '').localeCompare(String(b['Référence'] || ''), 'fr'));
@@ -456,7 +460,11 @@ function openModalCreerDevis(out) {
     modal.querySelector('#cd-cancel').disabled = true;
     btn.disabled = true; btn.textContent = 'Création…';
     try {
-      const r = await creerDevisClientExpress({
+      const r = detail ? await creerDevisDetail({
+        projetId: projetId || undefined, clientId: clientId || undefined,
+        document: detail.document, source: detail.source, verifie: detail.verifie,
+        famille: modal.querySelector('#cd-famille').value, typeDevis: modal.querySelector('#cd-type').value || undefined,
+      }) : await creerDevisClientExpress({
         projetId: projetId || undefined,
         clientId: clientId || undefined,
         designation,
@@ -475,7 +483,7 @@ function openModalCreerDevis(out) {
       // Jamais de silence : ce qui n'a pas pu être fait est annoncé, pas avalé
       // sous un message de succès.
       if (r.avertissements?.length) toast(r.avertissements.join(' · '), 'error', 7000);
-      toast(`Devis ${r.numero} créé${r.typeDevis ? ` (${r.typeDevis})` : ''}${r.projetCree ? ' · projet créé' : ''}`, 'success');
+      toast(`Devis ${r.numero} ${r.already ? 'déjà enregistré' : 'créé'}${r.typeDevis ? ` (${r.typeDevis})` : ''}${r.projetCree ? ' · projet créé' : ''}`, 'success');
       location.hash = `#devis/${r.devisId}`;
     } catch (err) {
       creationEnCours = false;
@@ -490,6 +498,8 @@ function openModalCreerDevis(out) {
 function renderResult(out, res) {
   out._ecoDetruire?.();
   out._ecoEtat = null;
+  if (res.parsed?.lignes_detail?.length) return renderImportDetail(out, res, () => openModalCreerDevis(out));
+  delete out._lireDetail;
   const p = res.parsed || {};
   const enr = res.enrichissement || {};
   const four = p.fournisseur || {};
@@ -617,6 +627,11 @@ function renderResult(out, res) {
 }
 
 function prixDepuisEcran(out) {
+  if (out._lireDetail) {
+    const d = out._lireDetail();
+    if (!d.controle.ok || !d.verifie) throw new Error('Vérifie le détail avant de créer le devis.');
+    return { prixClientHt: d.controle.totaux.total_ht, ecoHt: d.controle.totaux.eco_ht };
+  }
   if (out._ecoEtat?.bloque) {
     const e = new Error(out.querySelector('#df-eco-etat').textContent);
     e.champ = 'piecesEco'; throw e;

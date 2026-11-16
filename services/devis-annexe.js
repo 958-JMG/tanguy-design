@@ -6,6 +6,7 @@ const { titreZone, detailsZone } = require('./description-devis-helper');
 
 // Liste blanche descriptive : ni prix d’achat, ni marge, ni notes internes.
 function contenuAnnexe(devis, lignes = [], zones = []) {
+  if (devis['Détail import']) return contenuDetail(devis);
   const blocs = [];
   for (const z of [...zones].sort((a, b) => (a.fields?.Ordre ?? 999) - (b.fields?.Ordre ?? 999))) {
     const f = z.fields || z;
@@ -22,6 +23,33 @@ function contenuAnnexe(devis, lignes = [], zones = []) {
   const empreinte = createHash('sha256').update(JSON.stringify({ numero, blocs })).digest('hex').slice(0, 16);
   return { numero, blocs, filename: `descriptif-${numero.replace(/[^a-z0-9-]/gi, '-').slice(0, 60)}-${empreinte}.pdf` };
 }
+function contenuDetail(devis) {
+  const s = JSON.parse(devis['Détail import']);
+  if (s.version !== 1 || s.etat !== 'complet') throw new Error('Import détaillé incomplet : annexe indisponible.');
+  const d = s.document, t = d.totaux, blocs = [];
+  const euro = n => Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/[\u00a0\u202f]/g, ' ') + ' EUR';
+  if (d.descriptif_complet) blocs.push({ titre: 'Descriptif général', texte: d.descriptif_complet });
+  for (const [i, l] of d.lignes_detail.entries()) {
+    blocs.push({ titre: [l.section, `Repère ${i + 1}`, l.code_produit].filter(Boolean).join(' · '),
+      texte: [l.designation, l.code_produit ? `Références : ${l.code_produit}` : l.type === 'eco' ? '' : 'Prestation ou sur-mesure sans référence catalogue (confirmé).',
+        `Quantité : ${l.quantite}${l.pu_ht != null ? ` · PU brut HT hors éco : ${euro(l.pu_ht)}` : ''}`,
+        l.remise_ht > 0 ? `Remise article : -${euro(l.remise_ht)} HT${l.remise_pct != null ? ` (${l.remise_pct} %)` : ''}` : '',
+        `Net de la ligne HT : ${euro(l.total_ht)} · TVA ${l.tva_taux} %`,
+        l.eco_ht > 0 ? `Dont éco-participation : ${euro(l.eco_ht)} HT` : '',
+      ].filter(Boolean).join('\n') });
+  }
+  blocs.push({ titre: 'Récapitulatif du devis', texte: [
+    `Remises articles : -${euro(d.lignes_detail.reduce((s, l) => s + Number(l.remise_ht || 0), 0))} HT (déjà déduites des lignes ci-dessus)`,
+    `Remise globale : -${euro(t.remise_globale_ht || 0)} HT${t.remise_globale_pct != null ? ` (${t.remise_globale_pct} % hors éco)` : ''}`,
+    `Total net HT : ${euro(devis['Total HT final'])}`,
+    `Total TTC : ${euro(devis['Total TTC'])}`,
+    `Dont éco-participation : ${euro(devis['Éco-participation'] || 0)} TTC`,
+  ].join('\n') });
+  const numero = String(devis['Numéro devis'] || 'Devis');
+  const empreinte = createHash('sha256').update(JSON.stringify({ numero, date: devis['Date devis'], blocs })).digest('hex').slice(0, 16);
+  return { numero, date: devis['Date devis'], blocs, commercial: true, version: empreinte,
+    filename: `descriptif-${numero.replace(/[^a-z0-9-]/gi, '-').slice(0, 60)}-${empreinte}.pdf` };
+}
 function genererAnnexe(contenu) {
   if (!contenu.blocs.length) throw new Error('Aucun descriptif disponible pour cette annexe.');
   return new Promise((resolve, reject) => {
@@ -30,7 +58,9 @@ function genererAnnexe(contenu) {
     doc.on('data', c => chunks.push(c)); doc.on('end', () => resolve(Buffer.concat(chunks))); doc.on('error', reject);
     doc.font('Helvetica-Bold').fontSize(20).fillColor('#26251f').text('TANGUY DESIGN');
     doc.moveDown(.4).fontSize(14).text(`Descriptif — devis ${contenu.numero}`);
-    doc.moveDown(.5).font('Helvetica').fontSize(9).fillColor('#66645c').text('Annexe descriptive au devis. Montants et conditions figurent sur le devis commercial.');
+    doc.moveDown(.5).font('Helvetica').fontSize(9).fillColor('#66645c').text(contenu.commercial
+      ? `Descriptif détaillé joint au devis. À conserver avec le devis commercial.\nDate du devis : ${contenu.date || '—'} · Version ${contenu.version}\nLes montants ci-dessous détaillent le total du devis ; ils ne s’y ajoutent pas.`
+      : 'Annexe descriptive au devis. Montants et conditions figurent sur le devis commercial.');
     doc.moveDown(1);
     for (const b of contenu.blocs) {
       if (doc.y > doc.page.height - 135) doc.addPage();
