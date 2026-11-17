@@ -51,6 +51,21 @@ test('reprise concurrente : même devis ; autre projet : nouveau devis correctem
   const r = await banc.appel('POST', route, { ...payload(), projetId: 'recAUTRE' });
   assert.equal(r.status, 200); assert.notEqual(r.json.devisId, devisId); assert.deepEqual(get(T.devis, r.json.devisId).fields.Projet, ['recAUTRE']);
 });
+test('descriptif privé : nouveau lien et ancien lien sans cache, connexion obligatoire avant et après téléchargement', async () => {
+  for (const suffixe of ['descriptif', 'descriptif.pdf']) {
+    const url = `${base}/api/devis/${devisId}/${suffixe}`;
+    for (const authentifie of [false, true, false]) {
+      const r = await fetchReel(url, { headers: authentifie ? { cookie: banc.cookiePour('virginie') } : {} });
+      assert.equal(r.status, authentifie ? 200 : 401);
+      assert.equal(r.headers.get('cache-control'), 'private, no-store');
+      if (authentifie) {
+        assert.match(r.headers.get('content-type'), /application\/pdf/);
+        assert.match(r.headers.get('content-disposition'), /descriptif-.*\.pdf/);
+        assert.equal(Buffer.from(await r.arrayBuffer()).subarray(0, 4).toString(), '%PDF');
+      }
+    }
+  }
+});
 test('refus avant écriture : montants, confirmation, accès et champ absent', async () => {
   const avant = table(T.devis).size, projets = table(T.projets).size;
   const faux = payload(); faux.document.totaux.total_ht = 999;

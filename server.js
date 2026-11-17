@@ -1910,7 +1910,11 @@ async function chargerAnnexe(devisId, { genererPdf = true } = {}) {
   const contenu = contenuAnnexe(f, lignes, zones);
   return { devis, contenu, pdf: genererPdf ? await genererAnnexe(contenu) : null };
 }
-app.get('/api/devis/:id/descriptif.pdf', requireAuth, async (req, res) => {
+app.get(['/api/devis/:id/descriptif', '/api/devis/:id/descriptif.pdf'], (req, res, next) => {
+  // Aussi sur les refus d'accès : aucun document client dans un cache partagé.
+  res.set('Cache-Control', 'private, no-store');
+  next();
+}, requireAuth, async (req, res) => {
   try {
     const a = await chargerAnnexe(req.params.id);
     res.type('application/pdf').set('Content-Disposition', `attachment; filename="${a.contenu.filename}"`).send(a.pdf);

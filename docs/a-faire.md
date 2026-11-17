@@ -1,5 +1,11 @@
 # Tanguy Design — réalisé et suite
 
+## 17 novembre 2026 — Livraison et téléchargement du descriptif · Codex
+
+- Accord JMG : mise en ligne et régénération du devis signalé. PR161 déployée en `f541ac20cf38`, workflow44122648699 réussi, disponibilité et version vérifiées. Nouveau devis Pennylane créé une seule fois avec annexe jointe, sans avertissement ; ancien devis conservé, aucun envoi. Comparaison de la base : lignes, liens, remises, TVA, HT et TTC inchangés, réconciliation à 0,00 €.
+- Contrôle réel : l’ancienne URL du descriptif PDF était conservée par le CDN et pouvait renvoyer le fichier sans connexion. Correctif complémentaire : lien sans extension, `private, no-store` avant l’authentification pour l’ancien et le nouveau chemin. Purge ciblée et contrôle final de production à terminer.
+- Vérifications locales du complément : **761 tests réussis**, 0 échec/ignoré. Téléchargement authentifié puis refus anonyme contrôlés sur les deux routes. Branche `codex/tanguy-descriptifs-livraison-20261117` ; aucun changement de calcul. Preuves privées dans `Travaux/tanguy-descriptifs-20261117-preuves`.
+
 ## 17 novembre 2026 — Affichage devis et descriptif · Codex
 
 - **Demande confirmée** : retirer les passages surlignés orange de l’affichage ; conserver tous les montants et calculs.
