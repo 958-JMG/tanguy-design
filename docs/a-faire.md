@@ -1,5 +1,14 @@
 # Tanguy Design — réalisé et suite
 
+## 17 novembre 2026 — Livraison vérifiée · Codex
+
+- **En ligne** : PR161 puis PR162, version applicative finale `317ceec6d67a1494a181401669c498b12520695c`, déploiement [44124503881](https://github.com/958-JMG/tanguy-design/actions/runs/44124503881) réussi après **761 tests**. Disponibilité, version et lien de téléchargement publiés contrôlés.
+- **Devis demandé** : régénération effectuée une seule fois ; nouveau numéro **D-2026-11-36**, lié à la même fiche `IMP-2026-016`, au même client et au même projet. Annexe actuelle jointe, ancien devis D-2026-11-35 conservé. Aucun envoi client.
+- **Contrôle réel** : 33 lignes, références, prestations, remises, TVA, HT/TTC et échéances inchangés avant/après ; réconciliation 0,00 €. PDF officiel Pennylane sur une page et descriptif sur huit pages relus visuellement. Le détail chiffré de l’annexe est textuellement identique ; seules les mentions demandées ont été retirées. Sources et copies avant/après conservées hors dépôt.
+- **Téléchargement** : nouveau lien sans extension, réponse `private, no-store`, CDN DYNAMIC ; accès anonyme HTTP401 avant et après téléchargement authentifié. L’ancien chemin, lorsqu’il atteint l’application, est également protégé (CDN BYPASS). Fichier reçu par le nouveau bouton identique aux huit pages relues.
+- **Reste technique distinct** : purge de deux anciennes URLs conservées par le CDN. La clé Cloudflare disponible refuse cette opération (HTTP401), sans élargissement de droits ; connexion de JMG demandée dans Safari pour terminer. Le bouton actuel sert déjà le bon document avec connexion obligatoire. Ne pas déclarer cette purge terminée sans preuve.
+- **Passation** : branche `codex/tanguy-descriptifs-cloture-20261117`, preuves privées `Travaux/tanguy-descriptifs-20261117-preuves`. Recette client non confirmée ; aucun message envoyé. PDF finaux préparés pour JMG après contrôle.
+
 ## 17 novembre 2026 — Livraison et téléchargement du descriptif · Codex
 
 - Accord JMG : mise en ligne et régénération du devis signalé. PR161 déployée en `f541ac20cf38`, workflow44122648699 réussi, disponibilité et version vérifiées. Nouveau devis Pennylane créé une seule fois avec annexe jointe, sans avertissement ; ancien devis conservé, aucun envoi. Comparaison de la base : lignes, liens, remises, TVA, HT et TTC inchangés, réconciliation à 0,00 €.
