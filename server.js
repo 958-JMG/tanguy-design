@@ -1828,11 +1828,13 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
     // 3) Lignes Pennylane (mapping par nature + réconciliation TTC)
     //    Le descriptif du devis alimente la description des lignes.
     const contexte = await contextePennylane(f);
+    const contenuPourDevis = f[CHAMP_DETAIL]
+      ? contenuAnnexe(f, contexte.lignes, contexte.zones, { nouvelleVersion: true }) : null;
     let detailVerifie = null;
     if (f[CHAMP_DETAIL]) {
       detailVerifie = await verifierDetail(f, contexte.lignes);
       // Prépare le PDF avant de créer le document commercial.
-      await genererAnnexe(contenuAnnexe(f, contexte.lignes, contexte.zones));
+      await genererAnnexe(contenuPourDevis);
     }
     const { description: descDevis, libelles } = contexte;
     const built = pennylane.buildInvoiceLines(f, { description: descDevis, libelles });
@@ -1869,13 +1871,13 @@ app.post('/api/devis/:id/pennylane', requireAuth, async (req, res) => {
 
     // 6) Persiste les identifiants sur le devis
     await atPatch(TABLES.devis.id, devisId, { [PL_QUOTE_FIELD]: String(quote.id), [PL_NUM_FIELD]: quote.number || '',
-      ...(detailVerifie ? { [CHAMP_DETAIL]: JSON.stringify({ ...JSON.parse(f[CHAMP_DETAIL]), pennylane: { quoteId: String(quote.id), annexe: contenuAnnexe(f, contexte.lignes, contexte.zones).filename } }) } : {}),
+      ...(detailVerifie ? { [CHAMP_DETAIL]: JSON.stringify({ ...JSON.parse(f[CHAMP_DETAIL]), pennylane: { quoteId: String(quote.id), annexe: contenuPourDevis.filename, rendu: contenuPourDevis.rendu } }) } : {}),
     });
 
     let annexe = null;
     try {
       if (!contexte.lignes) throw new Error('Descriptif non chargé');
-      const contenu = contenuAnnexe(f, contexte.lignes, contexte.zones);
+      const contenu = contenuPourDevis || contenuAnnexe(f, contexte.lignes, contexte.zones);
       annexe = await pennylane.joindreAnnexeDevis(quote.id, await genererAnnexe(contenu), contenu.filename);
     } catch (e) {
       warnings.push(`Le devis est créé, mais l’annexe descriptive n’est pas jointe : ${e.message}. Télécharge le descriptif ou utilise « Joindre le descriptif » sans recréer le devis.`);
@@ -1992,8 +1994,13 @@ async function contextePennylane(devisFields) {
       const detail = await verifierDetail(devisFields, lignes);
       const annexe = contenuAnnexe(devisFields, lignes, zones);
       const t = detail.controle.totaux;
-      const mention = `Descriptif détaillé joint au devis : ${annexe.filename}\nRemises articles : ${t.remise_lignes_ht.toFixed(2)} EUR HT ; remise globale : ${t.remise_globale_ht.toFixed(2)} EUR HT. Déjà déduites du total.\n\n`;
-      description = mention + description.slice(0, Math.max(0, 1000 - mention.length));
+      // L'annexe porte le détail complet. Ne pas répéter une liste tronquée,
+      // ni exposer l'empreinte technique qui reste contrôlée côté serveur.
+      description = [
+        `Descriptif détaillé joint au devis : ${annexe.numero}`,
+        t.remise_lignes_ht > 0 ? `Remises articles : ${t.remise_lignes_ht.toFixed(2)} EUR HT` : '',
+        t.remise_globale_ht > 0 ? `Remise globale : ${t.remise_globale_ht.toFixed(2)} EUR HT` : '',
+      ].filter(Boolean).join('\n');
     }
     return {
       description,

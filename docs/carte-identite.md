@@ -1,5 +1,13 @@
 # Tanguy Design — état partagé
 
+## 17 novembre 2026 — Affichage devis et descriptif · Codex
+
+- **Demande confirmée** : retirer les passages surlignés orange de l’affichage ; conserver tous les montants et calculs.
+- **Préparé localement** : renvoi lisible au descriptif par numéro de devis, sans empreinte technique ni liste « Hors ensemble » répétée/tronquée ; remise article nulle et mention « Déjà déduites du total » retirées du résumé Pennylane ; remise globale et remises article positives conservées. Dans l’annexe, code de version masqué et rappel final standard livraison/pose/éco/remise retiré du seul descriptif général. Les variantes contenant une précision supplémentaire restent intactes.
+- **Conservation** : aucune modification des sources, lignes, références, prix, TVA, remises ou éco. Version interne et contrôle de la bonne annexe maintenus. Les devis déjà liés gardent leur ancien rendu ; une création/régénération explicite passe au nouveau, sans modifier l’ancienne pièce jointe.
+- **Vérifié** : 760 tests réussis, 0 échec/ignoré ; création, absence de doublon, ancien rendu puis régénération, refus d’annexe décalée, préservation des montants et liens testés avec Airtable/Pennylane fictifs. PDF fictif rendu et relu visuellement ; syntaxe et `git diff --check` valides. Le test historique de planning échouait aussi sur main après le 16/11 ; son horloge est désormais figée au jour de la recette, sans changement du planning métier.
+- **État** : branche `codex/tanguy-descriptifs-20261117`, worktree `/Users/jmg/Developer/9-58/Travaux/tanguy-descriptifs-20261117`, non poussée. Aucun déploiement, aucune mutation de production, aucun envoi ni livraison client confirmée. Preuves locales : dossier voisin `tanguy-descriptifs-20261117-preuves`.
+- **Suite** : accord de publication, CI et déploiement puis régénération explicite du devis signalé et relecture du PDF officiel Pennylane. Aucun devis existant n’a été remplacé pendant la préparation.
 
 ## 16 novembre 2026 — Devis détaillés PDF / Excel · Codex
 

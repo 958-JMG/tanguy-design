@@ -102,8 +102,10 @@ test('nouveau chantier : réponse du projet perdue, reprise sans second projet n
 test('Pennylane : mention de la vraie annexe, remises lisibles, éco sortie sans modifier le net', async () => {
   const r = await banc.appel('POST', `/api/devis/${devisId}/pennylane`, {}); assert.equal(r.status, 200, JSON.stringify(r.json));
   const pl = banc.pennylaneRecu.at(-1), annexe = banc.pennylaneAnnexes.get(r.json.quoteId)[0];
-  assert.ok(pl.invoice_lines.some(l => l.description?.includes(annexe.filename)));
-  assert.ok(pl.invoice_lines.some(l => l.description?.includes('200.00 EUR HT ; remise globale : 112.00 EUR HT')));
+  const description = pl.invoice_lines.find(l => l.description)?.description;
+  assert.equal(description, `Descriptif détaillé joint au devis : ${get(T.devis, devisId).fields['Numéro devis']}\nRemises articles : 200.00 EUR HT\nRemise globale : 112.00 EUR HT`);
+  assert.ok(!description.includes(annexe.filename));
+  assert.equal(JSON.parse(get(T.devis, devisId).fields['Détail import']).pennylane.annexe, annexe.filename);
   assert.equal(Math.round(pl.invoice_lines.reduce((s, l) => s + Number(l.raw_currency_unit_price), 0) * 100), 90000);
   const { text } = await require('unpdf').extractText(new Uint8Array(annexe.pdf), { mergePages: true });
   assert.match(text, /0000123/); assert.match(text, /112,00/);
@@ -119,7 +121,22 @@ test('signature et PDF commercial bloqués sans annexe actuelle ; modification d
   assert.equal((await banc.appel('PATCH', `/api/data/devis/${devisId}`, { fields: { 'Éco-participation': 99 } })).status, 409);
   assert.equal((await banc.appel('PATCH', `/api/data/devis/${devisId}`, { fields: { Statut: 'Signé' } })).status, 409);
 });
-test('annexe modifiée : le devis commercial doit citer sa version, une simple pièce jointe ne suffit pas', async () => {
+test('Pennylane : sans remise article, seul le renvoi lisible et la remise globale apparaissent', async () => {
+  const b = payload();
+  Object.assign(b.document.lignes_detail[0], { pu_ht: 600, remise_ht: 0, remise_pct: 0 });
+  const creation = await banc.appel('POST', route, b); assert.equal(creation.status, 200);
+  const id = creation.json.devisId, avant = structuredClone(get(T.devis, id).fields);
+  const r = await banc.appel('POST', `/api/devis/${id}/pennylane`, {}); assert.equal(r.status, 200, JSON.stringify(r.json));
+  const pl = banc.pennylaneRecu.at(-1);
+  const description = pl.invoice_lines.find(l => l.description)?.description;
+  assert.equal(description, `Descriptif détaillé joint au devis : ${avant['Numéro devis']}\nRemise globale : 112.00 EUR HT`);
+  assert.doesNotMatch(description, /Remises articles|Déjà déduites|Hors ensemble|Détail du devis|[a-f0-9]{16}/);
+  assert.equal(Math.round(pl.invoice_lines.reduce((s, l) => s + Number(l.raw_currency_unit_price), 0) * 100), 90000);
+  for (const field of ['Total HT final', 'Total TTC', 'Éco-participation', 'Montant remise', 'Lignes devis', 'Client', 'Projet']) {
+    assert.deepEqual(get(T.devis, id).fields[field], avant[field], field);
+  }
+});
+test('annexe modifiée : le devis commercial doit rester lié à sa version interne, une simple pièce jointe ne suffit pas', async () => {
   const d = get(T.devis, devisId).fields;
   const ancienQuote = d['Pennylane quote ID'];
   const date = d['Date devis']; d['Date devis'] = '2026-12-01';
@@ -131,7 +148,42 @@ test('annexe modifiée : le devis commercial doit citer sa version, une simple p
     assert.equal(regen.status, 200, JSON.stringify(regen.json));
     assert.notEqual(regen.json.quoteId, ancienQuote);
     const a = banc.pennylaneAnnexes.get(regen.json.quoteId)[0];
-    assert.ok(banc.pennylaneRecu.at(-1).invoice_lines.some(l => l.description?.includes(a.filename)));
+    assert.equal(JSON.parse(d['Détail import']).pennylane.annexe, a.filename);
+    assert.ok(!banc.pennylaneRecu.at(-1).invoice_lines.some(l => l.description?.includes(a.filename)));
     assert.equal((await banc.appel('GET', `/api/devis/${devisId}/pennylane/annexe`)).json.jointe, true);
   } finally { d['Date devis'] = date; }
+});
+test('ancien devis : annexe d’origine accessible, nouvelle présentation seulement après régénération explicite', async () => {
+  const b = payload(); b.document.produit_resume = 'Historique fictif';
+  b.document.descriptif_complet += '\nLivraison, pose et éco-participation\nLivraison\nQuantité : 1\nPose\nQuantité : 1\nÉco-participation mobilier\nQuantité : 1\nRemise commerciale\nRemise commerciale\nQuantité : 1';
+  const creation = await banc.appel('POST', route, b); assert.equal(creation.status, 200);
+  const id = creation.json.devisId, d = get(T.devis, id).fields;
+  const { contenuAnnexe, genererAnnexe } = require('./devis-annexe');
+  const s = JSON.parse(d['Détail import']); s.pennylane = { quoteId: '900001' };
+  d['Pennylane quote ID'] = s.pennylane.quoteId; d['Détail import'] = JSON.stringify(s);
+  const ancien = contenuAnnexe(d);
+  s.pennylane.annexe = ancien.filename; d['Détail import'] = JSON.stringify(s);
+  const pdf = await genererAnnexe(ancien);
+  banc.pennylaneAnnexes.set(s.pennylane.quoteId, [{ id: 999, filename: ancien.filename, pdf }]);
+  const avant = structuredClone(d);
+  const lecture = await banc.appel('GET', `/api/devis/${id}/pennylane/annexe`);
+  assert.equal(lecture.json.jointe, true, JSON.stringify(lecture.json));
+  const r = await banc.appel('POST', `/api/devis/${id}/pennylane`, {});
+  assert.equal(r.json.already, true); assert.deepEqual(d, avant);
+  const { text } = await require('unpdf').extractText(new Uint8Array(pdf), { mergePages: true });
+  assert.ok(text.includes(ancien.version)); assert.match(text, /Livraison, pose et éco-participation/);
+  // Le maintien de l'ancien rendu ne permet pas de contourner une modification.
+  const date = d['Date devis']; d['Date devis'] = '2026-12-02';
+  assert.equal((await banc.appel('GET', `/api/devis/${id}/pennylane/annexe`)).status, 409);
+  d['Date devis'] = date;
+  const nouveau = await banc.appel('POST', `/api/devis/${id}/pennylane`, { force: true });
+  assert.equal(nouveau.status, 200, JSON.stringify(nouveau.json));
+  const lien = JSON.parse(d['Détail import']).pennylane;
+  assert.equal(lien.rendu, 2); assert.notEqual(lien.annexe, ancien.filename);
+  assert.equal((await banc.appel('GET', `/api/devis/${id}/pennylane/annexe`)).json.jointe, true);
+  const annexe = banc.pennylaneAnnexes.get(nouveau.json.quoteId)[0];
+  const relu = await require('unpdf').extractText(new Uint8Array(annexe.pdf), { mergePages: true });
+  assert.doesNotMatch(relu.text, /Version|Livraison, pose et éco-participation/);
+  assert.equal(banc.pennylaneAnnexes.get(s.pennylane.quoteId)[0].filename, ancien.filename);
+  for (const champ of ['Total HT final', 'Total TTC', 'Montant remise', 'Éco-participation', 'Lignes devis', 'Client', 'Projet']) assert.deepEqual(d[champ], avant[champ], champ);
 });

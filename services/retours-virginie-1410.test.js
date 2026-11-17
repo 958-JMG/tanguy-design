@@ -139,7 +139,10 @@ test('commande : devis non signé → refus clair (ses BC naissent à la signatu
 
 // ── Signature : la fabrication des BC a déménagé dans services/commande-bc.js ─
 // Décision JMG du 14/10/2026 : le Divers part dans un BC « À classer » visible.
-test('signature : Mobilier + Électroménager sans plan vide + Divers en « À classer »', async () => {
+test('signature : Mobilier + Électroménager sans plan vide + Divers en « À classer »', async (t) => {
+  // La date d'envoi ne peut pas précéder le jour courant : figer le jour de
+  // cette recette pour qu'elle ne change pas de sens après le 16/11/2026.
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-14T10:00:00Z') });
   const r = await appel('POST', '/api/devis/recDEV2/sign', {});
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.equal(r.json.commandes_creees, 3);
