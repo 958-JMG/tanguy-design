@@ -65,7 +65,9 @@ test('annexe versionnée : références, dernier détail et deux remises réelle
   r.snapshot.etat = 'complet'; r.fields['Détail import'] = JSON.stringify(r.snapshot);
   const contenu = contenuAnnexe(r.fields, []); const pdf = await genererAnnexe(contenu);
   const { text, totalPages } = await require('unpdf').extractText(new Uint8Array(pdf), { mergePages: true });
-  for (const ref of ['0000123', 'TEST-02', 'APP-TEST', 'DERNIER DÉTAIL', '200,00', '112,00', '1 080,00', contenu.version]) assert.ok(text.replace(/\u00a0|\u202f/g, ' ').includes(ref), ref);
+  for (const ref of ['0000123', 'TEST-02', 'APP-TEST', 'DERNIER DÉTAIL', '200,00', '112,00', '1 080,00']) assert.ok(text.replace(/\u00a0|\u202f/g, ' ').includes(ref), ref);
+  assert.ok(!text.includes(contenu.version)); assert.doesNotMatch(text, /Version/);
+  assert.match(contenu.filename, new RegExp(`-${contenu.version}\\.pdf$`));
   assert.ok(totalPages > 1);
   r.fields['Date devis'] = '2026-11-17'; assert.notEqual(contenuAnnexe(r.fields, []).filename, contenu.filename);
 });
@@ -75,6 +77,45 @@ test('empreinte liée au contenu et à la bonne cible ; migration strictement ad
   const schema = { tables: [{ id: 'tblWklGEKMiBStXCs', fields: [] }] };
   assert.equal(plan(schema).length, 2); schema.tables[0].fields = plan(schema); assert.deepEqual(plan(schema), []);
   schema.tables[0].fields[0].type = 'number'; assert.throws(() => plan(schema), /type différent/);
+});
+test('rappel commercial masqué seulement dans le résumé ; source, prestations et montants intacts', async () => {
+  const d = fictif();
+  const technique = 'Meuble fictif\nPose particulière : conserver le jeu de 4 mm.\nQuantité : 2';
+  const rappel = 'Livraison, pose et éco-participation\nLivraison\nQuantité : 1\nPose\nQuantité : 1\nÉco-participation mobilier\nQuantité : 1\nRemise commerciale\nRemise commerciale\nQuantité : 1';
+  d.descriptif_complet = `${technique}\n\n${rappel}\n`;
+  // Ventilation fictive du même montant : les prestations chiffrées ne doivent
+  // pas disparaître avec leur rappel non chiffré dans le descriptif général.
+  d.lignes_detail[1].quantite = 1; d.lignes_detail[1].total_ht = 200;
+  for (const designation of ['Livraison', 'Pose']) d.lignes_detail.push({ designation, sans_reference_confirme: true, quantite: 1, pu_ht: 100, total_ht: 100, tva_taux: 20 });
+  const r = await preparerDetail(d, { numero: 'IMP-DEMO', date: '2026-11-17' });
+  r.snapshot.etat = 'complet'; r.fields['Détail import'] = JSON.stringify(r.snapshot);
+  const avant = structuredClone(r.fields);
+  const contenu = contenuAnnexe(r.fields);
+  assert.equal(contenu.blocs[0].texte, technique);
+  for (const designation of ['Livraison', 'Pose', 'Éco-participation totale']) {
+    assert.ok(contenu.blocs.some(b => b.texte.startsWith(designation + '\n') && b.texte.includes('Net de la ligne HT :')));
+  }
+  const { text } = await require('unpdf').extractText(new Uint8Array(await genererAnnexe(contenu)), { mergePages: true });
+  assert.doesNotMatch(text, /Livraison, pose et éco-participation|Remise commerciale/);
+  assert.match(text, /Pose particulière/); assert.match(text, /Remise globale : -112,00/);
+  assert.match(text.replace(/[\u00a0\u202f]/g, ' '), /Total TTC : 1 080,00/);
+  assert.deepEqual(r.fields, avant); assert.equal(JSON.parse(r.fields['Détail import']).document.descriptif_complet, d.descriptif_complet);
+  // Une instruction supplémentaire dans le bloc n'est jamais effacée.
+  r.snapshot.document.descriptif_complet += 'Livraison par escalier uniquement.';
+  r.fields['Détail import'] = JSON.stringify(r.snapshot);
+  assert.equal(contenuAnnexe(r.fields).blocs[0].texte, r.snapshot.document.descriptif_complet);
+});
+test('nouveau rendu : une ancienne annexe reste distincte, même sans rappel à retirer', async () => {
+  const r = await preparerDetail(fictif(), { numero: 'IMP-DEMO', date: '2026-11-17' });
+  r.snapshot.etat = 'complet'; r.fields['Détail import'] = JSON.stringify(r.snapshot);
+  const contenu = contenuAnnexe(r.fields);
+  const ancienHash = require('node:crypto').createHash('sha256').update(JSON.stringify({ numero: contenu.numero, date: contenu.date, blocs: contenu.blocs })).digest('hex').slice(0, 16);
+  const ancien = `descriptif-${contenu.numero}-${ancienHash}.pdf`;
+  assert.notEqual(contenu.filename, ancien);
+  r.fields['Pennylane quote ID'] = 'TEST';
+  r.snapshot.pennylane = { quoteId: 'TEST', annexe: ancien };
+  r.fields['Détail import'] = JSON.stringify(r.snapshot);
+  assert.throws(() => require('./devis-detail').verifierVersionCommerciale(r.fields, contenu), /Régénérer/);
 });
 test('Pennylane : éco au bon taux, aucun déplacement vers le taux supérieur', async () => {
   const d = fictif(); d.lignes_detail[2].tva_taux = 10;
