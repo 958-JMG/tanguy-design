@@ -84,7 +84,7 @@ function renderFiche(app, data) {
       <div class="header-actions">
         <button class="btn btn-ghost btn-sm" id="btn-edit-devis">${icon('edit', 14)} Éditer</button>
         <button class="btn btn-ghost btn-sm" id="btn-reimport-devis">${icon('plus', 14)} ${f['Détail import'] ? 'Importer une version corrigée' : 'Re-importer PDF'}</button>
-        <a class="btn btn-ghost btn-sm" href="/api/devis/${encodeURIComponent(devis.id)}/descriptif.pdf">${icon('download', 14)} Télécharger le descriptif</a>
+        <a class="btn btn-ghost btn-sm" href="/api/devis/${encodeURIComponent(devis.id)}/descriptif">${icon('download', 14)} Télécharger le descriptif</a>
         ${plQuote ? `<button class="btn btn-ghost btn-sm" id="btn-pennylane-annexe">${icon('file', 14)} Joindre le descriptif</button>` : ''}
         ${plQuote
           ? `<a class="btn btn-ghost btn-sm" href="${esc(pennylanePdfUrl(devis.id))}">${icon('download', 14)} Télécharger PDF</a>
