@@ -1,5 +1,14 @@
 # Tanguy Design — réalisé et suite
 
+## 18 novembre 2026 — Cache vérifié et PDF envoyés à Virginie · Codex
+
+- Les deux anciennes URLs du descriptif signalé ne servent plus de copie en cache : HTTP401 sans connexion, HTTP200 avec la bonne annexe, puis HTTP401 après téléchargement. En-tête `private, no-store`, CDN BYPASS ; nouveau lien DYNAMIC. Neuf contrôles réels réussis et annexe Pennylane actuelle toujours jointe.
+- La purge manuelle demandée le 17/11 n’est donc plus nécessaire ; aucune purge Cloudflare réalisée ni aucun droit élargi. Connexion de JMG à Cloudflare devenue inutile. Aucune nouvelle régénération, aucun montant ou calcul modifié. Version applicative `317ceec6d67a` inchangée.
+- Preuve privée : `Travaux/tanguy-descriptifs-20261117-preuves/cache-cloture-20261118.json`. Mail envoyé sur demande de JMG à Virginie le 18/11 à 07:52 Europe/Paris, en réponse à « Devis et descriptif » du 17/11. Présence dans Envoyés et deux pièces jointes vérifiées : `Devis-MECHIN-D-2026-11-36.pdf` et `Descriptif-MECHIN-IMP-2026-016.pdf`. Montants inchangés rappelés dans le message.
+
+- **Attente client** : Virginie doit confirmer la finition du plan de travail (résumé « Chianca di Ostuni » / repère 24 « Travertino Chiaro »). Libellés source conservés ; recette client et réception du mail non confirmées.
+- **Passation** : Codex, branche `codex/tanguy-cache-cloture-20261118` ; documentation seule, `git diff --check` valide. Aucun nouveau déploiement applicatif.
+
 ## 17 novembre 2026 — Livraison vérifiée · Codex
 
 - **En ligne** : PR161 puis PR162, version applicative finale `317ceec6d67a1494a181401669c498b12520695c`, déploiement [44124503881](https://github.com/958-JMG/tanguy-design/actions/runs/44124503881) réussi après **761 tests**. Disponibilité, version et lien de téléchargement publiés contrôlés.
