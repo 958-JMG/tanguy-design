@@ -1,5 +1,20 @@
 # Tanguy Design — réalisé et suite
 
+## 27 novembre 2026 — Correction Devis express prête à intégrer · Codex / Claude
+
+- **Résultat** : import Excel corrigé pour les liens de notes que le lecteur ExcelJS ne reconnaît pas. Références et montants conservés ; aucune création de devis pendant la recette.
+- **Relecture croisée** : accord JMG enregistré dans Pilotage ; Claude a validé le code `a3b54f7`. Compétence commune préparée dans `425d7f2`, avec points d’entrée Claude et Codex. Même tâche SAV, mission `2d1bef55-b2bc-432f-9b26-6083db19d947`, état terminé pour le code seulement.
+- **Vérifié ensuite sur Mac** : 762 tests verts ; erreur « comments » reproduite sur l’ancien code avec un fichier fictif, absente après correction ; import HTTP réel local et parcours Chromium 1280 px / WebKit 390 px, référence 0000123 et totaux 10 HT / 12 TTC conservés. Aucune écriture client ni envoi. Preuves dans le dossier voisin `tanguy-recette-urgence-20261127-preuves`.
+- **Limites** : fichier réel de Virginie non examiné, iPhone physique non testé. WebKit essayé sur serveur local HTTP avec la seule directive de montée HTTPS retirée dans le banc navigateur ; politique de production inchangée. ExcelJS reste figé en 4.4.0 ; relancer la régression avant toute mise à jour.
+- **À faire** : revue de la demande de fusion puis publication sur accord JMG et contrôle réel après publication. Aucun déploiement, aucune livraison ni notification client à ce stade. Branche `codex/tanguy-recette-urgence-20261127` préparée pour GitHub ; historique agent conservé.
+
+
+## 27 novembre 2026 — Passation SAV Devis express · Codex
+
+- Correctif et test de régression préparés pour la tâche existante `tk_16d0fded-477e-42bd-afc3-ab0ba7e1b58e`. Le test reproduit l’erreur avant correction et vérifie après correction que les notes Excel n’altèrent pas la lecture des données chiffrées et des références. 7 tests de lecture et 3 tests de transport simulé réussis.
+- Reste à relire le correctif et à vérifier l’import de bout en bout sur un classeur fictif. Ici, le banc HTTP est bloqué par `listen EPERM` et aucun navigateur n’a été trouvé pour la capture. Aucune attente client identifiée, aucun envoi ou déploiement effectué.
+- Branche `codex/planning-2d1bef55-b2bc-432f-9b26-6083db19d947` non poussée, worktree `/root/958/Travaux/codex-planning-2d1bef55-b2bc-432f-9b26-6083db19d947`.
+
 ## 18 novembre 2026 — Cache vérifié et PDF envoyés à Virginie · Codex
 
 - Les deux anciennes URLs du descriptif signalé ne servent plus de copie en cache : HTTP401 sans connexion, HTTP200 avec la bonne annexe, puis HTTP401 après téléchargement. En-tête `private, no-store`, CDN BYPASS ; nouveau lien DYNAMIC. Neuf contrôles réels réussis et annexe Pennylane actuelle toujours jointe.

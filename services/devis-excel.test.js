@@ -1,7 +1,9 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { createRequire } = require('node:module');
 const ExcelJS = require('exceljs');
+const JSZip = createRequire(require.resolve('exceljs'))('jszip');
 const { lireExcel } = require('./devis-excel');
 const entetes = ['Section', 'Référence', 'Désignation', 'Quantité', 'PU HT', 'Remise HT', 'Remise %', 'Éco HT', 'Net HT', 'TVA', 'Catégorie', 'Type', 'Sans référence'];
 const rows = [
@@ -43,4 +45,17 @@ test('fichier endommagé, format ancien, dépassement de taille : refus lisible'
   await assert.rejects(lireExcel(Buffer.from('pas un zip'), '.xlsx'));
   await assert.rejects(lireExcel(Buffer.from(''), '.xls'), /xlsx/);
   await assert.rejects(lireExcel(Buffer.alloc(6 * 1024 * 1024), '.xlsx'), /moins de 5 Mo/);
+});
+test('lecture Excel : les annotations non reconnues par ExcelJS ne bloquent pas le devis', async () => {
+  const original = await workbook((wb, ws) => { ws.getCell('B5').note = 'Annotation fictive'; });
+  const archive = await JSZip.loadAsync(original);
+  const chemin = 'xl/worksheets/_rels/sheet1.xml.rels';
+  const liens = await archive.file(chemin).async('string');
+  assert.match(liens, /Target="\.\.\/comments1\.xml"/);
+  // Un autre exporteur utilise une cible absolue dans le paquet XLSX.
+  archive.file(chemin, liens.replace('../comments1.xml', '/xl/comments1.xml'));
+  const tampon = await archive.generateAsync({ type: 'nodebuffer' });
+  const attendu = await lireExcel(await workbook(), '.xlsx');
+  assert.deepEqual(await lireExcel(original, '.xlsx'), attendu);
+  assert.deepEqual(await lireExcel(tampon, '.xlsx'), attendu);
 });
