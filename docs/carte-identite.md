@@ -1,5 +1,11 @@
 # Tanguy Design — état partagé
 
+## 27 novembre 2026 — Import Excel du Devis express · Codex
+
+- SAV existant `tk_16d0fded-477e-42bd-afc3-ab0ba7e1b58e` conservé. Erreur `reading 'comments'` reproduite avec un classeur fictif dont le lien interne vers une note est absolu. Le lecteur ignore désormais les liens vers les notes Excel avant de lire les cellules du devis.
+- Vérifié sur données fictives : 7 tests de lecture, dont la comparaison intégrale des résultats avec et sans note, et 3 tests simulés de transport de l’analyse fournisseur. Le banc HTTP local est bloqué par `listen EPERM`. Aucune recette navigateur ni capture PNG disponible.
+- Correctif local uniquement. Aucun push, déploiement, envoi ou livraison client confirmée.
+
 ## 18 novembre 2026 — Cache vérifié et PDF envoyés à Virginie · Codex
 
 - Les deux anciennes URLs du descriptif signalé ne servent plus de copie en cache : HTTP401 sans connexion, HTTP200 avec la bonne annexe, puis HTTP401 après téléchargement. En-tête `private, no-store`, CDN BYPASS ; nouveau lien DYNAMIC. Neuf contrôles réels réussis et annexe Pennylane actuelle toujours jointe.

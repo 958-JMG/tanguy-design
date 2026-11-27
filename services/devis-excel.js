@@ -91,7 +91,17 @@ async function lireInterne(buffer, extension) {
   if (extension === '.csv') return depuisFeuilles([{ nom: 'CSV', rows: lireCsv(buffer) }]);
   const ExcelJS = require('exceljs');
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer, { ignoreNodes: ['drawing', 'picture', 'conditionalFormatting', 'dataValidations', 'sheetProtection'] });
+  const xlsx = wb.xlsx;
+  const reconcile = xlsx.reconcile.bind(xlsx);
+  // ExcelJS 4.4.0 résout les liens vers les notes même avec ignoreNodes.
+  // L’import ne lit que les cellules. Écarter ces liens avant la résolution,
+  // car certains classeurs les stockent sous des chemins non reconnus.
+  xlsx.reconcile = (model, options) => {
+    const typeNote = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments';
+    model.worksheetRels = model.worksheetRels.map(liens => liens.filter(lien => lien.Type !== typeNote));
+    return reconcile(model, options);
+  };
+  await xlsx.load(buffer, { ignoreNodes: ['drawing', 'picture', 'conditionalFormatting', 'dataValidations', 'sheetProtection'] });
   if (wb.worksheets.length > 12) throw new Error('Le fichier comporte trop de feuilles. Garde uniquement le devis à importer.');
   const feuilles = wb.worksheets.map(s => {
     const rows = [];

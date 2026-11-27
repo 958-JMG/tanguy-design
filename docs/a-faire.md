@@ -1,5 +1,11 @@
 # Tanguy Design — réalisé et suite
 
+## 27 novembre 2026 — Passation SAV Devis express · Codex
+
+- Correctif et test de régression préparés pour la tâche existante `tk_16d0fded-477e-42bd-afc3-ab0ba7e1b58e`. Le test reproduit l’erreur avant correction et vérifie après correction que les notes Excel n’altèrent pas la lecture des données chiffrées et des références. 7 tests de lecture et 3 tests de transport simulé réussis.
+- Reste à relire le correctif et à vérifier l’import de bout en bout sur un classeur fictif. Ici, le banc HTTP est bloqué par `listen EPERM` et aucun navigateur n’a été trouvé pour la capture. Aucune attente client identifiée, aucun envoi ou déploiement effectué.
+- Branche `codex/planning-2d1bef55-b2bc-432f-9b26-6083db19d947` non poussée, worktree `/root/958/Travaux/codex-planning-2d1bef55-b2bc-432f-9b26-6083db19d947`.
+
 ## 18 novembre 2026 — Cache vérifié et PDF envoyés à Virginie · Codex
 
 - Les deux anciennes URLs du descriptif signalé ne servent plus de copie en cache : HTTP401 sans connexion, HTTP200 avec la bonne annexe, puis HTTP401 après téléchargement. En-tête `private, no-store`, CDN BYPASS ; nouveau lien DYNAMIC. Neuf contrôles réels réussis et annexe Pennylane actuelle toujours jointe.
