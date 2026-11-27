@@ -1,5 +1,14 @@
 # Tanguy Design — réalisé et suite
 
+## 27 novembre 2026 — Correction Devis express publiée · Codex / Claude
+
+- **En ligne** : PR165 fusionnée sur accord explicite de JMG ; image `63a18c759e1ccf2ec7ea1a206bb0a664535f2cd1` servie, déploiement GitHub `46061228146` réussi, santé HTTP200. Contrôle de l’accès import sans connexion : HTTP401.
+- **Recette réelle après publication, vers 21 h 08 Paris** : session Safari de JMG, import du classeur fictif qui reproduisait l’erreur des notes Excel ; référence `0000123`, 10 HT / 12 TTC conservés, « Les totaux correspondent au document ». Aucun devis créé ; formulaire vidé après l’essai. Tests précédents : 762 verts et Chromium/WebKit en local. Relecture Claude **ok**, compétence commune disponible.
+- **Suivi** : demande SAV et tâche existantes marquées publiées/vérifiées dans Pilotage avec preuve du déploiement ; aucun doublon, historique de mission conservé. Aucun message envoyé au client.
+- **Limites** : fichier réel de Virginie non examiné, téléphone physique non testé. Réception et validation par la cliente non confirmées. Il s’agit de la correction SAV, pas d’une nouvelle livraison complète du cockpit.
+- **Passation** : Codex, `codex/tanguy-publication-suivi-20261127`, documentation seule. Preuves conservées dans le dossier voisin suffixé `-preuves`. Aucun changement métier supplémentaire.
+
+
 ## 27 novembre 2026 — Correction Devis express prête à intégrer · Codex / Claude
 
 - **Résultat** : import Excel corrigé pour les liens de notes que le lecteur ExcelJS ne reconnaît pas. Références et montants conservés ; aucune création de devis pendant la recette.
